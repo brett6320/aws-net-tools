@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0
+# apigateway extra: moto's default VPC endpoint service catalog imports it
+moto[ec2,route53,apigateway]>=5.0
