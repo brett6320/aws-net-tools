@@ -327,7 +327,8 @@ def report_path(bundle: dict[str, Any], reports_dir: str | Path) -> Path:
 
     The date is the analysis start date (UTC), so re-exporting an analysis lands in
     the same place. The account comes from the analysis ARN (the account that owns
-    the analysis), never from the local AWS profile.
+    the analysis), never from the local AWS profile. A path-only bundle (no analysis)
+    uses the path's creation date, ARN account, and path ID instead.
     """
     a = bundle.get("analysis") or {}
     p = bundle.get("path") or {}
@@ -335,7 +336,7 @@ def report_path(bundle: dict[str, Any], reports_dir: str | Path) -> Path:
     parts = arn.split(":")
     account = parts[4] if len(parts) > 5 and parts[4] else "unknown-account"
 
-    started = a.get("StartDate")
+    started = a.get("StartDate") or (p.get("CreatedDate") if not a else None)
     if isinstance(started, str):
         try:
             started = dt.datetime.fromisoformat(started.replace("Z", "+00:00"))

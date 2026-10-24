@@ -721,6 +721,10 @@ def render_analysis(bundle: dict, idx: int) -> str:
         if k not in known_an and v not in (None, [], {}):
             an_rows[humanize(k)] = fmt_value(v)
 
+    if not a:
+        # Path-only bundle (exported from a path ID that has no analyses yet).
+        return _render_path_only(bundle, p, path_rows, path_name, accts, colors)
+
     parts = [f"""
 <section class="analysis" id="{_e(aid)}">
   <div class="ahead">
@@ -774,6 +778,34 @@ def render_analysis(bundle: dict, idx: int) -> str:
     parts.append(f'<details class="card raw"><summary>Raw API data (JSON)</summary><pre>{_e(raw)}</pre></details>')
     parts.append("</section>")
     return "".join(parts)
+
+
+def _render_path_only(bundle: dict, p: dict, path_rows: dict, path_name: str | None,
+                      accts: dict, colors: dict | None) -> str:
+    """A path with no analysis: path details, accounts, and a note on how to run one."""
+    pid = p.get("NetworkInsightsPathId") or "path"
+    raw = json.dumps(bundle, indent=2, default=str, sort_keys=False)
+    return f"""
+<section class="analysis" id="{_e(pid)}">
+  <div class="ahead">
+    <div><h2>{_e(path_name or pid)}</h2>
+      <div class="muted">path <code>{_e(pid)}</code></div></div>
+    <div class="badges">{'<span class="badge xa">⇄ Cross-account</span>' if accts["cross_account"] else ''}<span class="badge">● No analysis</span></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Path</h3>{_rows(path_rows)}</div>
+    <div class="card"><h3>Analysis</h3><p class="muted">This path has no analyses, so there is no hop list or
+      reachability result. Run one with <code>reachability.py analyze --apply {_e(pid)}</code>.</p></div>
+  </div>
+  {render_accounts(accts, colors)}
+  <details class="card raw"><summary>Raw API data (JSON)</summary><pre>{_e(raw)}</pre></details>
+</section>"""
+
+
+def _section_id(b: dict, i: int) -> str:
+    """Anchor/TOC label: analysis ID, else path ID for a path-only bundle."""
+    return ((b.get("analysis") or {}).get("NetworkInsightsAnalysisId")
+            or (b.get("path") or {}).get("NetworkInsightsPathId") or f"analysis{i}")
 
 
 CSS = """
@@ -896,8 +928,7 @@ def render_html(bundles: list[dict], title: str | None = None, theme: str = "dar
     toc = ""
     if len(bundles) > 1:
         toc = '<nav class="toc">' + "".join(
-            f'<a href="#{_e((b.get("analysis") or {}).get("NetworkInsightsAnalysisId") or f"analysis{i}")}">'
-            f'{_e((b.get("analysis") or {}).get("NetworkInsightsAnalysisId") or f"Analysis {i + 1}")}</a>'
+            f'<a href="#{_e(_section_id(b, i))}">{_e(_section_id(b, i))}</a>'
             for i, b in enumerate(bundles)) + "</nav>"
     body = "".join(render_analysis(b, i) for i, b in enumerate(bundles))
     return f"""<!doctype html>

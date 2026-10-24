@@ -461,3 +461,109 @@ def test_summary_tolerates_missing_status(capsys):
 def test_bad_tag_rejected(tag, caplog):
     assert reachability.main(["create", "-s", "i-a", "-d", "i-b", "--tag", tag]) == 1
     assert "use KEY=VALUE" in caplog.text
+
+
+# ---------- export by path ID ----------
+
+def _fake_api(monkeypatch, bundle, analyses):
+    """Point export at canned path/analysis data instead of the EC2 API."""
+    by_id = {a["NetworkInsightsAnalysisId"]: a for a in analyses}
+    monkeypatch.setattr(reachability, "_ec2", lambda args: object())
+    monkeypatch.setattr(core, "iter_analyses", lambda ec2, pid=None: iter(analyses))
+    monkeypatch.setattr(core, "get_path", lambda ec2, pid: bundle["path"])
+    monkeypatch.setattr(core, "get_analysis", lambda ec2, aid: by_id[aid])
+
+
+def _three_analyses(bundle):
+    base = bundle["analysis"]
+    return [dict(base, NetworkInsightsAnalysisId=f"nia-{n}", StartDate=f"2026-10-{d}T10:00:00+00:00")
+            for n, d in (("old", "20"), ("new", "23"), ("mid", "21"))]
+
+
+def test_export_path_id_non_interactive_uses_latest(tmp_path, monkeypatch, caplog):
+    bundle = load("reachable.json")
+    _fake_api(monkeypatch, bundle, _three_analyses(bundle))
+    monkeypatch.setattr(reachability, "_interactive", lambda: False)
+    caplog.set_level(logging.INFO)
+    out = tmp_path / "r.html"
+    pid = bundle["path"]["NetworkInsightsPathId"]
+    assert reachability.main(["export", pid, "-o", str(out), "--region", "us-east-1"]) == 0
+    html = out.read_text()
+    assert "nia-new" in html and "nia-old" not in html
+    assert "using the most recent, nia-new" in caplog.text
+
+
+def test_export_path_id_prompt_lists_newest_first(tmp_path, monkeypatch, capsys):
+    bundle = load("reachable.json")
+    _fake_api(monkeypatch, bundle, _three_analyses(bundle))
+    monkeypatch.setattr(reachability, "_interactive", lambda: True)
+    answers = iter(["9", "x", "3"])
+    monkeypatch.setattr("builtins.input", lambda: next(answers))
+    out = tmp_path / "r.html"
+    pid = bundle["path"]["NetworkInsightsPathId"]
+    assert reachability.main(["export", pid, "-o", str(out), "--region", "us-east-1"]) == 0
+    err = capsys.readouterr().err
+    assert err.index("1) nia-new") < err.index("2) nia-mid") < err.index("3) nia-old")
+    assert "nia-new" in err.split("\n")[1] and "(default)" in err.split("\n")[1]
+    assert err.count("Enter a number from 1 to 3") == 2
+    assert "nia-old" in out.read_text()
+
+
+def test_export_path_id_enter_picks_default(tmp_path, monkeypatch):
+    bundle = load("reachable.json")
+    _fake_api(monkeypatch, bundle, _three_analyses(bundle))
+    monkeypatch.setattr(reachability, "_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda: "")
+    out = tmp_path / "r.html"
+    assert reachability.main(["export", bundle["path"]["NetworkInsightsPathId"], "-o", str(out),
+                              "--region", "us-east-1"]) == 0
+    assert "nia-new" in out.read_text()
+
+
+def test_export_path_id_latest_flag_skips_prompt(tmp_path, monkeypatch):
+    bundle = load("reachable.json")
+    _fake_api(monkeypatch, bundle, _three_analyses(bundle))
+    monkeypatch.setattr(reachability, "_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda: pytest.fail("prompted despite --latest"))
+    out = tmp_path / "r.html"
+    assert reachability.main(["export", bundle["path"]["NetworkInsightsPathId"], "--latest", "-o", str(out),
+                              "--region", "us-east-1"]) == 0
+    assert "nia-new" in out.read_text()
+
+
+def test_export_path_id_single_analysis_no_prompt(tmp_path, monkeypatch):
+    bundle = load("reachable.json")
+    _fake_api(monkeypatch, bundle, [bundle["analysis"]])
+    monkeypatch.setattr(reachability, "_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda: pytest.fail("prompted for a single analysis"))
+    out = tmp_path / "r.html"
+    assert reachability.main(["export", bundle["path"]["NetworkInsightsPathId"], "-o", str(out),
+                              "--region", "us-east-1"]) == 0
+    assert bundle["analysis"]["NetworkInsightsAnalysisId"] in out.read_text()
+
+
+def test_export_path_id_without_analyses_writes_path_only(tmp_path, monkeypatch):
+    bundle = load("reachable.json")
+    _fake_api(monkeypatch, bundle, [])
+    pid = bundle["path"]["NetworkInsightsPathId"]
+    assert reachability.main(["export", pid, "--reports-dir", str(tmp_path), "--region", "us-east-1"]) == 0
+    files = list(tmp_path.rglob("*.html"))
+    assert len(files) == 1
+    # Filed under the path's creation date and owner account, named by path ID.
+    rel = files[0].relative_to(tmp_path).parts
+    assert rel[0] == "2026-10-23" and rel[1] == "111122223333" and rel[2].endswith(f"{pid}.html")
+    html = files[0].read_text()
+    assert "No analysis" in html and f"analyze --apply {pid}" in html
+    assert "Forward path" not in html
+
+
+def test_export_rejects_unknown_id(monkeypatch):
+    monkeypatch.setattr(reachability, "_ec2", lambda args: object())
+    assert reachability.main(["export", "i-0123456789abcdef0", "--region", "us-east-1"]) == 1
+
+
+def test_render_path_only_bundle():
+    p = load("reachable.json")["path"]
+    html = render_html([{"path": p, "analysis": {}}, load("reachable.json")])
+    assert html.count('class="analysis"') == 2
+    assert f'href="#{p["NetworkInsightsPathId"]}"' in html  # TOC falls back to the path ID

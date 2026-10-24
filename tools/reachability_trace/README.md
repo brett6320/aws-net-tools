@@ -38,6 +38,8 @@ reports/
   or `--json-out` is also given).
 - `export` without `-o` writes one report per analysis into the reports folder. `-o FILE` writes one combined
   file.
+- A path ID with no analyses gets a path-only report, filed under the path's creation date and named
+  `[<Name>_]<path-id>.html`.
 - `reports/` is git-ignored.
 
 
@@ -62,6 +64,8 @@ python reachability.py paths
 python reachability.py analyses --path-id nip-0123...
 python reachability.py show nia-0123...
 python reachability.py export nia-0123... nia-0456...                  # one report each, in reports/
+python reachability.py export nip-0123...                              # pick one of the path's analyses
+python reachability.py export nip-0123... --latest                     # most recent analysis, no prompt
 python reachability.py export nia-0123... nia-0456... -o traces.html --json-out traces.json   # one combined file
 python reachability.py export --from-json traces.json                  # offline re-render into reports/
 
@@ -145,8 +149,32 @@ Analysis nia-0b10c4ed00000000a  (path nip-0b10c4ed000000001)
 | `paths` | no | List paths (`--json`) |
 | `analyses` | no | List analyses (newest first), optionally for one path (`--path-id`, `--json`) |
 | `show ANALYSIS_ID` | no | Print a hop-by-hop summary (`--json` for the raw bundle) |
-| `export ID...` | no | Write one HTML report per analysis to the reports folder, or one combined file with `-o FILE`. `--from-json` re-renders saved bundles offline. `--wait` waits for running analyses first |
+| `export ID...` | no | Write one HTML report per analysis to the reports folder, or one combined file with `-o FILE`. Each ID is an analysis (`nia-...`) or a path (`nip-...`; see [Exporting by path ID](#exporting-by-path-id)). `--from-json` re-renders saved bundles offline. `--wait` waits for running analyses first |
 | `delete-path` / `delete-analysis` | yes | Delete resources. `delete-path --with-analyses` also deletes the path's analyses |
+
+### Exporting by path ID
+
+`export` accepts path IDs (`nip-...`) as well as analysis IDs, and both can be mixed in one command.
+For each path ID:
+
+| Analyses on the path | Result |
+|---|---|
+| None | Path-only report (path details, accounts, "No analysis" badge) and a warning |
+| One | That analysis is exported |
+| More than one | The analyses are listed newest first and you pick one by number. Enter selects #1, the most recent |
+
+```text
+$ python reachability.py export nip-0123...
+Path nip-0123... has 3 analyses (newest first):
+   1) nia-0aaa...  nip-0123...  succeeded  reachable      2026-10-23 14:02:15+00:00  (default)
+   2) nia-0bbb...  nip-0123...  succeeded  not-reachable  2026-10-21 09:40:02+00:00
+   3) nia-0ccc...  nip-0123...  succeeded  not-reachable  2026-10-20 17:12:48+00:00
+Select analysis [1-3, Enter = 1]:
+```
+
+The list and prompt go to stderr. Without an interactive terminal (stdin and stderr not both a TTY, for
+example in a pipe or CI), or with `--latest`, the most recent analysis is used and logged. Any other ID
+prefix is rejected.
 
 ### Options
 
@@ -172,6 +200,7 @@ Analysis nia-0b10c4ed00000000a  (path nip-0b10c4ed000000001)
 | `--theme dark\|light\|auto` | HTML report theme (default `RA_THEME` or `dark`). `auto` follows the OS. Each report also has an in-page toggle |
 | `--no-auto-accounts` | `create`/`analyze`: don't add source/destination/filter ARN accounts to `AdditionalAccounts` |
 | `-o/--output FILE.html` | `export`: write one combined file instead of per-analysis reports |
+| `--latest` | `export`: for path IDs, use the most recent analysis without prompting |
 | `--json-out FILE.json` | Also save the path+analysis JSON bundle(s) (`create`/`analyze` wait first) |
 | `--title TEXT` | Page title for the HTML export (default "Reachability Trace") |
 | `--check-permissions` | In dry-run, call the API with `DryRun=True` to check IAM permissions (`create`/`analyze`) |
