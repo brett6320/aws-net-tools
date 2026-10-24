@@ -3,6 +3,22 @@
 No external assets: CSS and SVG icons are inlined. Every field returned by the
 EC2 API for the path and analysis is rendered; fields without a dedicated
 formatter fall back to a generic key/value rendering so nothing is dropped.
+
+Input is a list of "bundles" ({"path": <NetworkInsightsPath>, "analysis":
+<NetworkInsightsAnalysis>}) exactly as returned by boto3 (or loaded from JSON).
+Layout of one analysis section, top to bottom (see render_analysis):
+
+  header        name, IDs, cross-account and reachability badges
+  Path/Analysis two key/value cards
+  Accounts      every account involved and its roles
+  Explanations  analysis-level explanation codes (why a path is blocked)
+  Forward/Return path cards: icon diagram (render_flow) + one details card per
+                hop (render_component); a blocked direction also gets a banner and
+                a "break tail" (render_break_tail) after its last returned hop
+  Alternate path hints, raw JSON
+
+All dynamic text goes through _e() (HTML escaping); helpers named fmt_* return
+HTML fragments that are already escaped.
 """
 from __future__ import annotations
 
@@ -33,10 +49,12 @@ _HANDLED_COMPONENT_KEYS = {
 
 
 def _e(v: Any) -> str:
+    """HTML-escape any value (None -> empty string)."""
     return escape("" if v is None else str(v))
 
 
 def humanize(key: str) -> str:
+    """Turn an API key like "DestinationVpc" into a label like "Destination VPC"."""
     words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", key)
     fixes = {"Vpc": "VPC", "Acl": "ACL", "Arn": "ARN", "Arns": "ARNs", "Ip": "IP", "Id": "ID", "Ids": "IDs",
              "Az": "AZ", "Sg": "SG", "Sgs": "SGs", "Elb": "ELB", "Rtb": "RTB", "Cidr": "CIDR", "Cidrs": "CIDRs",
@@ -45,6 +63,8 @@ def humanize(key: str) -> str:
 
 
 def fmt_time(v: Any) -> str:
+    """Format a datetime (boto3) or ISO string (saved JSON) as UTC text. Returns plain
+    text; callers escape it."""
     if isinstance(v, dt.datetime):
         return v.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     if isinstance(v, str):
@@ -53,16 +73,19 @@ def fmt_time(v: Any) -> str:
                 dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         except ValueError:
             return v
-    return _e(v)
+    return "" if v is None else str(v)
 
 
 def proto(v: Any) -> str:
+    """Protocol number or name ("6", "tcp", "-1") -> display name ("TCP", "All")."""
     if v is None:
         return "—"
     return PROTO_NAMES.get(str(v).lower(), str(v))
 
 
 def port_range(pr: dict | None) -> str:
+    """Format a port range. Accepts both API shapes: {From, To} (analysis results) and
+    {FromPort, ToPort} (path filters). Missing range means all ports."""
     if not pr:
         return "All"
     lo = pr.get("From", pr.get("FromPort"))
@@ -81,10 +104,12 @@ def port_ranges(prs: list | None) -> str:
 
 
 def _is_component(v: Any) -> bool:
+    """True for an AnalysisComponent reference ({Id, Arn, Name} only)."""
     return isinstance(v, dict) and bool({"Id", "Arn"} & v.keys()) and set(v.keys()) <= {"Id", "Arn", "Name"}
 
 
 def acct_pill(acct: str | None, colors: dict[str, str] | None = None, label: str = "acct") -> str:
+    """Small "acct 1234..." label, with the account's color dot on cross-account paths."""
     if not acct:
         return ""
     color = (colors or {}).get(acct)
@@ -111,7 +136,7 @@ def fmt_value(v: Any) -> str:
     if isinstance(v, bool):
         return "Yes" if v else "No"
     if isinstance(v, (dt.datetime, dt.date)):
-        return fmt_time(v)
+        return _e(fmt_time(v))
     if _is_component(v):
         return chip(v)
     if isinstance(v, dict):
@@ -126,15 +151,18 @@ def fmt_value(v: Any) -> str:
         if all(not isinstance(x, (dict, list)) for x in v):
             return ", ".join(f"<code>{_e(x)}</code>" for x in v)
         return "".join(f'<div class="sub">{fmt_value(x)}</div>' for x in v)
+    # Scalars: IDs, ARNs, addresses and numbers in monospace; everything else as text.
     return f"<code>{_e(v)}</code>" if isinstance(v, (int, float)) or _looks_like_id(str(v)) else _e(v)
 
 
 def _looks_like_id(s: str) -> bool:
+    """ARN, AWS resource ID (sg-0abc...), or IP/CIDR."""
     return s.startswith("arn:") or bool(re.match(r"^[a-z]+(-[a-z]+)*-[0-9a-f]{8,}$", s)) or bool(
         re.match(r"^[\d.:/]+$", s))
 
 
 def kv_table(d: dict, skip: set[str] | None = None) -> str:
+    """Generic two-column table of every non-empty field in `d` (minus `skip`)."""
     rows = []
     for k, v in d.items():
         if skip and k in skip:
@@ -146,8 +174,11 @@ def kv_table(d: dict, skip: set[str] | None = None) -> str:
 
 
 # ---------- dedicated formatters ----------
+# Readable layouts for the structures Reachability Analyzer returns per hop.
 
 def fmt_header(h: dict | None) -> str:
+    """Packet header as "TCP src:ports -> dst:ports". Hops that translate traffic
+    (NAT, load balancers, IGWs) have different inbound and outbound headers."""
     if not h:
         return "—"
     src = ", ".join(h.get("SourceAddresses") or []) or "*"
@@ -189,6 +220,7 @@ _ROUTE_TARGETS = ["GatewayId", "NatGatewayId", "TransitGatewayId", "VpcPeeringCo
 
 
 def fmt_route(r: dict) -> str:
+    """VPC route: destination, the single populated target field, origin, state."""
     target = next((r[k] for k in _ROUTE_TARGETS if r.get(k)), None)
     rows = {
         "Destination": f"<code>{_e(r.get('DestinationCidr') or r.get('DestinationPrefixListId'))}</code>",
@@ -232,10 +264,12 @@ def fmt_fw_rule(r: dict) -> str:
 
 
 def _rows(rows: dict[str, str]) -> str:
+    """Key/value table from pre-rendered HTML values (keys are escaped here)."""
     return '<table class="kv">' + "".join(f"<tr><th>{_e(k)}</th><td>{v}</td></tr>" for k, v in rows.items()) + "</table>"
 
 
 def fmt_explanation(x: dict) -> str:
+    """One explanation: code, AWS description, then every other field it carries."""
     code = x.get("ExplanationCode")
     desc = describe_code(code)
     head = (f'<div class="xcode"><code>{_e(code or "EXPLANATION")}</code></div>'
@@ -254,16 +288,29 @@ def _section(title: str, body: str) -> str:
     return f'<div class="sec"><h5>{_e(title)}</h5>{body}</div>'
 
 
+def _codes_for(blocked: dict[str, list[str]], comp: dict) -> list[str] | None:
+    """Explanation codes if `comp` (by ID or ARN) is a blocker, else None. An empty
+    list still means "blocked" (an explanation can lack a code)."""
+    for key in (comp.get("Id"), comp.get("Arn")):
+        if key and key in blocked:
+            return blocked[key]
+    return None
+
+
 def render_component(pc: dict, direction: str, aid: str, blocked: dict[str, list[str]],
                      colors: dict[str, str] | None = None) -> str:
+    """Details card for one hop. Anchored as <analysis-id>-<fwd|ret>-<seq> so diagram
+    nodes and the break banner can link to it."""
     comp = pc.get("Component") or {}
     acct = component_account(pc)
     kind, sub = classify(comp.get("Id"), comp.get("Arn"))
     ident = _comp_ident(comp)
     seq = pc.get("SequenceNumber")
     anchor = f"{aid}-{direction}-{seq}"
-    flag = " blocked" if ident in blocked or comp.get("Arn") in blocked else ""
+    codes = _codes_for(blocked, comp)
+    flag = " blocked" if codes is not None else ""
 
+    # Where the hop lives, then one section per rule/route/header it carries.
     placement = {}
     for k in ("Vpc", "Subnet", "AttachedTo", "SourceVpc", "DestinationVpc", "TransitGateway"):
         if pc.get(k):
@@ -300,6 +347,7 @@ def render_component(pc: dict, direction: str, aid: str, blocked: dict[str, list
                              kv_table(ad, skip={"AdditionalDetailType"})))
     if pc.get("Explanations"):
         secs.append(_section("Explanations", "".join(fmt_explanation(x) for x in pc["Explanations"])))
+    # Anything the API adds that we don't have a formatter for is still shown.
     other = {k: v for k, v in pc.items() if k not in _HANDLED_COMPONENT_KEYS and v not in (None, [], {})}
     if other:
         secs.append(_section("Other", kv_table(other)))
@@ -313,7 +361,7 @@ def render_component(pc: dict, direction: str, aid: str, blocked: dict[str, list
       <div class="id"><code>{_e(ident)}</code>{f' <span class="nm">{_e(name)}</span>' if name and name != ident else ''}</div>
       {f'<div class="arn">{_e(comp.get("Arn"))}</div>' if comp.get("Arn") else ''}
     </div>
-    {_blocking_pill(blocked.get(ident) or blocked.get(comp.get("Arn") or ""))}
+    {_blocking_pill(codes)}
     {f'<div class="cacct">{acct_pill(acct, colors, "Account")}</div>' if acct else ''}
   </header>
   <div class="body">{''.join(secs) or '<p class="muted">No additional details.</p>'}</div>
@@ -328,15 +376,21 @@ def _blocking_pill(codes: list[str] | None) -> str:
 
 def render_flow(components: list[dict], direction: str, aid: str, blocked: dict[str, list[str]],
                 colors: dict[str, str] | None = None, tail: str = "") -> str:
-    """Icon diagram of one direction. With `colors` (multi-account paths), each node
-    shows its account and account changes are drawn as labeled boundaries."""
+    """Icon diagram of one direction: every hop in SequenceNumber order, joined by arrows.
+
+    Each node links to its details card and shows a one-line hint (the matched rule,
+    route, or header). Blocking hops are outlined red with a BLOCKED label. With
+    `colors` (multi-account paths), each node shows its account and account changes
+    are drawn as labeled boundaries. `tail` is appended after the last node (the
+    break marker and unreached endpoint on a blocked direction)."""
     out: list[str] = []
     prev_acct = None
     for pc in sorted(components, key=lambda c: c.get("SequenceNumber") or 0):
         comp = pc.get("Component") or {}
         kind, sub = classify(comp.get("Id"), comp.get("Arn"))
         ident = _comp_ident(comp)
-        flag = " blocked" if ident in blocked or comp.get("Arn") in blocked else ""
+        codes = _codes_for(blocked, comp)
+        flag = " blocked" if codes is not None else ""
         hdr = pc.get("OutboundHeader") or pc.get("InboundHeader")
         hint = ""
         if pc.get("SecurityGroupRule"):
@@ -351,6 +405,8 @@ def render_flow(components: list[dict], direction: str, aid: str, blocked: dict[
         elif hdr:
             hint = f"{proto(hdr.get('Protocol'))} → {', '.join(hdr.get('DestinationAddresses') or [])}"
         acct = component_account(pc)
+        # Connector from the previous node: a labeled boundary when the owning account
+        # changes (cross-account paths only), otherwise a plain arrow.
         if out:
             if colors and acct and prev_acct and acct != prev_acct:
                 out.append(f'<span class="link xacct" title="Account boundary: {_e(prev_acct)} → {_e(acct)}">'
@@ -368,15 +424,15 @@ def render_flow(components: list[dict], direction: str, aid: str, blocked: dict[
             + (f'<span class="nnm">{_e(comp.get("Name"))}</span>' if comp.get("Name") and comp.get("Name") != ident else "")
             + (f'<span class="nhint">{_e(hint.strip())}</span>' if hint.strip() else "")
             + acct_html
-            + ('<span class="nblk">BLOCKED</span>' + "".join(
-                f'<span class="ncode">{_e(c)}</span>' for c in (blocked.get(ident) or blocked.get(comp.get("Arn") or "") or []))
-               if flag else "")
+            + ('<span class="nblk">BLOCKED</span>' + "".join(f'<span class="ncode">{_e(c)}</span>' for c in codes)
+               if codes is not None else "")
             + "</a>")
     return '<div class="flow">' + "".join(out) + tail + "</div>"
 
 
 def _endpoint_cell(ref: str | None, ip: str | None, acct: str | None = None,
                    colors: dict[str, str] | None = None) -> str:
+    """Source/destination cell in the Path card: resource chip, IP, owning account."""
     parts = []
     if ref:
         if ref.startswith("arn:"):
@@ -412,6 +468,7 @@ def _tag(tags: list | None, key: str) -> str | None:
 
 
 def _status_badge(a: dict) -> str:
+    """Reachable / Not reachable (succeeded), Analysis failed, or the raw status."""
     st = a.get("Status")
     if st == "succeeded":
         if a.get("NetworkPathFound"):
@@ -421,6 +478,12 @@ def _status_badge(a: dict) -> str:
         return '<span class="badge warn">● Analysis failed</span>'
     return f'<span class="badge">● {_e((st or "unknown").capitalize())}</span>'
 
+
+# ---------- blocked paths ----------
+# An unreachable analysis has NetworkPathFound=False and analysis-level Explanations
+# naming what blocked it. AWS may return the hops up to the block, or none at all,
+# and the blocker may or may not be one of those hops. These helpers find the
+# blockers, decide which direction broke, and draw the break.
 
 # Explanation fields that can name the blocking component when "Component" is absent,
 # most specific first. Context fields (Vpc, Subnet, ...) are deliberately not used.
@@ -463,6 +526,7 @@ def _blocked_map(targets: list[dict]) -> dict[str, list[str]]:
 
 
 def _rid(ref: str | None) -> str | None:
+    """Bare resource ID from an ID or ARN."""
     return ref.split("/")[-1] if ref else None
 
 
@@ -482,6 +546,8 @@ def break_direction(p: dict, a: dict) -> str | None:
 
 
 def _endpoint_node(seq: str, ref: str | None, ip: str | None, cls: str, caption: str) -> str:
+    """Diagram node for a path endpoint that isn't a returned hop (start of an empty
+    path, or the unreached source/destination after a break)."""
     kind, sub = classify(_rid(ref), ref if ref and ref.startswith("arn:") else None) if ref else ("ip-address", None)
     ident = _rid(ref) or ip or "?"
     return (f'<span class="node {cls}" title="{_e(ref or ip)}"><span class="nseq">{_e(seq)}</span>'
@@ -495,6 +561,7 @@ _BREAK_LINK = '<span class="link broken" title="Path breaks here"><span class="x
 def render_break_tail(p: dict, direction: str, components: list[dict], targets: list[dict]) -> str:
     """Nodes drawn after the last returned hop of the broken direction: blocking components
     that aren't among the hops, a break marker, and the endpoint that was never reached."""
+    # Blockers already drawn as hops are marked in place; only the others go here.
     in_path = set()
     for pc in components:
         c = pc.get("Component") or {}
@@ -505,6 +572,8 @@ def render_break_tail(p: dict, direction: str, components: list[dict], targets: 
         if c.get("Id") in in_path or c.get("Arn") in in_path:
             continue
         kind, sub = classify(c.get("Id"), c.get("Arn"))
+        # The break sits between the last hop that passed and the first blocker. With no
+        # hops, the diagram starts at the source node, so a plain arrow leads in.
         out.append(_BREAK_LINK if components or out else '<span class="link" aria-hidden="true"></span>')
         out.append(f'<span class="node blocked" title="{_e(c.get("Arn") or c.get("Id"))}"><span class="nseq">⛔</span>'
                    f'{icon_svg(kind, sub, 44)}<span class="nty">{_e(label_for(kind, sub))}</span>'
@@ -523,6 +592,9 @@ def render_break_tail(p: dict, direction: str, components: list[dict], targets: 
 
 
 def render_break_banner(aid: str, direction: str, components: list[dict], targets: list[dict]) -> str:
+    """Red callout above a blocked direction's diagram: the last hop that passed, then
+    each blocker with its codes, linked to its details card (or the Explanations card
+    when the blocker isn't a returned hop)."""
     comps = sorted(components, key=lambda c: c.get("SequenceNumber") or 0)
     where = "on the return path" if direction == "ret" else "on the forward path"
     if comps:
@@ -547,7 +619,10 @@ def render_break_banner(aid: str, direction: str, components: list[dict], target
             + (f'<ul>{"".join(items)}</ul>' if items else "") + "</div>")
 
 
+# ---------- page assembly ----------
+
 def _legend(colors: dict[str, str] | None) -> str:
+    """Account color key under a cross-account diagram."""
     if not colors:
         return ""
     return ('<div class="legend">' + "".join(
@@ -578,6 +653,7 @@ def render_accounts(accts: dict, colors: dict[str, str] | None) -> str:
 
 
 def render_analysis(bundle: dict, idx: int) -> str:
+    """One <section> per analysis (see module docstring for the layout)."""
     p = bundle.get("path") or {}
     a = bundle.get("analysis") or {}
     aid = a.get("NetworkInsightsAnalysisId") or f"analysis{idx}"
@@ -590,6 +666,7 @@ def render_analysis(bundle: dict, idx: int) -> str:
     fwd = a.get("ForwardPathComponents") or []
     ret = a.get("ReturnPathComponents") or []
     accts = account_summary(p, a)
+    # Per-account colors only when the path spans accounts; single-account paths stay plain.
     colors = ({acct: ACCOUNT_COLORS[i % len(ACCOUNT_COLORS)] for i, acct in enumerate(accts["accounts"])}
               if accts["cross_account"] else None)
 
@@ -612,6 +689,7 @@ def render_analysis(bundle: dict, idx: int) -> str:
     known_path = {"NetworkInsightsPathId", "NetworkInsightsPathArn", "Source", "SourceArn", "SourceIp",
                   "Destination", "DestinationArn", "DestinationIp", "Protocol", "DestinationPort",
                   "FilterAtSource", "FilterAtDestination", "CreatedDate", "Tags"}
+    # Fields added to the API later still appear, via the generic formatter.
     for k, v in p.items():
         if k not in known_path and v not in (None, [], {}):
             path_rows[humanize(k)] = fmt_value(v)
@@ -660,6 +738,8 @@ def render_analysis(bundle: dict, idx: int) -> str:
         parts.append(f'<div class="card xcard" id="{_e(aid)}-expl"><h3>Explanations</h3>'
                      + "".join(fmt_explanation(x) for x in a["Explanations"]) + "</div>")
 
+    # One card per direction. A direction is drawn if it has hops, or if it's where the
+    # path broke (so the break shows even when AWS returned no hops).
     for title, comps, direction in (("Forward path", fwd, "fwd"), ("Return path", ret, "ret")):
         broken = brk == direction
         if not comps and not broken:
@@ -807,6 +887,8 @@ _THEME_JS = (
 
 
 def render_html(bundles: list[dict], title: str | None = None, theme: str = "dark") -> str:
+    """Full HTML document for one or more bundles. `theme` sets <html data-theme>, which
+    selects the CSS token set; the in-page button flips it at view time."""
     if theme not in THEMES:
         raise ValueError(f"theme must be one of {THEMES}")
     generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")

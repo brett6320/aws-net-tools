@@ -431,3 +431,33 @@ def test_summary_marks_breakpoint(capsys):
     out = capsys.readouterr().out
     assert "BLOCKED at sg-0db000000000000b2 (ENI_SG_RULES_MISMATCH)" in out
     assert "path stops after hop 6" in out
+
+
+# ---------- review fixes ----------
+
+def test_unparseable_timestamp_is_escaped():
+    b = load("reachable.json")
+    b["path"]["CreatedDate"] = "<img src=x onerror=alert(1)>"
+    html = render_html([b])
+    assert "<img src=x" not in html and "&lt;img src=x" in html
+
+
+def test_blocker_without_code_still_marked():
+    b = load("blocked_midpath.json")
+    acl = b["analysis"]["ForwardPathComponents"][-1]["Component"]
+    b["analysis"]["Explanations"] = [{"Component": acl}]
+    html = render_html([b])
+    assert "⛔ BLOCKING" in html and 'class="node blocked"' in html
+
+
+def test_summary_tolerates_missing_status(capsys):
+    b = load("reachable.json")
+    del b["analysis"]["Status"]
+    reachability.print_summary(b)
+    assert "Status: unknown" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("tag", ["novalue", "=x"])
+def test_bad_tag_rejected(tag, caplog):
+    assert reachability.main(["create", "-s", "i-a", "-d", "i-b", "--tag", tag]) == 1
+    assert "use KEY=VALUE" in caplog.text

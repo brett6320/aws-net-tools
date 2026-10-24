@@ -1,4 +1,10 @@
-"""Core Reachability Analyzer operations: input validation, path/analysis API calls."""
+"""Core Reachability Analyzer operations: input validation, path/analysis API calls.
+
+Request builders (build_create_path_request, build_start_analysis_request) are pure:
+they validate input and return the exact kwargs for the EC2 API, which lets the
+CLI print them in dry-run mode and lets tests check them without AWS. The thin
+API wrappers below them log every mutating call.
+"""
 from __future__ import annotations
 
 import datetime as dt
@@ -50,6 +56,7 @@ class ValidationError(ValueError):
 
 @dataclass
 class PortRange:
+    """Inclusive port range; a single port has from_port == to_port."""
     from_port: int
     to_port: int
 
@@ -62,6 +69,7 @@ class PortRange:
 
 @dataclass
 class PathSpec:
+    """User input for a path, before validation. Source/destination are IDs or ARNs."""
     source: str
     protocol: str
     destination: str | None = None
@@ -74,10 +82,12 @@ class PathSpec:
 
 
 def get_session(profile: str | None, region: str | None) -> boto3.Session:
+    """boto3 session for a named profile (or the default credential chain)."""
     return boto3.Session(profile_name=profile, region_name=region)
 
 
 def get_client(service: str, session: boto3.Session):
+    """Client with adaptive retries (backs off on throttling)."""
     config = Config(retries={"max_attempts": 3, "mode": "adaptive"})
     return session.client(service, config=config)
 
@@ -97,18 +107,12 @@ def parse_port_range(value: str | None) -> PortRange | None:
     return PortRange(lo, hi)
 
 
-def _resource_id(ref: str) -> str:
-    """Return the bare resource ID for an ID or ARN."""
-    if ref.startswith("arn:"):
-        parts = ref.split(":", 5)
-        if len(parts) != 6:
-            raise ValidationError(f"Malformed ARN {ref!r}")
-        return parts[5].split("/")[-1]
-    return ref
-
-
 def classify_endpoint(ref: str) -> str:
-    """Return the ENDPOINT_TYPES key for a source/destination ID or ARN."""
+    """Return the ENDPOINT_TYPES key for a source/destination ID or ARN.
+
+    ARNs are matched on their resource type (arn:...:instance/i-...); bare IDs on their
+    prefix. Raises ValidationError for anything Reachability Analyzer can't use as an
+    endpoint (security groups, subnets, ...)."""
     if ref.startswith("arn:"):
         parts = ref.split(":", 5)
         if len(parts) != 6 or "/" not in parts[5]:
@@ -138,6 +142,7 @@ def _validate_ipv4(value: str, label: str) -> str:
 
 
 def validate_arns(arns: list[str] | None, label: str) -> list[str]:
+    """Intermediate-component filters must be full ARNs (the API rejects bare IDs)."""
     out = []
     for a in arns or []:
         if not a.startswith("arn:") or len(a.split(":", 5)) != 6:
@@ -147,6 +152,7 @@ def validate_arns(arns: list[str] | None, label: str) -> list[str]:
 
 
 def validate_spec(spec: PathSpec) -> None:
+    """Check a PathSpec in place (IPs are normalized). Raises ValidationError."""
     classify_endpoint(spec.source)
     if spec.destination:
         classify_endpoint(spec.destination)
@@ -205,6 +211,8 @@ def build_start_analysis_request(
     additional_accounts: list[str] | None = None,
     name: str | None = None,
 ) -> dict[str, Any]:
+    """Build StartNetworkInsightsAnalysis kwargs: optional intermediate-component
+    filters (ARNs), additional accounts for cross-account paths, and a Name tag."""
     req: dict[str, Any] = {"NetworkInsightsPathId": path_id}
     fin = validate_arns(filter_in, "--filter-in")
     fout = validate_arns(filter_out, "--filter-out")
@@ -227,7 +235,10 @@ def build_start_analysis_request(
     return req
 
 
+# ---------- EC2 API wrappers ----------
+
 def create_path(ec2, request: dict[str, Any]) -> dict[str, Any]:
+    """CreateNetworkInsightsPath. Returns the NetworkInsightsPath."""
     log.info("[EXECUTE] Creating network insights path %s -> %s",
              request["Source"], request.get("Destination") or request.get("DestinationIp"))
     path = ec2.create_network_insights_path(**request)["NetworkInsightsPath"]
@@ -236,6 +247,7 @@ def create_path(ec2, request: dict[str, Any]) -> dict[str, Any]:
 
 
 def start_analysis(ec2, request: dict[str, Any]) -> dict[str, Any]:
+    """StartNetworkInsightsAnalysis. Returns the analysis in "running" state."""
     log.info("[EXECUTE] Starting analysis for path %s", request["NetworkInsightsPathId"])
     analysis = ec2.start_network_insights_analysis(**request)["NetworkInsightsAnalysis"]
     log.info("Started analysis %s", analysis["NetworkInsightsAnalysisId"])
@@ -243,6 +255,7 @@ def start_analysis(ec2, request: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_path(ec2, path_id: str) -> dict[str, Any]:
+    """Describe one path. Raises LookupError if it doesn't exist."""
     log.debug("DescribeNetworkInsightsPaths %s", path_id)
     resp = ec2.describe_network_insights_paths(NetworkInsightsPathIds=[path_id])
     paths = resp.get("NetworkInsightsPaths", [])
@@ -252,6 +265,7 @@ def get_path(ec2, path_id: str) -> dict[str, Any]:
 
 
 def get_analysis(ec2, analysis_id: str) -> dict[str, Any]:
+    """Describe one analysis (includes the full hop list and explanations)."""
     log.debug("DescribeNetworkInsightsAnalyses %s", analysis_id)
     resp = ec2.describe_network_insights_analyses(NetworkInsightsAnalysisIds=[analysis_id])
     items = resp.get("NetworkInsightsAnalyses", [])
@@ -261,6 +275,8 @@ def get_analysis(ec2, analysis_id: str) -> dict[str, Any]:
 
 
 def wait_for_analysis(ec2, analysis_id: str, timeout: int = 600, interval: int = 5) -> dict[str, Any]:
+    """Poll until the analysis leaves "running" (succeeded or failed); TimeoutError after
+    `timeout` seconds. Analyses usually finish in under a minute."""
     deadline = time.monotonic() + timeout
     while True:
         analysis = get_analysis(ec2, analysis_id)
@@ -275,12 +291,14 @@ def wait_for_analysis(ec2, analysis_id: str, timeout: int = 600, interval: int =
 
 
 def iter_paths(ec2) -> Iterator[dict[str, Any]]:
+    """All paths in the account/region (paginated)."""
     paginator = ec2.get_paginator("describe_network_insights_paths")
     for page in paginator.paginate():
         yield from page.get("NetworkInsightsPaths", [])
 
 
 def iter_analyses(ec2, path_id: str | None = None) -> Iterator[dict[str, Any]]:
+    """All analyses, or those for one path (paginated)."""
     paginator = ec2.get_paginator("describe_network_insights_analyses")
     params = {"NetworkInsightsPathId": path_id} if path_id else {}
     for page in paginator.paginate(**params):
@@ -297,7 +315,10 @@ def delete_analysis(ec2, analysis_id: str) -> None:
     ec2.delete_network_insights_analysis(NetworkInsightsAnalysisId=analysis_id)
 
 
+# ---------- export helpers ----------
+
 def _slug(text: str) -> str:
+    """Filesystem-safe version of a Name tag for report file names."""
     return re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip("-.")[:60]
 
 

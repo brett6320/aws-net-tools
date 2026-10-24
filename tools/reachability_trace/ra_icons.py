@@ -111,7 +111,12 @@ _ID_PREFIXES: list[tuple[str, str]] = [
 
 
 def classify(component_id: str | None = None, arn: str | None = None) -> tuple[str, str | None]:
-    """Return (icon kind, optional sub-label) for a component ID/ARN."""
+    """Return (icon kind, optional sub-label) for a component ID/ARN.
+
+    Non-EC2 resources (load balancers, target groups, listeners, Network Firewall,
+    Cloud WAN) are recognized from the ARN's service and resource path; the sub-label
+    distinguishes ALB/NLB/GWLB/CLB. Everything else is matched on its ID prefix
+    (sg-, rtb-, tgw-attach-, ...). Unknown components get a generic icon."""
     if arn and arn.startswith("arn:"):
         parts = arn.split(":", 5)
         service = parts[2] if len(parts) > 2 else ""
@@ -145,6 +150,7 @@ def classify(component_id: str | None = None, arn: str | None = None) -> tuple[s
 
 
 def label_for(kind: str, sub: str | None = None) -> str:
+    """Display name for an icon kind ("Network ACL", "Network Load Balancer", ...)."""
     base = ICONS.get(kind, ICONS["unknown"])[0]
     if kind == "load-balancer" and sub:
         return {"ALB": "Application Load Balancer", "NLB": "Network Load Balancer",
@@ -153,6 +159,8 @@ def label_for(kind: str, sub: str | None = None) -> str:
 
 
 def icon_svg(kind: str, sub: str | None = None, size: int = 40) -> str:
+    """Inline <svg>: category-colored rounded square, white glyph, and an optional
+    badge (e.g. "NLB") along the bottom edge."""
     _, color, glyph = ICONS.get(kind, ICONS["unknown"])
     if kind == "ip-address":
         glyph = ('<text x="24" y="29" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" '
