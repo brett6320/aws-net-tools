@@ -162,6 +162,66 @@ def print_summary(bundle: dict) -> None:
         print(f"  Explanation: {x.get('ExplanationCode')} {comp.get('Id') or ''} {x.get('Direction') or ''}".rstrip())
 
 
+def _newest_first(analyses: list[dict]) -> list[dict]:
+    return sorted(analyses, key=lambda r: str(r.get("StartDate")), reverse=True)
+
+
+def _analysis_line(a: dict) -> str:
+    found = {True: "reachable", False: "not-reachable"}.get(a.get("NetworkPathFound"), "-")
+    return (f"{a['NetworkInsightsAnalysisId']}  {a.get('NetworkInsightsPathId')}  {a.get('Status') or '-':<9}  "
+            f"{found:<13}  {a.get('StartDate')}")
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty() and sys.stderr.isatty()
+
+
+def _choose_analysis(path_id: str, analyses: list[dict], prompt: bool) -> dict:
+    """Pick one of a path's analyses (already newest first). Lists them on stderr and
+    asks for a number; Enter (or no terminal, or --latest) takes #1, the most recent."""
+    if len(analyses) == 1 or not prompt:
+        if len(analyses) > 1:
+            log.info("Path %s has %d analyses; using the most recent, %s", path_id, len(analyses),
+                     analyses[0]["NetworkInsightsAnalysisId"])
+        return analyses[0]
+    print(f"Path {path_id} has {len(analyses)} analyses (newest first):", file=sys.stderr)
+    for i, a in enumerate(analyses, 1):
+        print(f"  {i:>2}) {_analysis_line(a)}{'  (default)' if i == 1 else ''}", file=sys.stderr)
+    while True:
+        print(f"Select analysis [1-{len(analyses)}, Enter = 1]: ", end="", file=sys.stderr, flush=True)
+        try:
+            choice = input().strip()
+        except EOFError:
+            choice = ""
+        if not choice:
+            return analyses[0]
+        if choice.isdigit() and 1 <= int(choice) <= len(analyses):
+            return analyses[int(choice) - 1]
+        print(f"  Enter a number from 1 to {len(analyses)}.", file=sys.stderr)
+
+
+def _bundles_for_ids(ec2, ids: list[str], args) -> list[dict]:
+    """Resolve export IDs to bundles. nia-* is used as is. nip-* picks one of the path's
+    analyses (see _choose_analysis), or yields a path-only bundle when it has none."""
+    bundles = []
+    for rid in ids:
+        if rid.startswith("nia-"):
+            aid = rid
+        elif rid.startswith("nip-"):
+            analyses = _newest_first(list(core.iter_analyses(ec2, rid)))
+            if not analyses:
+                log.warning("Path %s has no analyses; writing a path-only report", rid)
+                bundles.append(core.build_bundle(core.get_path(ec2, rid), {}))
+                continue
+            aid = _choose_analysis(rid, analyses, prompt=_interactive() and not args.latest)["NetworkInsightsAnalysisId"]
+        else:
+            raise core.ValidationError(f"{rid}: expected an analysis ID (nia-...) or a path ID (nip-...)")
+        if args.wait:
+            core.wait_for_analysis(ec2, aid, timeout=args.timeout)
+        bundles.append(_bundle_for_analysis(ec2, aid))
+    return bundles
+
+
 def _bundle_for_analysis(ec2, analysis_id: str) -> dict:
     """Fetch an analysis and its path; the export format needs both."""
     analysis = core.get_analysis(ec2, analysis_id)
@@ -350,10 +410,8 @@ def cmd_analyses(args, _execute: bool) -> int:
     if args.json:
         print(_dump(rows))
         return 0
-    for a in sorted(rows, key=lambda r: str(r.get("StartDate")), reverse=True):
-        found = {True: "reachable", False: "not-reachable"}.get(a.get("NetworkPathFound"), "-")
-        print(f"{a['NetworkInsightsAnalysisId']}  {a['NetworkInsightsPathId']}  {a.get('Status'):<9}  "
-              f"{found:<13}  {a.get('StartDate')}")
+    for a in _newest_first(rows):
+        print(_analysis_line(a))
     return 0
 
 
@@ -370,20 +428,16 @@ def cmd_show(args, _execute: bool) -> int:
 
 def cmd_export(args, _execute: bool) -> int:
     """Render analyses to HTML. Bundles come from saved JSON (--from-json, offline)
-    and/or the API (analysis IDs). Without -o, each gets its own file in the reports
-    folder; with -o, they're combined into one file."""
+    and/or the API (analysis or path IDs). Without -o, each gets its own file in the
+    reports folder; with -o, they're combined into one file."""
     bundles: list[dict] = []
     for f in args.from_json or []:
         data = json.loads(Path(f).read_text(encoding="utf-8"))
         bundles.extend(data if isinstance(data, list) else [data])
-    if args.analysis_ids:
-        ec2 = _ec2(args)
-        if args.wait:
-            for aid in args.analysis_ids:
-                core.wait_for_analysis(ec2, aid, timeout=args.timeout)
-        bundles.extend(_bundle_for_analysis(ec2, aid) for aid in args.analysis_ids)
+    if args.ids:
+        bundles.extend(_bundles_for_ids(_ec2(args), args.ids, args))
     if not bundles:
-        raise core.ValidationError("Provide analysis IDs and/or --from-json files")
+        raise core.ValidationError("Provide analysis/path IDs and/or --from-json files")
     if args.output:
         _write_export(bundles, args.output, args.title, args.theme)
     else:
@@ -522,7 +576,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("export", help="Export analyses to self-contained HTML reports")
     _add_common(p)
-    p.add_argument("analysis_ids", nargs="*")
+    p.add_argument("ids", nargs="*", metavar="ID",
+                   help="Analysis ID (nia-...) or path ID (nip-...). A path with several analyses "
+                        "lists them newest first and prompts; Enter picks the most recent")
+    p.add_argument("--latest", action="store_true",
+                   help="For path IDs, use the most recent analysis without prompting")
     p.add_argument("--output", "-o", metavar="FILE.html",
                    help="Write one combined file here instead of one report per analysis in the reports folder")
     _add_report_opts(p)
