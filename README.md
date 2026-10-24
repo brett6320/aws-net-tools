@@ -2,11 +2,13 @@
 
 Tools for running **centralized VPC endpoints**: a hub VPC hosts interface endpoints (private DNS disabled), and a Route 53 private hosted zone (PHZ) per service DNS name (e.g. `ssm.us-east-1.amazonaws.com`) is associated with spoke VPCs, often in other accounts.
 
-| Tool | Purpose | Mutates? |
-|---|---|---|
-| [`tools/vpce_list`](tools/vpce_list/README.md) | Enumerate VPC endpoints, filter by tag / service / VPC / type / state, optionally correlate with PHZs | No |
-| [`tools/phz_review`](tools/phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`) | No |
-| [`tools/phz_assoc`](tools/phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations | Only with `--execute` |
+All tools are **read-only**: they never change AWS resources. `phz_assoc` prints the commands for you to review and run.
+
+| Tool | Purpose |
+|---|---|
+| [`tools/vpce_list`](tools/vpce_list/README.md) | Enumerate VPC endpoints, filter by tag / service / VPC / type / state, optionally correlate with PHZs |
+| [`tools/phz_review`](tools/phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`) |
+| [`tools/phz_assoc`](tools/phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations |
 
 All tools are Python 3.11+ / boto3.
 
@@ -32,7 +34,22 @@ Every tool takes the same account options:
 | `--role-name` | `VPCE_ROLE_NAME` | If the profile's account differs from the requested account, assume `arn:aws:iam::<account>:role/<role-name>` |
 | `--external-id` | `VPCE_EXTERNAL_ID` | ExternalId for the assumed role |
 
-If the credentials resolve to a different account than the one requested and no `--role-name` is given, the tool stops with an error instead of querying the wrong account.
+### Profile derivation
+
+When an account is known (from `--account` / `--vpc-account` / `--phz-account` or a VPC ARN), the tools find its profile in `~/.aws/config` / `~/.aws/credentials` by matching `sso_account_id`, `aws_account_id`, or the account in `role_arn`. Credentials for an account are resolved in this order:
+
+1. `--vpc-profile` / `--phz-profile`, if given
+2. with `--role-name`: assume the role from `--profile` (no derivation)
+3. the derived profile:
+   - profiles ending in **`-priv`** or **`-cpar`** are never used (override with `VPCE_PROFILE_EXCLUDE_SUFFIXES`, comma-separated)
+   - if `--profile` / `AWS_PROFILE` maps to the account, it is kept
+   - otherwise, with several candidates, the single read-only one (`-ro`, `-readonly`, `-read-only`) wins
+   - still several → error listing them; pass `--vpc-profile` / `--phz-profile`
+4. `--profile` / default credential chain
+
+This also covers VPC ARNs that point at other accounts: each account gets its own derived profile. The account behind the credentials is always checked. If it doesn't match the requested account, the tool stops with an error instead of querying the wrong account.
+
+Derived profiles are only used for the tools' own read calls. Generated `phz_assoc` scripts include a `--profile` only when you pass one explicitly (see that tool's README).
 
 ## VPC input
 
@@ -83,7 +100,6 @@ Disassociation can be run by either account (`--disassociate-as vpc|phz`). Route
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "Read",
       "Effect": "Allow",
       "Action": [
         "ec2:DescribeVpcEndpoints",
@@ -94,20 +110,7 @@ Disassociation can be run by either account (`--disassociate-as vpc|phz`). Route
         "route53:ListTagsForResources",
         "route53:ListHostedZonesByVPC",
         "route53:ListVPCAssociationAuthorizations",
-        "route53:GetChange",
         "sts:GetCallerIdentity"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "AssociateExecuteOnly",
-      "Effect": "Allow",
-      "Action": [
-        "route53:CreateVPCAssociationAuthorization",
-        "route53:DeleteVPCAssociationAuthorization",
-        "route53:AssociateVPCWithHostedZone",
-        "route53:DisassociateVPCFromHostedZone",
-        "ec2:DescribeVpcs"
       ],
       "Resource": "*"
     }
@@ -115,7 +118,7 @@ Disassociation can be run by either account (`--disassociate-as vpc|phz`). Route
 }
 ```
 
-Add `sts:AssumeRole` on the target role ARNs when using `--role-name`.
+Add `sts:AssumeRole` on the target role ARNs when using `--role-name`. Whoever runs a generated `phz_assoc` script needs the write permissions listed in [its README](tools/phz_assoc/README.md#iam-permissions).
 
 ## Platform Notes
 

@@ -22,7 +22,7 @@ python vpce_list.py [options]
 | `--with-phz` | Add `service_dns` and `phz` columns (PHZs looked up in the PHZ account) |
 | `--wide` | Add owner, subnets, DNS name, tags columns |
 | `-o table\|json\|csv`, `--json` | Output format (default table) |
-| `--account`, `--vpc-account`, `--phz-account`, `--profile`, `--vpc-profile`, `--phz-profile`, `--role-name` | See the [root README](../../README.md#accounts-and-credentials). Endpoints are read from the VPC-side account |
+| `--account`, `--vpc-account`, `--phz-account`, `--profile`, `--vpc-profile`, `--phz-profile`, `--role-name` | See the [root README](../../README.md#accounts-and-credentials). Profiles are derived from account IDs when not given. Endpoints are read from the VPC-side account |
 | `--region` | Default region |
 | `-v` / `-q` | Debug / warnings-only logging |
 

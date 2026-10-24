@@ -112,7 +112,3 @@ def test_offline_cli_cross_account(capsys):
     assert out.index(pa.CREATE_AUTH) < out.index(pa.ASSOCIATE) < out.index(pa.DELETE_AUTH)
     assert "VPCRegion=us-west-2" in out and "--profile hub" in out
     assert "run as VPC owner account 111111111111" in out
-
-
-def test_offline_rejects_execute():
-    assert pa.main(["associate", "--offline", "--account", HUB, "--zone", Z, "--vpc", V1.vpc_id, "--execute", "-q"]) == 2

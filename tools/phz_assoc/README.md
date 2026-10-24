@@ -11,20 +11,17 @@ By default the tool reads both accounts first, so the plan reflects what is actu
 - won't remove the **last** VPC from a PHZ (Route 53 rejects that)
 - removes stale authorizations
 
-`--offline` builds the plan from the arguments alone, with no AWS calls. Nothing is changed unless you pass `--execute` / `--apply`, which runs the same plan through boto3 and waits for each change to reach `INSYNC`.
+`--offline` builds the plan from the arguments alone, with no AWS calls. The tool is **read-only**: it never makes changes, it only prints commands for you to review and run.
 
 ## Usage
 
 ```bash
-# Generate a script (default; no changes)
+# Generate a script (validated against live state)
 python phz_assoc.py associate    --zone Z... --vpc vpc-...|ARN [account flags]
 python phz_assoc.py disassociate --zone Z... --vpc vpc-...|ARN [account flags]
 
 # Offline (no credentials needed)
 python phz_assoc.py associate --offline --phz-account 222222222222 --vpc-account 111111111111 --zone Z... --vpc vpc-...
-
-# Run it
-python phz_assoc.py associate --execute ...
 ```
 
 ### Options
@@ -36,8 +33,8 @@ python phz_assoc.py associate --execute ...
 | `--vpc ID\|ARN` | VPC(s), repeatable / comma-separated. ARNs can point at different accounts |
 | `--vpc-region` | Region for bare VPC IDs (default `--region`) |
 | `--account` / `--vpc-account` / `--phz-account` | Same account for both, or split (see [root README](../../README.md#accounts-and-credentials)) |
-| `--profile` / `--vpc-profile` / `--phz-profile` / `--role-name` | Credentials used for validation / `--execute` |
-| `--cli-vpc-profile` / `--cli-phz-profile` | Profile names written into the generated commands. Default: `--vpc-profile` / `--phz-profile`, or `--profile` when no role is assumed |
+| `--profile` / `--vpc-profile` / `--phz-profile` / `--role-name` | Credentials for the read-only validation calls. Without them, a profile is derived from each account ID ([details](../../README.md#profile-derivation)) |
+| `--cli-vpc-profile` / `--cli-phz-profile` | Profile names written into the generated commands. Default: `--vpc-profile` / `--phz-profile`, or `--profile` when no role is assumed. Derived profiles are **not** written into scripts (they are usually read-only) |
 | `--offline` | No API calls. Requires `--zone` IDs, the PHZ account, and the VPC account (flag or ARN) |
 | `--keep-authorization` | associate: leave the cross-account authorization in place |
 | `--disassociate-as vpc\|phz` | disassociate: which owner runs it (both are allowed by Route 53; default `vpc`) |
@@ -45,7 +42,6 @@ python phz_assoc.py associate --execute ...
 | `--comment` | Passed to associate/disassociate |
 | `--format sh\|json` | Shell script (default) or JSON plan |
 | `--out FILE` | Write to a file instead of stdout |
-| `--execute` / `--apply` | Run the plan via boto3 |
 
 ### Example: cross-account associate
 
@@ -90,9 +86,9 @@ python phz_assoc.py associate --profile org-admin --role-name NetworkAdmin --phz
   --vpc arn:aws:ec2:us-east-1:111111111111:vpc/vpc-0aaaaaaaaaaaaaaa0,arn:aws:ec2:us-east-1:333333333333:vpc/vpc-0bbbbbbbbbbbbbbb0 \
   --cli-phz-profile hub --out spokes.plan.sh
 
-# Remove a spoke, run by the PHZ owner, and apply it
-python phz_assoc.py disassociate --phz-profile hub --vpc-profile spoke --disassociate-as phz \
-  --zone Z0123456789ABC --vpc arn:aws:ec2:us-east-1:111111111111:vpc/vpc-0123456789abcdef0 --execute
+# Remove a spoke, to be run by the PHZ owner; validation profiles derived from the accounts
+python phz_assoc.py disassociate --phz-account 222222222222 --disassociate-as phz --cli-phz-profile hub-adm \
+  --zone Z0123456789ABC --vpc arn:aws:ec2:us-east-1:111111111111:vpc/vpc-0123456789abcdef0
 ```
 
 ## Requirements / Installation / Configuration
@@ -102,12 +98,12 @@ Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../../.env
 ## Platform Notes
 
 - **macOS**: System PKI truststore used automatically via Security.framework.
-- **Windows**: Windows Certificate Store used automatically. Credentials at `%USERPROFILE%\.aws\credentials`. The generated `.sh` needs Git Bash or WSL; otherwise use `--format json` or `--execute`.
+- **Windows**: Windows Certificate Store used automatically. Credentials at `%USERPROFILE%\.aws\credentials`. The generated `.sh` needs Git Bash or WSL; otherwise use `--format json`.
 - **Linux**: System CA bundle used via `truststore`. Ensure `ca-certificates` is installed.
 
 ## IAM Permissions
 
-Validation (default mode):
+This tool (validation reads; none with `--offline`):
 
 | Account | Actions |
 |---|---|
@@ -115,13 +111,13 @@ Validation (default mode):
 | VPC owner | `ec2:DescribeVpcs` |
 | both | `sts:GetCallerIdentity` (+ `sts:AssumeRole` with `--role-name`) |
 
-Execution (`--execute`, or for whoever runs the script):
+For whoever runs the generated script:
 
 | Account | Actions |
 |---|---|
-| PHZ owner | `route53:CreateVPCAssociationAuthorization`, `route53:DeleteVPCAssociationAuthorization`, (`route53:DisassociateVPCFromHostedZone` with `--disassociate-as phz`), `route53:GetChange` |
-| VPC owner | `route53:AssociateVPCWithHostedZone`, `route53:DisassociateVPCFromHostedZone`, `ec2:DescribeVpcs`, `route53:GetChange` |
+| PHZ owner | `route53:CreateVPCAssociationAuthorization`, `route53:DeleteVPCAssociationAuthorization`, (`route53:DisassociateVPCFromHostedZone` with `--disassociate-as phz`) |
+| VPC owner | `route53:AssociateVPCWithHostedZone`, `route53:DisassociateVPCFromHostedZone` |
 
 ## Output
 
-A bash script (`set -euo pipefail`) or a JSON plan on stdout, or in `--out FILE`. Skipped pairs show up as `# SKIP ...` comments with the reason. Logs go to stderr; with `--execute` each call is logged as `[EXECUTE]`, and without it the online mode logs each step as `[DRY-RUN] Would run ...`.
+A bash script (`set -euo pipefail`) or a JSON plan on stdout, or in `--out FILE`. Skipped pairs show up as `# SKIP ...` comments with the reason. Logs go to stderr.
