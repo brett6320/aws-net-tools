@@ -164,6 +164,11 @@ print-friendly. Multiple analyses go in one file with a jump bar. For each analy
   are outlined in red
 - **Alternate path hints** and the **raw API JSON**
 
+Return path: shown whenever AWS returns return-path components. Each hop shows the reversed packet
+header and the rules that admit the reply traffic, such as the ephemeral-port NACL rule below:
+
+![Return path diagram and component details](docs/images/return-path.png)
+
 Not reachable: explanation codes with the AWS description and every field returned.
 
 ![Not reachable trace with explanations](docs/images/not-reachable.png)
@@ -269,3 +274,6 @@ sed 's/<html lang="en">/<html lang="en" data-theme="light">/' /tmp/r.html > /tmp
   --force-device-scale-factor=1 --window-size=1300,1000 \
   --screenshot=docs/images/reachable-overview.png file:///tmp/r-light.html
 ```
+
+`return-path.png` is a crop of a full-page capture of the same export (`--window-size=1300,<page height>`), cropped
+with `sips --cropOffset <y> 0 -c 1100 1300` to start at the Return path card.
