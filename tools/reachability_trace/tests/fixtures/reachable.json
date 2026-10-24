@@ -1,0 +1,480 @@
+{
+  "path": {
+    "NetworkInsightsPathId": "nip-0123456789abcdef0",
+    "NetworkInsightsPathArn": "arn:aws:ec2:us-east-1:111122223333:network-insights-path/nip-0123456789abcdef0",
+    "CreatedDate": "2026-10-23T14:02:11+00:00",
+    "Source": "i-0src00000000000a1",
+    "SourceArn": "arn:aws:ec2:us-east-1:111122223333:instance/i-0src00000000000a1",
+    "Destination": "i-0dst00000000000b2",
+    "DestinationArn": "arn:aws:ec2:us-east-1:111122223333:instance/i-0dst00000000000b2",
+    "Protocol": "tcp",
+    "FilterAtSource": {
+      "SourceAddress": "10.0.1.15",
+      "SourcePortRange": {
+        "FromPort": 1024,
+        "ToPort": 65535
+      },
+      "DestinationPortRange": {
+        "FromPort": 5432,
+        "ToPort": 5432
+      }
+    },
+    "Tags": [
+      {
+        "Key": "Name",
+        "Value": "app-to-db-5432"
+      }
+    ]
+  },
+  "analysis": {
+    "NetworkInsightsAnalysisId": "nia-0fedcba9876543210",
+    "NetworkInsightsAnalysisArn": "arn:aws:ec2:us-east-1:111122223333:network-insights-analysis/nia-0fedcba9876543210",
+    "NetworkInsightsPathId": "nip-0123456789abcdef0",
+    "StartDate": "2026-10-23T14:02:14+00:00",
+    "Status": "succeeded",
+    "NetworkPathFound": true,
+    "ForwardPathComponents": [
+      {
+        "SequenceNumber": 1,
+        "Component": {
+          "Id": "i-0src00000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:instance/i-0src00000000000a1",
+          "Name": "app-server-1"
+        },
+        "OutboundHeader": {
+          "DestinationAddresses": [
+            "10.0.2.40"
+          ],
+          "DestinationPortRanges": [
+            {
+              "From": 5432,
+              "To": 5432
+            }
+          ],
+          "Protocol": "6",
+          "SourceAddresses": [
+            "10.0.1.15"
+          ],
+          "SourcePortRanges": [
+            {
+              "From": 1024,
+              "To": 65535
+            }
+          ]
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0aaa1111bbbb2222c",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0aaa1111bbbb2222c",
+          "Name": "app-a"
+        }
+      },
+      {
+        "SequenceNumber": 2,
+        "Component": {
+          "Id": "eni-0src0000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-interface/eni-0src0000000000a1"
+        },
+        "OutboundHeader": {
+          "DestinationAddresses": [
+            "10.0.2.40"
+          ],
+          "DestinationPortRanges": [
+            {
+              "From": 5432,
+              "To": 5432
+            }
+          ],
+          "Protocol": "6",
+          "SourceAddresses": [
+            "10.0.1.15"
+          ],
+          "SourcePortRanges": [
+            {
+              "From": 1024,
+              "To": 65535
+            }
+          ]
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0aaa1111bbbb2222c",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0aaa1111bbbb2222c",
+          "Name": "app-a"
+        },
+        "AttachedTo": {
+          "Id": "i-0src00000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:instance/i-0src00000000000a1"
+        }
+      },
+      {
+        "SequenceNumber": 3,
+        "Component": {
+          "Id": "sg-0app00000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:security-group/sg-0app00000000000a1",
+          "Name": "app-sg"
+        },
+        "SecurityGroupRule": {
+          "Cidr": "10.0.0.0/16",
+          "Direction": "egress",
+          "SecurityGroupId": "sg-0app00000000000a1",
+          "PortRange": {
+            "From": 0,
+            "To": 65535
+          },
+          "Protocol": "all"
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        }
+      },
+      {
+        "SequenceNumber": 4,
+        "Component": {
+          "Id": "acl-0a0000000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-acl/acl-0a0000000000000a1"
+        },
+        "AclRule": {
+          "Cidr": "0.0.0.0/0",
+          "Egress": true,
+          "Protocol": "all",
+          "RuleAction": "allow",
+          "RuleNumber": 100
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0aaa1111bbbb2222c",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0aaa1111bbbb2222c",
+          "Name": "app-a"
+        }
+      },
+      {
+        "SequenceNumber": 5,
+        "Component": {
+          "Id": "rtb-0a0000000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:route-table/rtb-0a0000000000000a1",
+          "Name": "app-rt"
+        },
+        "RouteTableRoute": {
+          "DestinationCidr": "10.0.0.0/16",
+          "GatewayId": "local",
+          "Origin": "CreateRouteTable",
+          "State": "active"
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0aaa1111bbbb2222c",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0aaa1111bbbb2222c",
+          "Name": "app-a"
+        }
+      },
+      {
+        "SequenceNumber": 6,
+        "Component": {
+          "Id": "acl-0b0000000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-acl/acl-0b0000000000000b2"
+        },
+        "AclRule": {
+          "Cidr": "10.0.1.0/24",
+          "Egress": false,
+          "PortRange": {
+            "From": 5432,
+            "To": 5432
+          },
+          "Protocol": "6",
+          "RuleAction": "allow",
+          "RuleNumber": 110
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0ddd3333eeee4444f",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0ddd3333eeee4444f",
+          "Name": "db-b"
+        }
+      },
+      {
+        "SequenceNumber": 7,
+        "Component": {
+          "Id": "sg-0db000000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:security-group/sg-0db000000000000b2",
+          "Name": "db-sg"
+        },
+        "SecurityGroupRule": {
+          "Cidr": "10.0.1.0/24",
+          "Direction": "ingress",
+          "SecurityGroupId": "sg-0db000000000000b2",
+          "PortRange": {
+            "From": 5432,
+            "To": 5432
+          },
+          "Protocol": "tcp"
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        }
+      },
+      {
+        "SequenceNumber": 8,
+        "Component": {
+          "Id": "eni-0dst0000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-interface/eni-0dst0000000000b2"
+        },
+        "InboundHeader": {
+          "DestinationAddresses": [
+            "10.0.2.40"
+          ],
+          "DestinationPortRanges": [
+            {
+              "From": 5432,
+              "To": 5432
+            }
+          ],
+          "Protocol": "6",
+          "SourceAddresses": [
+            "10.0.1.15"
+          ],
+          "SourcePortRanges": [
+            {
+              "From": 1024,
+              "To": 65535
+            }
+          ]
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0ddd3333eeee4444f",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0ddd3333eeee4444f",
+          "Name": "db-b"
+        },
+        "AttachedTo": {
+          "Id": "i-0dst00000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:instance/i-0dst00000000000b2"
+        }
+      },
+      {
+        "SequenceNumber": 9,
+        "Component": {
+          "Id": "i-0dst00000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:instance/i-0dst00000000000b2",
+          "Name": "db-1"
+        },
+        "InboundHeader": {
+          "DestinationAddresses": [
+            "10.0.2.40"
+          ],
+          "DestinationPortRanges": [
+            {
+              "From": 5432,
+              "To": 5432
+            }
+          ],
+          "Protocol": "6",
+          "SourceAddresses": [
+            "10.0.1.15"
+          ],
+          "SourcePortRanges": [
+            {
+              "From": 1024,
+              "To": 65535
+            }
+          ]
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0ddd3333eeee4444f",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0ddd3333eeee4444f",
+          "Name": "db-b"
+        }
+      }
+    ],
+    "ReturnPathComponents": [
+      {
+        "SequenceNumber": 1,
+        "Component": {
+          "Id": "eni-0dst0000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-interface/eni-0dst0000000000b2"
+        },
+        "OutboundHeader": {
+          "DestinationAddresses": [
+            "10.0.1.15"
+          ],
+          "DestinationPortRanges": [
+            {
+              "From": 1024,
+              "To": 65535
+            }
+          ],
+          "Protocol": "6",
+          "SourceAddresses": [
+            "10.0.2.40"
+          ],
+          "SourcePortRanges": [
+            {
+              "From": 5432,
+              "To": 5432
+            }
+          ]
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0ddd3333eeee4444f",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0ddd3333eeee4444f",
+          "Name": "db-b"
+        }
+      },
+      {
+        "SequenceNumber": 2,
+        "Component": {
+          "Id": "acl-0b0000000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-acl/acl-0b0000000000000b2"
+        },
+        "AclRule": {
+          "Cidr": "10.0.1.0/24",
+          "Egress": true,
+          "PortRange": {
+            "From": 1024,
+            "To": 65535
+          },
+          "Protocol": "6",
+          "RuleAction": "allow",
+          "RuleNumber": 120
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0ddd3333eeee4444f",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0ddd3333eeee4444f",
+          "Name": "db-b"
+        }
+      },
+      {
+        "SequenceNumber": 3,
+        "Component": {
+          "Id": "rtb-0b0000000000000b2",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:route-table/rtb-0b0000000000000b2",
+          "Name": "db-rt"
+        },
+        "RouteTableRoute": {
+          "DestinationCidr": "10.0.0.0/16",
+          "GatewayId": "local",
+          "Origin": "CreateRouteTable",
+          "State": "active"
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0ddd3333eeee4444f",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0ddd3333eeee4444f",
+          "Name": "db-b"
+        }
+      },
+      {
+        "SequenceNumber": 4,
+        "Component": {
+          "Id": "acl-0a0000000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-acl/acl-0a0000000000000a1"
+        },
+        "AclRule": {
+          "Cidr": "0.0.0.0/0",
+          "Egress": false,
+          "Protocol": "all",
+          "RuleAction": "allow",
+          "RuleNumber": 100
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0aaa1111bbbb2222c",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0aaa1111bbbb2222c",
+          "Name": "app-a"
+        }
+      },
+      {
+        "SequenceNumber": 5,
+        "Component": {
+          "Id": "eni-0src0000000000a1",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:network-interface/eni-0src0000000000a1"
+        },
+        "InboundHeader": {
+          "DestinationAddresses": [
+            "10.0.1.15"
+          ],
+          "DestinationPortRanges": [
+            {
+              "From": 1024,
+              "To": 65535
+            }
+          ],
+          "Protocol": "6",
+          "SourceAddresses": [
+            "10.0.2.40"
+          ],
+          "SourcePortRanges": [
+            {
+              "From": 5432,
+              "To": 5432
+            }
+          ]
+        },
+        "Vpc": {
+          "Id": "vpc-0a1b2c3d4e5f60718",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:vpc/vpc-0a1b2c3d4e5f60718",
+          "Name": "prod-vpc"
+        },
+        "Subnet": {
+          "Id": "subnet-0aaa1111bbbb2222c",
+          "Arn": "arn:aws:ec2:us-east-1:111122223333:subnet/subnet-0aaa1111bbbb2222c",
+          "Name": "app-a"
+        }
+      }
+    ],
+    "FilterInArns": [],
+    "AlternatePathHints": [],
+    "Tags": []
+  }
+}

@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.html
+!tools/reachability_trace/tests/fixtures/*.html
+.DS_Store
