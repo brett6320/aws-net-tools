@@ -9,3 +9,9 @@ Tools for AWS VPC Reachability Analyzer.
 ![Reachability trace HTML export (simulated)](tools/reachability_trace/docs/images/reachable-overview.png)
 
 See the [tool README](tools/reachability_trace/README.md) for usage, the export format, and IAM permissions.
+
+## License
+
+Free to use, modify, and redistribute. All copies and derivative works must credit the author. Commercial use while supporting clients
+(consulting, contracting, managed services, and similar) requires a separate written license from the
+author. See [LICENSE](LICENSE) for the full terms.

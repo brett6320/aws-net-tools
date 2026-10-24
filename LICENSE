@@ -1,0 +1,65 @@
+AWS Reachability Analyzer Tools License
+
+Copyright (c) 2026 brett6320 (https://github.com/brett6320)
+
+1. Grant
+
+Subject to the conditions below, the copyright holder ("Author") grants you a
+worldwide, royalty-free, non-exclusive, irrevocable (except as stated in
+section 5) license to use, copy, modify, merge, publish, distribute, and create
+derivative works of this software and its documentation (the "Software"), for
+any purpose, except as limited by section 3.
+
+2. Attribution
+
+Every copy of the Software, and every derivative work based on it (including
+modified versions, forks, ports, translations, and works that incorporate any
+substantial portion of the Software), in source or binary form, whether or not
+it is distributed, must:
+
+  a. keep the copyright notice above and this license text; and
+  b. credit the Author, for example "Based on aws-reachability-analyzer by
+     brett6320 (https://github.com/brett6320/aws-reachability-analyzer)",
+     in its documentation, notices, or other place where third-party
+     attributions normally appear.
+
+Derivative works must also state that they were changed from the original.
+
+3. Client-Services Restriction
+
+You may not use the Software, or any derivative work, for commercial purposes
+in the course of supporting clients unless you have a separate, supplemental
+written license agreement signed by the Author.
+
+"Supporting clients" means providing services to a third party for
+compensation or other commercial benefit, including consulting, contracting,
+professional services, managed services, outsourced operations, audits, or
+assessments, where the Software is used to perform, deliver, or support those
+services, or its output (such as reports) is delivered to that third party.
+
+This restriction does not limit:
+
+  a. personal, educational, research, or non-profit use;
+  b. internal use by an organization on its own systems and accounts, including
+     by its employees, when not supporting clients as defined above; or
+  c. evaluation of the Software.
+
+To request a supplemental license, contact the Author through
+https://github.com/brett6320.
+
+4. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+5. Termination
+
+If you breach sections 2 or 3, your rights under this license end
+automatically. They are reinstated if you cure the breach within 30 days of
+becoming aware of it, unless the Author has notified you in writing that this
+license is terminated for that breach.
