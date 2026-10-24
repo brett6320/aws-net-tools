@@ -184,3 +184,63 @@ def test_export_multiple_has_toc(tmp_path):
                             "--from-json", str(FIXTURES / "not_reachable.json"), "-o", str(out)])
     assert rc == 0
     assert 'class="toc"' in out.read_text()
+
+
+# ---------- default reports folder ----------
+
+def test_report_path_by_date_and_account():
+    p = core.report_path(load("reachable.json"), "reports")
+    assert p == Path("reports/2026-10-23/111122223333/app-to-db-5432_nia-0fedcba9876543210.html")
+
+
+def test_report_path_prefers_analysis_name_and_handles_missing_data():
+    b = load("not_reachable.json")
+    assert core.report_path(b, "r").name == "tgw-check_nia-0bad000000000bad1.html"
+    b = {"path": {}, "analysis": {"NetworkInsightsAnalysisId": "nia-1", "Tags": [{"Key": "Name", "Value": "a/b c"}]}}
+    p = core.report_path(b, "r")
+    assert p.parent.name == "unknown-account" and p.name == "a-b-c_nia-1.html"
+
+
+def test_export_defaults_to_reports_folder(tmp_path):
+    rc = reachability.main(["export", "--from-json", str(FIXTURES / "reachable.json"),
+                            "--from-json", str(FIXTURES / "igw_nlb.json"), "--reports-dir", str(tmp_path)])
+    assert rc == 0
+    files = sorted(str(f.relative_to(tmp_path)) for f in tmp_path.rglob("*.html"))
+    assert files == ["2026-10-23/111122223333/app-to-db-5432_nia-0fedcba9876543210.html",
+                     "2026-10-23/111122223333/nia-0ccc000000000ccc3.html"]
+
+
+def test_export_output_flag_writes_single_file(tmp_path):
+    out = tmp_path / "one.html"
+    rc = reachability.main(["export", "--from-json", str(FIXTURES / "reachable.json"), "-o", str(out),
+                            "--reports-dir", str(tmp_path / "reports")])
+    assert rc == 0 and out.exists() and not (tmp_path / "reports").exists()
+
+
+def _finish_args(tmp_path, **kw):
+    args = reachability.build_parser().parse_args(["analyze", "nip-1", "--reports-dir", str(tmp_path)])
+    for k, v in kw.items():
+        setattr(args, k, v)
+    return args
+
+
+def test_finish_waits_and_writes_report_by_default(tmp_path, monkeypatch):
+    b = load("reachable.json")
+    monkeypatch.setattr(core, "wait_for_analysis", lambda ec2, aid, timeout: b["analysis"])
+    rc = reachability._finish(None, _finish_args(tmp_path), b["path"], {"NetworkInsightsAnalysisId": "x"})
+    assert rc == 0
+    assert (tmp_path / "2026-10-23/111122223333/app-to-db-5432_nia-0fedcba9876543210.html").exists()
+
+
+def test_finish_no_report_returns_without_waiting(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("must not wait")
+    monkeypatch.setattr(core, "wait_for_analysis", boom)
+    rc = reachability._finish(None, _finish_args(tmp_path, no_report=True), {}, {"NetworkInsightsAnalysisId": "x"})
+    assert rc == 0 and not list(tmp_path.rglob("*.html"))
+
+
+def test_dry_run_mentions_report_location(caplog):
+    caplog.set_level(logging.INFO)
+    assert reachability.main(["create", "-s", "i-aaa", "-d", "i-bbb", "--reports-dir", "out"]) == 0
+    assert "out/<date>/<account>/<analysis>.html" in caplog.text

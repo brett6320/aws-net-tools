@@ -49,12 +49,14 @@ def _dump(obj: Any) -> str:
     return json.dumps(obj, indent=2, default=_json_default)
 
 
-def _write_export(bundles: list[dict], out: str, title: str | None) -> None:
+def _write_export(bundles: list[dict], out: str | Path, title: str | None) -> None:
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(render_html(bundles, title), encoding="utf-8")
     log.info("Wrote HTML export %s", out)
 
 
 def _write_json(bundles: list[dict], out: str) -> None:
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(_dump(bundles if len(bundles) > 1 else bundles[0]), encoding="utf-8")
     log.info("Wrote JSON %s", out)
 
@@ -116,8 +118,9 @@ def _bundle_for_analysis(ec2, analysis_id: str) -> dict:
 
 
 def _finish(ec2, args, path: dict, analysis: dict) -> int:
-    """Shared tail for create/analyze: optionally wait, then summarize/export."""
-    if not (args.wait or args.export or args.json_out):
+    """Shared tail for create/analyze: wait, summarize, and write the HTML report
+    (to --export, or the reports folder unless --no-report)."""
+    if args.no_report and not (args.wait or args.export or args.json_out):
         print(f"Analysis {analysis['NetworkInsightsAnalysisId']} started. "
               f"Use: reachability.py show {analysis['NetworkInsightsAnalysisId']}")
         return 0
@@ -126,6 +129,8 @@ def _finish(ec2, args, path: dict, analysis: dict) -> int:
     print_summary(bundle)
     if args.export:
         _write_export([bundle], args.export, args.title)
+    elif not args.no_report:
+        _write_export([bundle], core.report_path(bundle, args.reports_dir), args.title)
     if args.json_out:
         _write_json([bundle], args.json_out)
     return 0 if analysis.get("Status") == "succeeded" else 2
@@ -165,6 +170,7 @@ def cmd_create(args, execute: bool) -> int:
         log.info("[DRY-RUN] Would call CreateNetworkInsightsPath:\n%s", _dump(path_req))
         if an_req:
             log.info("[DRY-RUN] Would call StartNetworkInsightsAnalysis:\n%s", _dump(an_req))
+            _log_dry_run_report(args)
         if args.check_permissions:
             _check_permission(_ec2(args).create_network_insights_path, path_req)
         return 0
@@ -184,6 +190,7 @@ def cmd_analyze(args, execute: bool) -> int:
                                                args.additional_account, args.analysis_name)
     if not execute:
         log.info("[DRY-RUN] Would call StartNetworkInsightsAnalysis:\n%s", _dump(an_req))
+        _log_dry_run_report(args)
         if args.check_permissions:
             _check_permission(_ec2(args).start_network_insights_analysis, an_req)
         return 0
@@ -191,6 +198,14 @@ def cmd_analyze(args, execute: bool) -> int:
     path = core.get_path(ec2, args.path_id)
     analysis = core.start_analysis(ec2, an_req)
     return _finish(ec2, args, path, analysis)
+
+
+def _log_dry_run_report(args) -> None:
+    if args.export:
+        log.info("[DRY-RUN] Would wait for the analysis and write %s", args.export)
+    elif not args.no_report:
+        log.info("[DRY-RUN] Would wait for the analysis and write %s/<date>/<account>/<analysis>.html",
+                 args.reports_dir)
 
 
 def _check_permission(fn, req: dict) -> None:
@@ -256,7 +271,11 @@ def cmd_export(args, _execute: bool) -> int:
         bundles.extend(_bundle_for_analysis(ec2, aid) for aid in args.analysis_ids)
     if not bundles:
         raise core.ValidationError("Provide analysis IDs and/or --from-json files")
-    _write_export(bundles, args.output, args.title)
+    if args.output:
+        _write_export(bundles, args.output, args.title)
+    else:
+        for b in bundles:
+            _write_export([b], core.report_path(b, args.reports_dir), args.title)
     if args.json_out:
         _write_json(bundles, args.json_out)
     return 0
@@ -303,6 +322,11 @@ def _add_mutating(p: argparse.ArgumentParser) -> None:
     p.add_argument("--apply", action="store_true", help="Alias for --execute")
 
 
+def _add_report_opts(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--reports-dir", default=os.getenv("RA_REPORTS_DIR", "reports"), metavar="DIR",
+                   help="Reports root; reports go to DIR/<YYYY-MM-DD>/<account-id>/ (default: ./reports)")
+
+
 def _add_analysis_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--filter-in", action="append", metavar="ARN",
                    help="Require path through this intermediate component (repeatable)")
@@ -314,7 +338,11 @@ def _add_analysis_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--wait", action="store_true", help="Wait for analysis to complete and print a summary")
     p.add_argument("--timeout", type=int, default=int(os.getenv("RA_WAIT_TIMEOUT", "600")),
                    help="Wait timeout in seconds (default 600)")
-    p.add_argument("--export", metavar="FILE.html", help="Wait, then export the trace to self-contained HTML")
+    p.add_argument("--export", metavar="FILE.html",
+                   help="Write the HTML report to this file instead of the reports folder")
+    _add_report_opts(p)
+    p.add_argument("--no-report", action="store_true",
+                   help="Don't write an HTML report (and don't wait unless --wait/--json-out)")
     p.add_argument("--json-out", metavar="FILE.json", help="Wait, then save path+analysis JSON")
     p.add_argument("--title", help="Title for the HTML export")
     p.add_argument("--check-permissions", action="store_true",
@@ -371,10 +399,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="Print path+analysis JSON bundle")
     p.set_defaults(func=cmd_show)
 
-    p = sub.add_parser("export", help="Export analyses to a self-contained HTML file")
+    p = sub.add_parser("export", help="Export analyses to self-contained HTML reports")
     _add_common(p)
     p.add_argument("analysis_ids", nargs="*")
-    p.add_argument("--output", "-o", required=True, metavar="FILE.html")
+    p.add_argument("--output", "-o", metavar="FILE.html",
+                   help="Write one combined file here instead of one report per analysis in the reports folder")
+    _add_report_opts(p)
     p.add_argument("--from-json", action="append", metavar="FILE.json",
                    help="Render from a saved JSON bundle instead of the API (repeatable)")
     p.add_argument("--json-out", metavar="FILE.json", help="Also save the JSON bundle(s)")
