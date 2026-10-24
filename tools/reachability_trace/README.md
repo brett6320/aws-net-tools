@@ -81,7 +81,9 @@ Run the script from this directory or by path. It imports the sibling `ra_*.py` 
 ### Example summary output
 
 `show`, and finished `create`/`analyze` runs, print a hop-by-hop summary. For cross-account paths every hop is
-tagged with its owning `<account>`. These examples come from `tests/fixtures/`:
+tagged with its owning `<account>`. For blocked paths, `xx` lines mark where the trace stops, the blocking
+component and explanation code, and the endpoint that wasn't reached. A blocking hop that AWS returned is tagged
+`<< BLOCKED`. These examples come from `tests/fixtures/`:
 
 ```text
 Analysis nia-0xacct1111222233a  (path nip-0xacct11112222333)
@@ -115,15 +117,22 @@ Analysis nia-0xacct1111222233a  (path nip-0xacct11112222333)
     7. Network ACL                  acl-0app11112222333a  [rule 210 ingress ALLOW TCP 1024-65535 10.20.0.0/16]  <111122223333>
     8. Network interface            eni-0app111122223333a  <111122223333>
 
-Analysis nia-0bad000000000bad1  (path nip-0aaaabbbbccccdddd)
-  eni-0src0000000000a1 -> tgw-attach-0abc123def4567890  TCP
+Analysis nia-0b10c4ed00000000a  (path nip-0b10c4ed000000001)
+  i-0src00000000000a1 -> i-0dst00000000000b2  TCP
   Accounts: owner=111122223333 source=111122223333 destination=111122223333
-  Suggested accounts: 444455556666
-  filter@source: src=any:All dst=any:443
+  filter@source: src=10.0.1.15:1024-65535 dst=any:5432
   Status: succeeded  Result: NOT REACHABLE
-  Warning: Some components could not be fully analyzed.
-  Explanation: SUBNET_ACL_RESTRICTION acl-0a0000000000000a1 egress
-  Explanation: NO_ROUTE_TO_DESTINATION rtb-0a0000000000000a1
+  Forward path:
+    1. EC2 instance                 i-0src00000000000a1 (app-server-1)
+    2. Network interface            eni-0src0000000000a1
+    3. Security group               sg-0app00000000000a1 (app-sg)  [egress All All (0-65535) 10.0.0.0/16]
+    4. Network ACL                  acl-0a0000000000000a1  [rule 100 egress ALLOW All All 0.0.0.0/0]
+    5. Route table                  rtb-0a0000000000000a1 (app-rt)  [10.0.0.0/16 -> local]
+    6. Network ACL                  acl-0b0000000000000b2  [rule 110 ingress ALLOW TCP 5432 10.0.1.0/24]
+    xx path stops after hop 6
+    xx BLOCKED at sg-0db000000000000b2 (ENI_SG_RULES_MISMATCH)
+    xx destination not reached: i-0dst00000000000b2
+  Explanation: ENI_SG_RULES_MISMATCH sg-0db000000000000b2 ingress
 ```
 
 ### Commands
@@ -210,8 +219,8 @@ for the theme toggle. It's print-friendly. Multiple analyses go in one file with
 - **Component details**: VPC, subnet, attached-to, source/destination VPC, transit gateway, inbound/outbound packet
   headers, security group rule, network ACL rule, route table route, TGW route and policy entry, ELB listener,
   Network Firewall stateless/stateful rules, additional details, and per-component explanations
-- **Explanations**: each explanation code with the AWS description and every field returned. Blocking components
-  are outlined in red
+- **Explanations**: each explanation code with the AWS description and every field returned. Blocked paths also get
+  a breakpoint banner and markers in the diagram (see [Blocked paths](#blocked-paths))
 - **Alternate path hints** and the **raw API JSON**
 
 Return path: shown whenever AWS returns return-path components. Each hop shows the reversed packet
@@ -219,7 +228,31 @@ header and the rules that admit the reply traffic, such as the ephemeral-port NA
 
 ![Return path diagram and component details](docs/images/return-path.png)
 
-Not reachable: explanation codes with the AWS description and every field returned.
+### Blocked paths
+
+When a path isn't reachable, the report still shows **every hop AWS returned**, each with its details card. The
+break is marked prominently:
+
+- A red banner at the top of the broken direction: "Path blocked … after hop N", with each blocking component,
+  its explanation code, and the AWS description. Each blocker links to its details card, or to the Explanations
+  card if it isn't one of the hops.
+- In the diagram, the last returned hop is followed by a red **✕** break, then the blocking component(s) in red
+  with a **BLOCKED** label and code, another **✕**, and the endpoint that was never reached, dimmed and labelled
+  *not reached*.
+- If a blocker is one of the returned hops, that node is outlined in red with **BLOCKED** and its code, and its
+  details card gets a **⛔ BLOCKING** pill.
+- If the forward path reached the destination but the reply didn't make it back, the break is drawn on the
+  **return path** instead, ending at the source (*reply not reached*).
+- If AWS returned no hops, the diagram starts at the source and shows the break and the blockers.
+- The Analysis card adds a **Blocked at** row.
+
+A blocker is the explanation's `Component`. If that's missing, it's the most specific component the explanation
+names (ACL, security group, route table, gateway, and so on). Context fields such as VPC and subnet are never
+marked as blockers.
+
+![Blocked path with breakpoint](docs/images/blocked-path.png)
+
+Explanations show every code with the AWS description and every field returned:
 
 ![Not reachable trace with explanations](docs/images/not-reachable.png)
 
@@ -355,8 +388,9 @@ pytest tests
 ```
 
 Tests cover input validation, `FilterAtSource` request building, dry-run safety (no API calls), icon
-classification, account attribution and cross-account reporting, themes, and HTML rendering against the
-fixtures in `tests/fixtures/`.
+classification, account attribution and cross-account reporting, breakpoints on blocked paths (forward, return,
+no hops, blocker in or outside the returned hops), themes, and HTML rendering against the fixtures in
+`tests/fixtures/`.
 
 ### Regenerating the screenshots
 
@@ -364,7 +398,8 @@ The images in `docs/images/` are headless-Chrome captures of the fixture exports
 (macOS: needs Google Chrome and `sips`):
 
 ```bash
-python docs/make_screenshots.py            # --chrome PATH to use another Chrome/Chromium binary
+python docs/make_screenshots.py                 # all shots; --chrome PATH for another Chrome/Chromium binary
+python docs/make_screenshots.py blocked-path    # just the named shot(s)
 ```
 
 The script renders each fixture in the theme listed in its `SHOTS` table, measures the region to keep, captures it,

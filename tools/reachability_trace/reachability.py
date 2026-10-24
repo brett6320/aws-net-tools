@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Create, run, inspect, and export AWS VPC Reachability Analyzer traces."""
+"""Create, run, inspect, and export AWS VPC Reachability Analyzer traces.
+
+Command-line front end. Each subcommand is a cmd_* function taking (args, execute):
+
+  create / analyze      mutating; dry-run unless --execute/--apply. Build the API
+                        requests (ra_core), call the API, then _finish() waits for the
+                        analysis, prints a summary, and writes the HTML report.
+  paths / analyses /    read-only listings and lookups.
+  show / export
+  delete-*              mutating; dry-run by default.
+
+Modules: ra_core (validation + EC2 API calls), ra_accounts (account attribution),
+ra_export (HTML rendering), ra_icons (component icons), ra_codes (explanation text).
+Logs go to stderr; summaries, listings and --json go to stdout.
+"""
 from __future__ import annotations
 
 import argparse
@@ -12,6 +26,7 @@ from typing import Any
 
 import truststore
 
+# Use the OS certificate store (corporate proxies/CAs) before any HTTPS client is created.
 truststore.inject_into_ssl()
 
 from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound  # noqa: E402
@@ -19,7 +34,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 import ra_accounts as accounts  # noqa: E402
 import ra_core as core  # noqa: E402
-from ra_export import THEMES, port_range, proto, render_html  # noqa: E402
+from ra_export import THEMES, blocking_targets, break_direction, port_range, proto, render_html  # noqa: E402
 from ra_icons import classify, label_for  # noqa: E402
 
 load_dotenv()
@@ -35,6 +50,8 @@ log = logging.getLogger("reachability")
 # ---------- helpers ----------
 
 def _ec2(args):
+    """EC2 client for --profile/--region. The profile is only used here; it is never
+    written to reports or JSON."""
     log.debug("Using profile=%s region=%s", args.profile or "default", args.region or "(profile default)")
     session = core.get_session(args.profile, args.region)
     if not session.region_name:
@@ -43,6 +60,7 @@ def _ec2(args):
 
 
 def _json_default(o: Any) -> str:
+    """json.dumps fallback for boto3 datetimes."""
     return o.isoformat() if hasattr(o, "isoformat") else str(o)
 
 
@@ -57,12 +75,16 @@ def _write_export(bundles: list[dict], out: str | Path, title: str | None, theme
 
 
 def _write_json(bundles: list[dict], out: str) -> None:
+    """Save bundles for offline re-rendering (export --from-json). One bundle is written
+    as an object, several as a list; export accepts both."""
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(_dump(bundles if len(bundles) > 1 else bundles[0]), encoding="utf-8")
     log.info("Wrote JSON %s", out)
 
 
-def _comp_line(pc: dict, show_account: bool = False) -> str:
+def _comp_line(pc: dict, show_account: bool = False, blocked: dict[str, list[str]] | None = None) -> str:
+    """One summary line per hop: sequence, type, ID, name, the rule/route it matched,
+    and (when relevant) its account and a BLOCKED marker."""
     c = pc.get("Component") or {}
     kind, sub = classify(c.get("Id"), c.get("Arn"))
     ident = c.get("Id") or (c.get("Arn") or "").split("/")[-1]
@@ -82,10 +104,14 @@ def _comp_line(pc: dict, show_account: bool = False) -> str:
         extra = f"  [{r.get('DestinationCidr') or r.get('DestinationPrefixListId')} -> {tgt}]"
     name = f" ({c['Name']})" if c.get("Name") and c.get("Name") != ident else ""
     acct = f"  <{accounts.component_account(pc) or '?'}>" if show_account else ""
-    return f"  {pc.get('SequenceNumber'):>3}. {label_for(kind, sub):<28} {ident}{name}{extra}{acct}"
+    blocked = blocked or {}
+    codes = next((blocked[k] for k in (ident, c.get("Arn")) if k and k in blocked), None)
+    blk = f"  << BLOCKED ({', '.join(codes)})" if codes is not None else ""
+    return f"  {pc.get('SequenceNumber'):>3}. {label_for(kind, sub):<28} {ident}{name}{extra}{acct}{blk}"
 
 
 def print_summary(bundle: dict) -> None:
+    """Human-readable, hop-by-hop summary of one path + analysis (stdout)."""
     p, a = bundle["path"], bundle["analysis"]
     src = p.get("Source") or ""
     dst = p.get("Destination") or p.get("DestinationIp") or ""
@@ -104,25 +130,40 @@ def print_summary(bundle: dict) -> None:
     if f:
         print(f"  filter@source: src={f.get('SourceAddress') or 'any'}:{port_range(f.get('SourcePortRange'))} "
               f"dst={f.get('DestinationAddress') or 'any'}:{port_range(f.get('DestinationPortRange'))}")
-    status = a.get("Status")
+    status = a.get("Status") or "unknown"
     result = ("REACHABLE" if a.get("NetworkPathFound") else "NOT REACHABLE") if status == "succeeded" else status.upper()
     print(f"  Status: {status}  Result: {result}")
     if a.get("StatusMessage"):
         print(f"  Message: {a['StatusMessage']}")
     if a.get("WarningMessage"):
         print(f"  Warning: {a['WarningMessage']}")
-    for title, key in (("Forward path", "ForwardPathComponents"), ("Return path", "ReturnPathComponents")):
+    # Same blocker/break logic as the HTML report, so both mark the same hops.
+    targets = blocking_targets(a)
+    blocked = {k: t["codes"] for t in targets for k in (t["component"].get("Id"), t["component"].get("Arn")) if k}
+    brk = break_direction(p, a)
+    for title, key, direction in (("Forward path", "ForwardPathComponents", "fwd"),
+                                  ("Return path", "ReturnPathComponents", "ret")):
         comps = sorted(a.get(key) or [], key=lambda c: c.get("SequenceNumber") or 0)
-        if comps:
+        if comps or brk == direction:
             print(f"  {title}:")
             for pc in comps:
-                print(_comp_line(pc, acc["cross_account"]))
+                print(_comp_line(pc, acc["cross_account"], blocked))
+        if brk == direction:
+            # Mark where the trace stops, the blocker(s), and the endpoint never reached.
+            after = f"after hop {comps[-1].get('SequenceNumber')}" if comps else "before the first hop"
+            print(f"    xx path stops {after}")
+            for t in targets:
+                c = t["component"]
+                print(f"    xx BLOCKED at {c.get('Id') or c.get('Arn')} ({', '.join(t['codes'])})")
+            missed = (p.get("Destination") or p.get("DestinationIp")) if direction == "fwd" else p.get("Source")
+            print(f"    xx {'destination' if direction == 'fwd' else 'source (reply)'} not reached: {missed}")
     for x in a.get("Explanations") or []:
         comp = x.get("Component") or {}
         print(f"  Explanation: {x.get('ExplanationCode')} {comp.get('Id') or ''} {x.get('Direction') or ''}".rstrip())
 
 
 def _bundle_for_analysis(ec2, analysis_id: str) -> dict:
+    """Fetch an analysis and its path; the export format needs both."""
     analysis = core.get_analysis(ec2, analysis_id)
     path = core.get_path(ec2, analysis["NetworkInsightsPathId"])
     return core.build_bundle(path, analysis)
@@ -151,6 +192,7 @@ def _finish(ec2, args, path: dict, analysis: dict) -> int:
 # ---------- commands ----------
 
 def cmd_types(args, _execute: bool) -> int:
+    """List supported source/destination and intermediate types (no AWS calls)."""
     print("Source / destination resource types:")
     for key, (prefix, _, label) in core.ENDPOINT_TYPES.items():
         print(f"  {label:<30} {prefix}*   (ARN type: {key})")
@@ -161,7 +203,22 @@ def cmd_types(args, _execute: bool) -> int:
     return 0
 
 
+def _parse_tags(values: list[str] | None) -> dict[str, str]:
+    tags = {}
+    for t in values or []:
+        if "=" not in t or not t.split("=", 1)[0]:
+            raise core.ValidationError(f"Invalid --tag {t!r}; use KEY=VALUE")
+        k, v = t.split("=", 1)
+        tags[k] = v
+    return tags
+
+
 def cmd_create(args, execute: bool) -> int:
+    """Create a path and (unless --no-analyze) start an analysis on it.
+
+    Requests are fully built and validated first, so a dry-run shows exactly what
+    --execute would send. On execute: create the path, add any other accounts its
+    ARNs reference (_auto_accounts), start the analysis, then _finish()."""
     spec = core.PathSpec(
         source=args.source,
         destination=args.dest,
@@ -171,17 +228,20 @@ def cmd_create(args, execute: bool) -> int:
         source_ports=core.parse_port_range(args.source_port),
         destination_ports=core.parse_port_range(args.dest_port),
         name=args.name,
-        tags=dict(t.split("=", 1) for t in args.tag or []),
+        tags=_parse_tags(args.tag),
     )
     path_req = core.build_create_path_request(spec)
     an_req = None
     if not args.no_analyze:
+        # The path ID isn't known until the path exists; filled in after create_path.
         an_req = core.build_start_analysis_request("<new-path-id>", args.filter_in, args.filter_out,
                                                    args.additional_account, args.analysis_name)
     if not execute:
         log.info("[DRY-RUN] Would call CreateNetworkInsightsPath:\n%s", _dump(path_req))
         if an_req:
             log.info("[DRY-RUN] Would call StartNetworkInsightsAnalysis:\n%s", _dump(an_req))
+            # The path owner (caller's account) isn't known without an API call, so
+            # list every account the ARNs mention; non-owner ones get added on execute.
             arn_accts = sorted({a for a in map(accounts.arn_account, [args.source, args.dest,
                                 *(args.filter_in or []), *(args.filter_out or [])]) if a})
             if arn_accts and not args.no_auto_accounts:
@@ -204,6 +264,7 @@ def cmd_create(args, execute: bool) -> int:
 
 
 def cmd_analyze(args, execute: bool) -> int:
+    """Start a new analysis on an existing path, then _finish()."""
     an_req = core.build_start_analysis_request(args.path_id, args.filter_in, args.filter_out,
                                                args.additional_account, args.analysis_name)
     if not execute:
@@ -242,6 +303,7 @@ def _warn_suggested_accounts(analysis: dict) -> None:
 
 
 def _log_dry_run_report(args) -> None:
+    """Dry-run note on where the HTML report would be written."""
     if args.export:
         log.info("[DRY-RUN] Would wait for the analysis and write %s", args.export)
     elif not args.no_report:
@@ -250,6 +312,8 @@ def _log_dry_run_report(args) -> None:
 
 
 def _check_permission(fn, req: dict) -> None:
+    """Call an EC2 API with DryRun=True. AWS answers DryRunOperation if the caller is
+    allowed (nothing is created) or UnauthorizedOperation if not."""
     try:
         fn(DryRun=True, **req)
     except ClientError as e:
@@ -262,6 +326,7 @@ def _check_permission(fn, req: dict) -> None:
 
 
 def cmd_paths(args, _execute: bool) -> int:
+    """List paths: ID, source -> destination, protocol/destination ports, Name tag."""
     ec2 = _ec2(args)
     rows = list(core.iter_paths(ec2))
     if args.json:
@@ -270,6 +335,8 @@ def cmd_paths(args, _execute: bool) -> int:
     for p in rows:
         name = next((t["Value"] for t in p.get("Tags") or [] if t["Key"] == "Name"), "")
         f = p.get("FilterAtSource") or {}
+        # Ports live in FilterAtSource for paths made by this tool; older paths may use
+        # the top-level DestinationPort.
         ports = port_range(f.get("DestinationPortRange")) if f else (p.get("DestinationPort") or "All")
         print(f"{p['NetworkInsightsPathId']}  {p.get('Source')} -> {p.get('Destination') or p.get('DestinationIp')}"
               f"  {proto(p.get('Protocol'))}/{ports}  {name}")
@@ -277,6 +344,7 @@ def cmd_paths(args, _execute: bool) -> int:
 
 
 def cmd_analyses(args, _execute: bool) -> int:
+    """List analyses (newest first), optionally for one path."""
     ec2 = _ec2(args)
     rows = list(core.iter_analyses(ec2, args.path_id))
     if args.json:
@@ -290,6 +358,7 @@ def cmd_analyses(args, _execute: bool) -> int:
 
 
 def cmd_show(args, _execute: bool) -> int:
+    """Print one analysis summary, or the raw bundle with --json."""
     ec2 = _ec2(args)
     bundle = _bundle_for_analysis(ec2, args.analysis_id)
     if args.json:
@@ -300,6 +369,9 @@ def cmd_show(args, _execute: bool) -> int:
 
 
 def cmd_export(args, _execute: bool) -> int:
+    """Render analyses to HTML. Bundles come from saved JSON (--from-json, offline)
+    and/or the API (analysis IDs). Without -o, each gets its own file in the reports
+    folder; with -o, they're combined into one file."""
     bundles: list[dict] = []
     for f in args.from_json or []:
         data = json.loads(Path(f).read_text(encoding="utf-8"))
@@ -323,6 +395,8 @@ def cmd_export(args, _execute: bool) -> int:
 
 
 def cmd_delete_path(args, execute: bool) -> int:
+    """Delete paths (and optionally their analyses). A dry-run with --with-analyses
+    still lists the analyses through the API so it can say what would be deleted."""
     ec2 = _ec2(args) if execute or args.with_analyses else None
     for pid in args.path_ids:
         if args.with_analyses:
@@ -339,6 +413,7 @@ def cmd_delete_path(args, execute: bool) -> int:
 
 
 def cmd_delete_analysis(args, execute: bool) -> int:
+    """Delete analyses."""
     ec2 = _ec2(args) if execute else None
     for aid in args.analysis_ids:
         if execute:
@@ -349,6 +424,7 @@ def cmd_delete_analysis(args, execute: bool) -> int:
 
 
 # ---------- argument parsing ----------
+# Global options are added to each subparser, so they go after the subcommand.
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--profile", default=os.getenv("AWS_PROFILE"), help="AWS profile name (not included in exports)")
@@ -474,6 +550,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse arguments, set log level, run the subcommand. Expected errors are logged
+    and become exit code 1; a failed analysis returns 2 (from _finish)."""
     args = build_parser().parse_args(argv)
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
