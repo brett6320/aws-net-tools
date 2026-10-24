@@ -19,7 +19,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 import ra_accounts as accounts  # noqa: E402
 import ra_core as core  # noqa: E402
-from ra_export import THEMES, port_range, proto, render_html  # noqa: E402
+from ra_export import THEMES, blocking_targets, break_direction, port_range, proto, render_html  # noqa: E402
 from ra_icons import classify, label_for  # noqa: E402
 
 load_dotenv()
@@ -62,7 +62,7 @@ def _write_json(bundles: list[dict], out: str) -> None:
     log.info("Wrote JSON %s", out)
 
 
-def _comp_line(pc: dict, show_account: bool = False) -> str:
+def _comp_line(pc: dict, show_account: bool = False, blocked: dict[str, list[str]] | None = None) -> str:
     c = pc.get("Component") or {}
     kind, sub = classify(c.get("Id"), c.get("Arn"))
     ident = c.get("Id") or (c.get("Arn") or "").split("/")[-1]
@@ -82,7 +82,9 @@ def _comp_line(pc: dict, show_account: bool = False) -> str:
         extra = f"  [{r.get('DestinationCidr') or r.get('DestinationPrefixListId')} -> {tgt}]"
     name = f" ({c['Name']})" if c.get("Name") and c.get("Name") != ident else ""
     acct = f"  <{accounts.component_account(pc) or '?'}>" if show_account else ""
-    return f"  {pc.get('SequenceNumber'):>3}. {label_for(kind, sub):<28} {ident}{name}{extra}{acct}"
+    codes = (blocked or {}).get(ident) or (blocked or {}).get(c.get("Arn") or "")
+    blk = f"  << BLOCKED ({', '.join(codes)})" if codes is not None else ""
+    return f"  {pc.get('SequenceNumber'):>3}. {label_for(kind, sub):<28} {ident}{name}{extra}{acct}{blk}"
 
 
 def print_summary(bundle: dict) -> None:
@@ -111,12 +113,25 @@ def print_summary(bundle: dict) -> None:
         print(f"  Message: {a['StatusMessage']}")
     if a.get("WarningMessage"):
         print(f"  Warning: {a['WarningMessage']}")
-    for title, key in (("Forward path", "ForwardPathComponents"), ("Return path", "ReturnPathComponents")):
+    targets = blocking_targets(a)
+    blocked = {k: t["codes"] for t in targets for k in (t["component"].get("Id"), t["component"].get("Arn")) if k}
+    brk = break_direction(p, a)
+    for title, key, direction in (("Forward path", "ForwardPathComponents", "fwd"),
+                                  ("Return path", "ReturnPathComponents", "ret")):
         comps = sorted(a.get(key) or [], key=lambda c: c.get("SequenceNumber") or 0)
-        if comps:
+        if comps or brk == direction:
             print(f"  {title}:")
             for pc in comps:
-                print(_comp_line(pc, acc["cross_account"]))
+                print(_comp_line(pc, acc["cross_account"], blocked))
+        if brk == direction:
+            # Mark where the trace stops, the blocker(s), and the endpoint never reached.
+            after = f"after hop {comps[-1].get('SequenceNumber')}" if comps else "before the first hop"
+            print(f"    xx path stops {after}")
+            for t in targets:
+                c = t["component"]
+                print(f"    xx BLOCKED at {c.get('Id') or c.get('Arn')} ({', '.join(t['codes'])})")
+            missed = (p.get("Destination") or p.get("DestinationIp")) if direction == "fwd" else p.get("Source")
+            print(f"    xx {'destination' if direction == 'fwd' else 'source (reply)'} not reached: {missed}")
     for x in a.get("Explanations") or []:
         comp = x.get("Component") or {}
         print(f"  Explanation: {x.get('ExplanationCode')} {comp.get('Id') or ''} {x.get('Direction') or ''}".rstrip())

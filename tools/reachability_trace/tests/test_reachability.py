@@ -159,7 +159,10 @@ def test_export_not_reachable_shows_explanations():
     assert "SUBNET_ACL_RESTRICTION" in html and "NO_ROUTE_TO_DESTINATION" in html
     assert "must be admitted by the network ACL" in html
     assert "Alternate path hints" in html and "444455556666" in html
-    assert "Intended path" in html and "node blocked" in html
+    # no hops returned: source -> blocking components -> break -> unreached destination
+    assert "Forward path" in html and "0 components returned before the block" in html
+    assert html.count('class="node blocked"') == 2  # the ACL and the route table
+    assert 'class="link broken"' in html and 'class="node unreached"' in html
 
 
 def test_export_escapes_values():
@@ -352,3 +355,79 @@ def test_summary_shows_accounts(capsys):
     reachability.print_summary(load("cross_account.json"))
     out = capsys.readouterr().out
     assert "[CROSS-ACCOUNT]" in out and "<222233334444>" in out
+
+
+# ---------- breakpoints ----------
+
+def _flow(html, title):
+    card = html.split(f"<h3>{title}")[1]
+    return card.split('<div class="flow">')[1].split("</div>")[0]
+
+
+def test_breakpoint_partial_path_shows_all_hops_and_break():
+    b = load("blocked_midpath.json")
+    html = render_html([b])
+    flow = _flow(html, "Forward path")
+    # every returned hop is drawn, in order, as a link to its details card
+    for seq in range(1, 7):
+        assert f'href="#nia-0b10c4ed00000000a-fwd-{seq}"' in flow
+    # then the blocking SG (not among the hops), the break marker, and the unreached destination
+    tail = flow.split('href="#nia-0b10c4ed00000000a-fwd-6"')[1]
+    first_break = tail.index('class="link broken"')
+    second_break = tail.index('class="link broken"', first_break + 1)
+    assert first_break < tail.index("sg-0db000000000000b2") < second_break < tail.index("node unreached")
+    assert "ENI_SG_RULES_MISMATCH" in tail and "Destination — not reached" in tail
+    assert flow.count('class="link broken"') == 2
+    # banner names the last hop and the blocker
+    assert "Path blocked on the forward path after hop 6" in html and 'class="breakbanner"' in html
+    assert "Blocked at" in html
+    # component detail cards still rendered for every hop
+    for seq in range(1, 7):
+        assert f'id="nia-0b10c4ed00000000a-fwd-{seq}"' in html
+
+
+def test_breakpoint_on_a_returned_hop_marks_that_node():
+    b = load("blocked_midpath.json")
+    acl = b["analysis"]["ForwardPathComponents"][-1]["Component"]
+    b["analysis"]["Explanations"] = [{"Component": acl, "Acl": acl, "ExplanationCode": "SUBNET_ACL_RESTRICTION"}]
+    html = render_html([b])
+    flow = _flow(html, "Forward path")
+    assert flow.count('class="node blocked"') == 1 and "acl-0b0000000000000b2" in flow.split('class="node blocked"')[1]
+    assert "BLOCKING" in html and "at hop 6" in html
+    # blocker is in the path, so the break goes straight to the unreached destination
+    assert flow.count('class="link broken"') == 1
+
+
+def test_context_fields_are_not_marked_blocking():
+    b = load("blocked_midpath.json")
+    # explanation lists the source ENI/subnet as context only; the SG is the blocker
+    html = render_html([b])
+    flow = _flow(html, "Forward path")
+    eni = flow.split('href="#nia-0b10c4ed00000000a-fwd-2"')[0].rsplit("<a ", 1)[1]
+    assert "blocked" not in eni
+
+
+def test_break_on_return_path():
+    b = load("reachable.json")
+    a = b["analysis"]
+    a["NetworkPathFound"] = False
+    a["ReturnPathComponents"] = a["ReturnPathComponents"][:2]
+    acl = {"Id": "acl-0a0000000000000a1", "Arn": "arn:aws:ec2:us-east-1:111122223333:network-acl/acl-0a0000000000000a1"}
+    a["Explanations"] = [{"Component": acl, "ExplanationCode": "SUBNET_ACL_RESTRICTION", "Direction": "ingress"}]
+    html = render_html([b])
+    assert "Path blocked on the return path after hop 2" in html
+    assert "Source — reply not reached" in _flow(html, "Return path")
+    assert 'link broken' not in _flow(html, "Forward path")
+
+
+def test_reachable_path_has_no_break():
+    html = render_html([load("reachable.json")])
+    body = html.split("</style>")[1]
+    assert "link broken" not in body and "breakbanner" not in body and "node unreached" not in body
+
+
+def test_summary_marks_breakpoint(capsys):
+    reachability.print_summary(load("blocked_midpath.json"))
+    out = capsys.readouterr().out
+    assert "BLOCKED at sg-0db000000000000b2 (ENI_SG_RULES_MISMATCH)" in out
+    assert "path stops after hop 6" in out

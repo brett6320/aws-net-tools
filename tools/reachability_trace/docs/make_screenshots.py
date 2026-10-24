@@ -6,7 +6,7 @@ Chrome (--dump-dom with an injected measuring script), takes a full-page
 screenshot, and crops it with `sips`. macOS only (Chrome + sips); this is a docs
 helper, not part of the tool.
 
-    python docs/make_screenshots.py [--chrome PATH]
+    python docs/make_screenshots.py [--chrome PATH] [NAME ...]
 """
 from __future__ import annotations
 
@@ -44,6 +44,8 @@ SHOTS = [
     ("igw-nlb-path", "igw_nlb", "dark", "0", "yBottom(document.querySelectorAll('.comp')[2])+16"),
     ("return-path", "reachable", "dark", "yTop(card('Return path'))-16", "yTop(card('Return path'))+1084"),
     ("cross-account", "cross_account", "dark", "0", "yBottom(card('Forward path').querySelector('.legend'))+24"),
+    ("blocked-path", "blocked_midpath", "dark", "yTop(card('Forward path'))-16",
+     "yBottom(card('Forward path').querySelector('.flow'))+24"),
 ]
 
 
@@ -84,11 +86,16 @@ def shoot(name: str, fixture: str, theme: str, top_js: str, bottom_js: str, tmp:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--chrome", default=CHROME, help="Chrome/Chromium binary")
+    parser.add_argument("names", nargs="*", help="Only regenerate these shots (default: all)")
     args = parser.parse_args()
+    unknown = set(args.names) - {s[0] for s in SHOTS}
+    if unknown:
+        parser.error(f"unknown shot(s): {', '.join(sorted(unknown))}")
     IMAGES.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory() as d:
         for shot in SHOTS:
-            shoot(*shot, Path(d), args.chrome)
+            if not args.names or shot[0] in args.names:
+                shoot(*shot, Path(d), args.chrome)
     return 0
 
 

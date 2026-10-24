@@ -254,7 +254,7 @@ def _section(title: str, body: str) -> str:
     return f'<div class="sec"><h5>{_e(title)}</h5>{body}</div>'
 
 
-def render_component(pc: dict, direction: str, aid: str, blocked: set[str],
+def render_component(pc: dict, direction: str, aid: str, blocked: dict[str, list[str]],
                      colors: dict[str, str] | None = None) -> str:
     comp = pc.get("Component") or {}
     acct = component_account(pc)
@@ -313,14 +313,21 @@ def render_component(pc: dict, direction: str, aid: str, blocked: set[str],
       <div class="id"><code>{_e(ident)}</code>{f' <span class="nm">{_e(name)}</span>' if name and name != ident else ''}</div>
       {f'<div class="arn">{_e(comp.get("Arn"))}</div>' if comp.get("Arn") else ''}
     </div>
+    {_blocking_pill(blocked.get(ident) or blocked.get(comp.get("Arn") or ""))}
     {f'<div class="cacct">{acct_pill(acct, colors, "Account")}</div>' if acct else ''}
   </header>
   <div class="body">{''.join(secs) or '<p class="muted">No additional details.</p>'}</div>
 </article>"""
 
 
-def render_flow(components: list[dict], direction: str, aid: str, blocked: set[str],
-                colors: dict[str, str] | None = None) -> str:
+def _blocking_pill(codes: list[str] | None) -> str:
+    if codes is None:
+        return ""
+    return ('<div class="blkpill">⛔ BLOCKING' + "".join(f' <code>{_e(c)}</code>' for c in codes) + "</div>")
+
+
+def render_flow(components: list[dict], direction: str, aid: str, blocked: dict[str, list[str]],
+                colors: dict[str, str] | None = None, tail: str = "") -> str:
     """Icon diagram of one direction. With `colors` (multi-account paths), each node
     shows its account and account changes are drawn as labeled boundaries."""
     out: list[str] = []
@@ -360,8 +367,12 @@ def render_flow(components: list[dict], direction: str, aid: str, blocked: set[s
             f'<span class="nty">{_e(label_for(kind, sub))}</span><code class="nid">{_e(ident)}</code>'
             + (f'<span class="nnm">{_e(comp.get("Name"))}</span>' if comp.get("Name") and comp.get("Name") != ident else "")
             + (f'<span class="nhint">{_e(hint.strip())}</span>' if hint.strip() else "")
-            + acct_html + "</a>")
-    return '<div class="flow">' + "".join(out) + "</div>"
+            + acct_html
+            + ('<span class="nblk">BLOCKED</span>' + "".join(
+                f'<span class="ncode">{_e(c)}</span>' for c in (blocked.get(ident) or blocked.get(comp.get("Arn") or "") or []))
+               if flag else "")
+            + "</a>")
+    return '<div class="flow">' + "".join(out) + tail + "</div>"
 
 
 def _endpoint_cell(ref: str | None, ip: str | None, acct: str | None = None,
@@ -411,17 +422,129 @@ def _status_badge(a: dict) -> str:
     return f'<span class="badge">● {_e((st or "unknown").capitalize())}</span>'
 
 
-def _blocked_ids(a: dict) -> set[str]:
-    ids: set[str] = set()
+# Explanation fields that can name the blocking component when "Component" is absent,
+# most specific first. Context fields (Vpc, Subnet, ...) are deliberately not used.
+_BLOCKER_KEYS = ("Component", "Acl", "SecurityGroup", "RouteTable", "NatGateway", "InternetGateway",
+                 "TransitGatewayRouteTable", "TransitGatewayAttachment", "TransitGateway", "VpcEndpoint",
+                 "VpcPeeringConnection", "VpnGateway", "VpnConnection", "ElasticLoadBalancerListener",
+                 "LoadBalancerTargetGroup", "NetworkInterface")
+
+
+def blocking_targets(a: dict) -> list[dict]:
+    """Components the top-level explanations identify as blocking, in explanation order.
+
+    Each item: {"component": {Id, Arn, Name}, "codes": [ExplanationCode, ...]}. Only the
+    analysis-level Explanations count (per-hop explanations are informational).
+    """
+    if a.get("Status") != "succeeded" or a.get("NetworkPathFound") is not False:
+        return []
+    out: dict[str, dict] = {}
     for x in a.get("Explanations") or []:
-        for k in ("Component", "Acl", "SecurityGroup", "RouteTable", "Subnet", "NetworkInterface",
-                  "InternetGateway", "NatGateway", "TransitGateway", "TransitGatewayAttachment",
-                  "TransitGatewayRouteTable", "VpcEndpoint", "VpcPeeringConnection", "VpnGateway",
-                  "VpnConnection", "LoadBalancerTargetGroup", "ElasticLoadBalancerListener"):
-            c = x.get(k)
-            if isinstance(c, dict):
-                ids.update(v for v in (c.get("Id"), c.get("Arn")) if v)
-    return ids
+        comp = next((x[k] for k in _BLOCKER_KEYS if isinstance(x.get(k), dict) and (x[k].get("Id") or x[k].get("Arn"))),
+                    None)
+        if not comp:
+            continue
+        key = comp.get("Id") or comp.get("Arn")
+        entry = out.setdefault(key, {"component": comp, "codes": []})
+        code = x.get("ExplanationCode")
+        if code and code not in entry["codes"]:
+            entry["codes"].append(code)
+    return list(out.values())
+
+
+def _blocked_map(targets: list[dict]) -> dict[str, list[str]]:
+    """ID and ARN of each blocking component -> its explanation codes."""
+    m: dict[str, list[str]] = {}
+    for t in targets:
+        for k in (t["component"].get("Id"), t["component"].get("Arn")):
+            if k:
+                m[k] = t["codes"]
+    return m
+
+
+def _rid(ref: str | None) -> str | None:
+    return ref.split("/")[-1] if ref else None
+
+
+def break_direction(p: dict, a: dict) -> str | None:
+    """Where an unreachable path stops: "fwd", or "ret" if the forward path reached the
+    destination and the break is on the way back. None when the path is reachable."""
+    if a.get("Status") != "succeeded" or a.get("NetworkPathFound") is not False:
+        return None
+    fwd = sorted(a.get("ForwardPathComponents") or [], key=lambda c: c.get("SequenceNumber") or 0)
+    ret = a.get("ReturnPathComponents") or []
+    if fwd and ret:
+        last = fwd[-1].get("Component") or {}
+        dest = {_rid(p.get("Destination")), _rid(p.get("DestinationArn"))} - {None}
+        if {last.get("Id"), _rid(last.get("Arn"))} & dest:
+            return "ret"
+    return "fwd"
+
+
+def _endpoint_node(seq: str, ref: str | None, ip: str | None, cls: str, caption: str) -> str:
+    kind, sub = classify(_rid(ref), ref if ref and ref.startswith("arn:") else None) if ref else ("ip-address", None)
+    ident = _rid(ref) or ip or "?"
+    return (f'<span class="node {cls}" title="{_e(ref or ip)}"><span class="nseq">{_e(seq)}</span>'
+            f'{icon_svg(kind, sub, 44)}<span class="nty">{_e(label_for(kind, sub))}</span>'
+            f'<code class="nid">{_e(ident)}</code><span class="ncap">{_e(caption)}</span></span>')
+
+
+_BREAK_LINK = '<span class="link broken" title="Path breaks here"><span class="xmark">✕</span></span>'
+
+
+def render_break_tail(p: dict, direction: str, components: list[dict], targets: list[dict]) -> str:
+    """Nodes drawn after the last returned hop of the broken direction: blocking components
+    that aren't among the hops, a break marker, and the endpoint that was never reached."""
+    in_path = set()
+    for pc in components:
+        c = pc.get("Component") or {}
+        in_path.update(v for v in (c.get("Id"), c.get("Arn")) if v)
+    out = []
+    for t in targets:
+        c = t["component"]
+        if c.get("Id") in in_path or c.get("Arn") in in_path:
+            continue
+        kind, sub = classify(c.get("Id"), c.get("Arn"))
+        out.append(_BREAK_LINK if components or out else '<span class="link" aria-hidden="true"></span>')
+        out.append(f'<span class="node blocked" title="{_e(c.get("Arn") or c.get("Id"))}"><span class="nseq">⛔</span>'
+                   f'{icon_svg(kind, sub, 44)}<span class="nty">{_e(label_for(kind, sub))}</span>'
+                   f'<code class="nid">{_e(_comp_ident(c))}</code>'
+                   + (f'<span class="nnm">{_e(c.get("Name"))}</span>' if c.get("Name") else "")
+                   + '<span class="nblk">BLOCKED</span>'
+                   + "".join(f'<span class="ncode">{_e(code)}</span>' for code in t["codes"]) + "</span>")
+    out.append(_BREAK_LINK)
+    if direction == "ret":
+        out.append(_endpoint_node("S", p.get("SourceArn") or p.get("Source"), p.get("SourceIp"),
+                                  "unreached", "Source — reply not reached"))
+    else:
+        out.append(_endpoint_node("D", p.get("DestinationArn") or p.get("Destination"), p.get("DestinationIp"),
+                                  "unreached", "Destination — not reached"))
+    return "".join(out)
+
+
+def render_break_banner(aid: str, direction: str, components: list[dict], targets: list[dict]) -> str:
+    comps = sorted(components, key=lambda c: c.get("SequenceNumber") or 0)
+    where = "on the return path" if direction == "ret" else "on the forward path"
+    if comps:
+        last = comps[-1].get("Component") or {}
+        lead = f"Path blocked {where} after hop {_e(comps[-1].get('SequenceNumber'))} (<code>{_e(_comp_ident(last))}</code>)."
+    else:
+        lead = f"Path blocked {where}: AWS returned no hops before the block."
+    seq_of = {}
+    for pc in comps:
+        c = pc.get("Component") or {}
+        for k in (c.get("Id"), c.get("Arn")):
+            if k:
+                seq_of[k] = pc.get("SequenceNumber")
+    items = []
+    for t in targets:
+        c = t["component"]
+        seq = seq_of.get(c.get("Id")) or seq_of.get(c.get("Arn"))
+        href = f"#{aid}-{direction}-{seq}" if seq else f"#{aid}-expl"
+        codes = "; ".join(f"<code>{_e(code)}</code> {_e(describe_code(code))}" for code in t["codes"])
+        items.append(f'<li><a href="{_e(href)}">{chip(c)}</a>{" at hop " + _e(seq) if seq else ""} — {codes}</li>')
+    return (f'<div class="breakbanner"><div class="bhead">⛔ {lead}</div>'
+            + (f'<ul>{"".join(items)}</ul>' if items else "") + "</div>")
 
 
 def _legend(colors: dict[str, str] | None) -> str:
@@ -458,7 +581,9 @@ def render_analysis(bundle: dict, idx: int) -> str:
     p = bundle.get("path") or {}
     a = bundle.get("analysis") or {}
     aid = a.get("NetworkInsightsAnalysisId") or f"analysis{idx}"
-    blocked = _blocked_ids(a)
+    targets = blocking_targets(a)
+    blocked = _blocked_map(targets)
+    brk = break_direction(p, a)
     path_name = _tag(p.get("Tags"), "Name")
     analysis_name = _tag(a.get("Tags"), "Name")
 
@@ -507,6 +632,8 @@ def render_analysis(bundle: dict, idx: int) -> str:
     an_rows["Additional accounts"] = fmt_value(a.get("AdditionalAccounts"))
     if a.get("SuggestedAccounts"):
         an_rows["Suggested accounts"] = fmt_value(a["SuggestedAccounts"])
+    if targets:
+        an_rows["Blocked at"] = " ".join(chip(t["component"]) for t in targets)
     an_rows["Tags"] = _tags(a.get("Tags"))
     known_an = {"NetworkInsightsAnalysisId", "NetworkInsightsAnalysisArn", "NetworkInsightsPathId", "Status",
                 "StatusMessage", "WarningMessage", "StartDate", "NetworkPathFound", "FilterInArns", "FilterOutArns",
@@ -530,33 +657,33 @@ def render_analysis(bundle: dict, idx: int) -> str:
   {render_accounts(accts, colors)}"""]
 
     if a.get("Explanations"):
-        parts.append('<div class="card xcard"><h3>Explanations</h3>'
+        parts.append(f'<div class="card xcard" id="{_e(aid)}-expl"><h3>Explanations</h3>'
                      + "".join(fmt_explanation(x) for x in a["Explanations"]) + "</div>")
 
-    if not fwd and a.get("Status") == "succeeded" and not a.get("NetworkPathFound"):
-        # Show the intended endpoints with a break so the failure reads visually.
-        src = p.get("SourceArn") or p.get("Source")
-        dst = p.get("DestinationArn") or p.get("Destination")
-        sk, ss = classify(p.get("Source"), p.get("SourceArn"))
-        dk, ds = classify(p.get("Destination"), p.get("DestinationArn")) if dst else ("ip-address", None)
-        dest_tail = (f'<span class="node"><span class="nseq">S</span>{icon_svg(sk, ss, 44)}<span class="nty">'
-                     f'{_e(label_for(sk, ss))}</span><code class="nid">{_e((src or "").split("/")[-1])}</code></span>'
-                     f'<span class="link broken" aria-hidden="true"></span>'
-                     f'<span class="node blocked"><span class="nseq">D</span>{icon_svg(dk, ds, 44)}<span class="nty">'
-                     f'{_e(label_for(dk, ds))}</span><code class="nid">'
-                     f'{_e((dst or p.get("DestinationIp") or "").split("/")[-1])}</code></span>')
-        parts.append(f'<div class="card"><h3>Intended path</h3><div class="flow">{dest_tail}</div></div>')
-
     for title, comps, direction in (("Forward path", fwd, "fwd"), ("Return path", ret, "ret")):
-        if not comps:
+        broken = brk == direction
+        if not comps and not broken:
             continue
-        parts.append(f'<div class="card"><h3>{title} <span class="muted">({len(comps)} components)</span></h3>'
-                     + render_flow(comps, direction, aid, blocked, colors)
+        count = f"{len(comps)} components" + (" returned before the block" if broken else "")
+        if broken and not comps:
+            # No hops at all: start the diagram from the endpoint the traffic leaves.
+            start = (_endpoint_node("S", p.get("SourceArn") or p.get("Source"), p.get("SourceIp"), "", "Source")
+                     if direction == "fwd" else
+                     _endpoint_node("D", p.get("DestinationArn") or p.get("Destination"), p.get("DestinationIp"),
+                                    "", "Destination"))
+            flow = f'<div class="flow">{start}{render_break_tail(p, direction, comps, targets)}</div>'
+        else:
+            flow = render_flow(comps, direction, aid, blocked, colors,
+                               render_break_tail(p, direction, comps, targets) if broken else "")
+        parts.append(f'<div class="card{" brokencard" if broken else ""}"><h3>{title} <span class="muted">({count})</span></h3>'
+                     + (render_break_banner(aid, direction, comps, targets) if broken else "")
+                     + flow
                      + _legend(colors)
-                     + '<details class="comps" open><summary>Component details</summary>'
-                     + "".join(render_component(pc, direction, aid, blocked, colors)
-                               for pc in sorted(comps, key=lambda c: c.get("SequenceNumber") or 0))
-                     + "</details></div>")
+                     + ('<details class="comps" open><summary>Component details</summary>'
+                        + "".join(render_component(pc, direction, aid, blocked, colors)
+                                  for pc in sorted(comps, key=lambda c: c.get("SequenceNumber") or 0))
+                        + "</details>" if comps else "")
+                     + "</div>")
 
     if a.get("AlternatePathHints"):
         parts.append('<div class="card"><h3>Alternate path hints</h3>'
@@ -609,7 +736,6 @@ table.kv table.kv th{width:auto}
 .node{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:3px;width:136px;
 padding:12px 8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);text-decoration:none;color:var(--fg)}
 .node:hover{border-color:var(--accent)}
-.node.blocked{border-color:var(--bad);box-shadow:0 0 0 2px var(--badbg)}
 .nseq{position:absolute;top:4px;left:6px;font-size:11px;color:var(--muted)}
 .nty{font-size:11.5px;font-weight:600;line-height:1.2}
 .nid{font-size:10.5px;padding:0 3px}
@@ -617,8 +743,21 @@ padding:12px 8px 10px;border:1px solid var(--line);border-radius:10px;background
 .nhint{font-size:10.5px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;word-break:break-all}
 .link{align-self:center;width:24px;height:2px;background:var(--muted);position:relative;flex:none}
 .link::after{content:"";position:absolute;right:-1px;top:-4px;border:5px solid transparent;border-left:7px solid var(--muted);border-right:0}
-.link.broken{width:48px;background:repeating-linear-gradient(90deg,var(--bad) 0 6px,transparent 6px 10px)}
+.link.broken{width:56px;height:3px;background:repeating-linear-gradient(90deg,var(--bad) 0 6px,transparent 6px 10px);display:flex;justify-content:center}
 .link.broken::after{border-left-color:var(--bad)}
+.xmark{position:relative;top:-11px;width:22px;height:22px;border-radius:50%;background:var(--bad);color:var(--card);font-weight:800;font-size:13px;line-height:22px;text-align:center}
+.node.blocked{border:2px solid var(--bad);background:var(--badbg);box-shadow:0 0 0 3px var(--badbg)}
+.node.unreached{opacity:.5;border-style:dashed}
+.nblk{margin-top:3px;background:var(--bad);color:var(--card);font-size:10px;font-weight:800;letter-spacing:.06em;border-radius:3px;padding:1px 6px}
+.ncode{font:9.5px ui-monospace,Menlo,monospace;color:var(--bad);word-break:break-all}
+.ncap{font-size:10.5px;color:var(--muted);font-style:italic}
+.brokencard{border-color:var(--bad)}
+.breakbanner{border:1px solid var(--bad);background:var(--badbg);border-radius:8px;padding:10px 14px;margin:0 0 12px}
+.breakbanner .bhead{font-weight:700;color:var(--bad)}
+.breakbanner ul{margin:6px 0 0;padding-left:20px}.breakbanner li{margin:3px 0}
+.breakbanner a{text-decoration:none;color:inherit}
+.blkpill{background:var(--bad);color:var(--card);font-weight:800;font-size:11px;border-radius:4px;padding:3px 8px;white-space:nowrap}
+.blkpill code{background:transparent;color:inherit;padding:0}
 details.comps>summary,details.raw>summary{cursor:pointer;font-weight:600;margin:12px 0 4px}
 .comp{border:1px solid var(--line);border-radius:10px;margin:12px 0;overflow:hidden;scroll-margin-top:12px}
 .comp.blocked{border-color:var(--bad)}
