@@ -12,6 +12,6 @@ See the [tool README](tools/reachability_trace/README.md) for usage, the export 
 
 ## License
 
-Free to use, modify, and redistribute with attribution. Commercial use while supporting clients
+Free to use, modify, and redistribute. All copies and derivative works must credit the author. Commercial use while supporting clients
 (consulting, contracting, managed services, and similar) requires a separate written license from the
 author. See [LICENSE](LICENSE) for the full terms.

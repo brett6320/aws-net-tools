@@ -12,8 +12,10 @@ any purpose, except as limited by section 3.
 
 2. Attribution
 
-Every copy or substantial portion of the Software you distribute, in source or
-binary form and including modified versions, must:
+Every copy of the Software, and every derivative work based on it (including
+modified versions, forks, ports, translations, and works that incorporate any
+substantial portion of the Software), in source or binary form, whether or not
+it is distributed, must:
 
   a. keep the copyright notice above and this license text; and
   b. credit the Author, for example "Based on aws-reachability-analyzer by
@@ -21,7 +23,7 @@ binary form and including modified versions, must:
      in its documentation, notices, or other place where third-party
      attributions normally appear.
 
-Modified versions must state that they were changed from the original.
+Derivative works must also state that they were changed from the original.
 
 3. Client-Services Restriction
 
