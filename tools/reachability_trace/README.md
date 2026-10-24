@@ -11,6 +11,11 @@ transformed by NAT, load balancers, and so on) hop by hop, so inbound rules down
 flow. The top-level `SourceIp` and `DestinationPort` fields are never used; the API doesn't allow them
 together with `FilterAtSource`.
 
+![Reachable trace export](docs/images/reachable-overview.png)
+
+> Screenshots in this README are simulated: they are exports rendered from the synthetic fixtures in
+> `tests/fixtures/` (placeholder account `111122223333`), not from a live AWS account.
+
 ## Usage
 
 ```bash
@@ -44,6 +49,46 @@ python reachability.py delete-analysis nia-0123... --execute
 python reachability.py types
 ```
 
+Global options (`--profile`, `--region`, `-v`, `-q`) go **after** the subcommand, for example
+`python reachability.py show nia-0123... --profile prod -q`.
+
+Run the script from this directory or by path. It imports the sibling `ra_*.py` modules.
+
+### Example summary output
+
+`show`, and `create`/`analyze` with `--wait`, print a hop-by-hop summary (from `tests/fixtures/`):
+
+```text
+Analysis nia-0fedcba9876543210  (path nip-0123456789abcdef0)
+  i-0src00000000000a1 -> i-0dst00000000000b2  TCP
+  filter@source: src=10.0.1.15:1024-65535 dst=any:5432
+  Status: succeeded  Result: REACHABLE
+  Forward path:
+    1. EC2 instance                 i-0src00000000000a1 (app-server-1)
+    2. Network interface            eni-0src0000000000a1
+    3. Security group               sg-0app00000000000a1 (app-sg)  [egress All All (0-65535) 10.0.0.0/16]
+    4. Network ACL                  acl-0a0000000000000a1  [rule 100 egress ALLOW All All 0.0.0.0/0]
+    5. Route table                  rtb-0a0000000000000a1 (app-rt)  [10.0.0.0/16 -> local]
+    6. Network ACL                  acl-0b0000000000000b2  [rule 110 ingress ALLOW TCP 5432 10.0.1.0/24]
+    7. Security group               sg-0db000000000000b2 (db-sg)  [ingress TCP 5432 10.0.1.0/24]
+    8. Network interface            eni-0dst0000000000b2
+    9. EC2 instance                 i-0dst00000000000b2 (db-1)
+  Return path:
+    1. Network interface            eni-0dst0000000000b2
+    2. Network ACL                  acl-0b0000000000000b2  [rule 120 egress ALLOW TCP 1024-65535 10.0.1.0/24]
+    3. Route table                  rtb-0b0000000000000b2 (db-rt)  [10.0.0.0/16 -> local]
+    4. Network ACL                  acl-0a0000000000000a1  [rule 100 ingress ALLOW All All 0.0.0.0/0]
+    5. Network interface            eni-0src0000000000a1
+
+Analysis nia-0bad000000000bad1  (path nip-0aaaabbbbccccdddd)
+  eni-0src0000000000a1 -> tgw-attach-0abc123def4567890  TCP
+  filter@source: src=any:All dst=any:443
+  Status: succeeded  Result: NOT REACHABLE
+  Warning: Some components could not be fully analyzed.
+  Explanation: SUBNET_ACL_RESTRICTION acl-0a0000000000000a1 egress
+  Explanation: NO_ROUTE_TO_DESTINATION rtb-0a0000000000000a1
+```
+
 ### Commands
 
 | Command | Mutates | Description |
@@ -52,10 +97,10 @@ python reachability.py types
 | `create` | yes | Create a path, then start an analysis (skip with `--no-analyze`) |
 | `analyze PATH_ID` | yes | Start a new analysis on an existing path |
 | `paths` | no | List paths (`--json`) |
-| `analyses` | no | List analyses, optionally for one path (`--json`) |
+| `analyses` | no | List analyses (newest first), optionally for one path (`--path-id`, `--json`) |
 | `show ANALYSIS_ID` | no | Print a hop-by-hop summary (`--json` for the raw bundle) |
-| `export ID... -o FILE` | no | Write self-contained HTML. `--from-json` re-renders saved bundles |
-| `delete-path` / `delete-analysis` | yes | Delete resources |
+| `export ID... -o FILE` | no | Write self-contained HTML. `--from-json` re-renders saved bundles offline. `--wait` waits for running analyses first |
+| `delete-path` / `delete-analysis` | yes | Delete resources. `delete-path --with-analyses` also deletes the path's analyses |
 
 ### Options
 
@@ -63,7 +108,7 @@ python reachability.py types
 |---|---|
 | `--execute` / `--apply` | Apply changes (default: dry-run) |
 | `--profile NAME` | AWS profile (overrides `AWS_PROFILE`). Never included in exports |
-| `--region REGION` | AWS region (overrides `AWS_REGION`; falls back to the profile's region) |
+| `--region REGION` | AWS region (default `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the profile's region; errors if none) |
 | `-s/--source` | Source ID or ARN (use an ARN for cross-account resources) |
 | `-d/--dest` | Destination ID or ARN |
 | `--dest-ip` | Destination IPv4 (alone, or to pick one IP on `--dest`) |
@@ -74,9 +119,10 @@ python reachability.py types
 | `--filter-in ARN` / `--filter-out ARN` | Include/exclude an intermediate component (repeatable) |
 | `--additional-account ID` | Extra account for cross-account analysis (repeatable) |
 | `--analysis-name` | Name tag for the analysis |
-| `--wait`, `--timeout N` | Wait for the analysis to finish |
-| `--export FILE.html`, `--json-out FILE.json` | Wait, then export |
-| `--check-permissions` | In dry-run, call the API with `DryRun=True` to check IAM permissions |
+| `--wait`, `--timeout N` | Wait for the analysis to finish (`create`/`analyze` default `RA_WAIT_TIMEOUT` or 600s; `export --timeout` default 600s) |
+| `--export FILE.html`, `--json-out FILE.json` | Wait, then export (`create`/`analyze`). On `export`, `--json-out` also saves the bundle(s) |
+| `--title TEXT` | Page title for the HTML export (default "Reachability Trace") |
+| `--check-permissions` | In dry-run, call the API with `DryRun=True` to check IAM permissions (`create`/`analyze`) |
 | `-v` / `-q` | Debug / warnings-only logging |
 
 ### Supported types
@@ -99,6 +145,10 @@ Network Firewall firewalls, transit gateways, transit gateway attachments, VPC p
 
 ## HTML export
 
+| Light | Dark |
+|---|---|
+| ![Light mode](docs/images/reachable-overview.png) | ![Dark mode](docs/images/reachable-overview-dark.png) |
+
 One `.html` file with no external assets: inline CSS and inline SVG icons, light and dark mode,
 print-friendly. Multiple analyses go in one file with a jump bar. For each analysis it shows:
 
@@ -113,6 +163,14 @@ print-friendly. Multiple analyses go in one file with a jump bar. For each analy
 - **Explanations**: each explanation code with the AWS description and every field returned. Blocking components
   are outlined in red
 - **Alternate path hints** and the **raw API JSON**
+
+Not reachable: explanation codes with the AWS description and every field returned.
+
+![Not reachable trace with explanations](docs/images/not-reachable.png)
+
+Internet gateway → Network Load Balancer → instance, showing per-hop packet headers and address translation:
+
+![IGW to NLB path](docs/images/igw-nlb-path.png)
 
 The export includes only data returned by the EC2 API. The AWS profile name and credentials are never written.
 
@@ -130,13 +188,15 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in values:
+Copy `.env.example` to `.env` and fill in values. `.env` is searched for starting in this directory and
+then its parent directories. CLI flags override `.env` values.
 
 | Variable | Default | Description |
 |---|---|---|
 | `AWS_PROFILE` | (default chain) | AWS profile name |
 | `AWS_REGION` | profile region | Target region |
-| `RA_WAIT_TIMEOUT` | `600` | Seconds to wait for analyses |
+| `AWS_DEFAULT_REGION` | — | Region fallback when `AWS_REGION` is unset |
+| `RA_WAIT_TIMEOUT` | `600` | Default `--timeout` for `create` and `analyze` (not `export`) |
 
 ## Platform Notes
 
@@ -180,9 +240,12 @@ AWS charges for each analysis run. See AWS pricing.
 ## Output
 
 - Mutating commands log `[DRY-RUN]` with the exact API request JSON unless `--execute`/`--apply` is passed,
-  in which case they log `[EXECUTE]`.
+  in which case they log `[EXECUTE]`. Dry-runs make no API calls, except `--check-permissions` and
+  `delete-path --with-analyses`, which lists the path's analyses.
+- Logs go to stderr. Results (summaries, listings, `--json`) go to stdout, so `--json` output can be piped.
 - `show`/`--wait` print a hop-by-hop summary to stdout. `--json` prints raw API data.
-- Exit codes: `0` success, `1` validation or AWS error, `2` analysis finished with status `failed`.
+- Exit codes: `0` success, `1` validation, credential, lookup, timeout, or AWS error, `2` analysis finished
+  with status `failed` (argparse usage errors also exit `2`).
 
 ## Tests
 
@@ -193,3 +256,16 @@ pytest tests
 
 Tests cover input validation, `FilterAtSource` request building, dry-run safety (no API calls), icon
 classification, and HTML rendering against the fixtures in `tests/fixtures/`.
+
+### Regenerating the screenshots
+
+The images in `docs/images/` are headless-Chrome captures of fixture exports, with the theme forced through
+the page's `data-theme` attribute:
+
+```bash
+python reachability.py export --from-json tests/fixtures/reachable.json -o /tmp/r.html --title "Reachability trace"
+sed 's/<html lang="en">/<html lang="en" data-theme="light">/' /tmp/r.html > /tmp/r-light.html   # or data-theme="dark"
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+  --force-device-scale-factor=1 --window-size=1300,1000 \
+  --screenshot=docs/images/reachable-overview.png file:///tmp/r-light.html
+```
