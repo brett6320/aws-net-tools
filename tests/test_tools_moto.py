@@ -86,25 +86,27 @@ def test_phz_review_by_vpc_and_by_zone(env, capsys):
     assert [(r["vpc_id"], r["status"], r["vpc_owner"]) for r in rows] == [(env["hub"], "associated", ACCT)]
 
 
-def test_phz_assoc_generate_then_execute(env, capsys):
+def test_phz_assoc_generate_only(env, capsys):
     arn = f"arn:aws:ec2:us-east-1:{ACCT}:vpc/{env['spoke']}"
     assert pa.main(["associate", "--zone", env["zone"], "--vpc", arn, "-q"]) == 0
     out = capsys.readouterr().out
     assert "associate-vpc-with-hosted-zone" in out and "authorization" not in out.split("set -euo")[1]
-    # generate-only must not change anything
+    # generating must not change anything
     assert len(env["r53"].get_hosted_zone(Id=env["zone"])["VPCs"]) == 1
 
-    assert pa.main(["associate", "--zone-tag", "Purpose=vpce", "--vpc", env["spoke"], "--execute", "-q"]) == 0
-    capsys.readouterr()
-    assert {v["VPCId"] for v in env["r53"].get_hosted_zone(Id=env["zone"])["VPCs"]} == {env["hub"], env["spoke"]}
-
-    # re-running is a no-op
-    assert pa.main(["associate", "--zone", env["zone"], "--vpc", env["spoke"], "-q"]) == 0
+    env["r53"].associate_vpc_with_hosted_zone(HostedZoneId=env["zone"], VPC={"VPCRegion": "us-east-1", "VPCId": env["spoke"]})
+    assert pa.main(["associate", "--zone-tag", "Purpose=vpce", "--vpc", env["spoke"], "-q"]) == 0
     assert "SKIP associate-vpc-with-hosted-zone" in capsys.readouterr().out
 
-    assert pa.main(["disassociate", "--zone", env["zone"], "--vpc", env["spoke"], "--execute", "-q"]) == 0
-    capsys.readouterr()
-    assert {v["VPCId"] for v in env["r53"].get_hosted_zone(Id=env["zone"])["VPCs"]} == {env["hub"]}
+    assert pa.main(["disassociate", "--zone", env["zone"], "--vpc", env["spoke"], "-q"]) == 0
+    out = capsys.readouterr().out
+    assert "\naws route53 disassociate-vpc-from-hosted-zone" in out
+    assert len(env["r53"].get_hosted_zone(Id=env["zone"])["VPCs"]) == 2
+
+
+def test_phz_assoc_has_no_execute_flag(env, capsys):
+    with pytest.raises(SystemExit):
+        pa.main(["associate", "--zone", env["zone"], "--vpc", env["spoke"], "--execute"])
 
 
 def test_phz_assoc_unknown_vpc_fails_closed(env, capsys):

@@ -7,7 +7,7 @@ and the PHZ owner deletes the (now unneeded) authorization.
 
 By default the tool queries both accounts to validate inputs and skip no-op steps.
 ``--offline`` generates commands purely from the arguments with no AWS calls.
-Nothing is changed unless ``--execute`` / ``--apply`` is passed.
+The tool is read-only: it never changes AWS resources, it only prints commands.
 """
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lib.aws_common import (  # noqa: E402
     AccountContext,
-    AccountSessions,
     ClientError,
     VpcRef,
     add_account_args,
@@ -188,7 +187,7 @@ def render_script(steps: Sequence[Step], action: str, phz_account: str) -> str:
 
 def gather_state(
     ctx: AccountContext, args: argparse.Namespace, vpcs: list[VpcRef]
-) -> tuple[str, list[ZoneState], list[VpcRef], AccountSessions, AccountSessions]:
+) -> tuple[str, list[ZoneState], list[VpcRef]]:
     phz_side = ctx.phz_sessions()
     vpc_side = ctx.vpc_sessions()
     phz_account = ctx.phz_account or phz_side.caller_account
@@ -226,27 +225,7 @@ def gather_state(
         authorized = set(list_authorizations(route53, z.zone_id)) if any_cross else set()
         states.append(ZoneState(z.zone_id, z.name, set(z.vpcs), authorized))
         log.info("Zone %s (%s): %d VPC(s) associated, %d authorization(s)", z.zone_id, z.name, len(z.vpcs), len(authorized))
-    return phz_account, states, resolved, phz_side, vpc_side
-
-
-def execute_steps(steps: Sequence[Step], phz_side: AccountSessions, vpc_side: AccountSessions, execute: bool) -> None:
-    for s in steps:
-        if s.skipped:
-            log.info("Skipping %s %s<->%s: %s", s.action, s.zone_id, s.vpc_id, s.skipped)
-            continue
-        desc = f"{s.action} zone={s.zone_id} vpc={s.vpc_id}/{s.vpc_region} as {s.side} account {s.account}"
-        if not execute:
-            log.info("[DRY-RUN] Would run %s", desc)
-            continue
-        log.info("[EXECUTE] %s", desc)
-        sessions = phz_side if s.side == "phz" else vpc_side
-        route53 = sessions.client("route53", s.account)
-        method = getattr(route53, s.action.replace("-", "_"))
-        resp = method(**s.params)
-        change = resp.get("ChangeInfo", {}).get("Id")
-        if change:
-            log.info("Waiting for change %s to reach INSYNC", change)
-            route53.get_waiter("resource_record_sets_changed").wait(Id=change)
+    return phz_account, states, resolved
 
 
 # --------------------------------------------------------------------------- CLI
@@ -268,8 +247,6 @@ def build_parser() -> argparse.ArgumentParser:
     parent.add_argument("--cli-phz-profile", help="Profile to put in generated PHZ-owner commands")
     parent.add_argument("--format", choices=("sh", "json"), default="sh", help="Output: shell script or JSON plan")
     parent.add_argument("--out", metavar="FILE", help="Write output to FILE instead of stdout")
-    parent.add_argument("--execute", action="store_true", help="Run the plan via boto3 (default: generate only)")
-    parent.add_argument("--apply", action="store_true", help="Alias for --execute")
 
     p = argparse.ArgumentParser(description="Generate CLI commands to associate/disassociate PHZs and VPCs (incl. cross-account).")
     sub = p.add_subparsers(dest="action", required=True)
@@ -290,15 +267,12 @@ def cli_profiles(args: argparse.Namespace) -> tuple[str | None, str | None]:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging(args.verbose, args.quiet)
-    execute = args.execute or args.apply
     action = args.action
     try:
         ctx = AccountContext.from_args(args)
         vpcs = parse_vpc_refs(args.vpc, args.vpc_region or args.region, ctx.vpc_account)
         args.zone = [normalize_zone_id(z) for raw in args.zone for z in raw.split(",") if z.strip()]
         if args.offline:
-            if execute:
-                raise ValueError("--execute cannot be combined with --offline")
             if args.zone_name or args.zone_tag or args.exclude_zone_tag:
                 raise ValueError("--zone-name/--zone-tag need AWS access; use --zone IDs with --offline")
             if not args.zone:
@@ -310,9 +284,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"--offline needs the VPC account for {', '.join(missing)}: pass --account/--vpc-account or VPC ARNs")
             phz_account = ctx.phz_account
             zones = [ZoneState(z) for z in args.zone]
-            phz_side = vpc_side = None
         else:
-            phz_account, zones, vpcs, phz_side, vpc_side = gather_state(ctx, args, vpcs)
+            phz_account, zones, vpcs = gather_state(ctx, args, vpcs)
 
         steps = build_plan(
             action,
@@ -356,15 +329,6 @@ def main(argv: list[str] | None = None) -> int:
 
     active = [s for s in steps if not s.skipped]
     log.info("%d step(s) planned, %d skipped", len(active), len(steps) - len(active))
-    if args.offline:
-        return 0
-    if not execute:
-        log.info("Generate-only (dry-run). Pass --execute or --apply to run the plan via boto3.")
-    try:
-        execute_steps(steps, phz_side, vpc_side, execute)
-    except ClientError as e:
-        log_client_error(e, "plan aborted; later steps not run")
-        return 1
     return 0
 
 

@@ -49,6 +49,8 @@ import boto3  # noqa: E402  (must follow truststore injection)
 from botocore.config import Config  # noqa: E402
 from botocore.exceptions import ClientError  # noqa: E402
 
+from lib.aws_profiles import derive_profile  # noqa: E402
+
 try:
     from dotenv import load_dotenv
 
@@ -96,9 +98,10 @@ def add_account_args(parser: argparse.ArgumentParser) -> None:
     g = parser.add_argument_group(
         "accounts",
         "--account applies to both the VPC and PHZ side. --vpc-account / --phz-account override it per side. "
-        "Credentials come from --vpc-profile / --phz-profile (falling back to --profile); when --role-name is "
-        "set, the tool assumes arn:aws:iam::<account>:role/<role-name> from those credentials if the caller is "
-        "not already in the target account.",
+        "Credentials: --vpc-profile / --phz-profile if given; else with --role-name, assume "
+        "arn:aws:iam::<account>:role/<role-name> from --profile; else a profile derived from the account ID in "
+        "~/.aws/config (sso_account_id / aws_account_id / role_arn; names ending -priv or -cpar are skipped, "
+        "-ro preferred on ties); else --profile / default chain.",
     )
     g.add_argument("--account", default=os.getenv("VPCE_ACCOUNT"), help="Account ID used for both VPCs and PHZs")
     g.add_argument("--vpc-account", default=os.getenv("VPCE_VPC_ACCOUNT"), help="Account ID that owns the VPC(s)")
@@ -132,9 +135,16 @@ def validate_account(value: str | None, flag: str) -> str | None:
 class AccountSessions:
     """Hands out boto3 sessions for a given account.
 
-    Base credentials come from ``profile``. If the caller is not in the requested
-    account and ``role_name`` is set, the role is assumed (and cached). Without a
-    role, a mismatch is an error — we fail closed rather than query the wrong account.
+    Credential resolution for an account, in order:
+
+    1. ``profile`` given explicitly for this side (--vpc-profile / --phz-profile)
+    2. ``role_name`` set: assume arn:aws:iam::<account>:role/<role_name> from the base
+       credentials (``fallback_profile``) whenever the caller isn't already in the account
+    3. otherwise a profile derived from the account ID (see lib.aws_profiles)
+    4. otherwise ``fallback_profile`` (--profile / AWS_PROFILE / default chain)
+
+    The account behind the chosen credentials is always checked; a mismatch is an
+    error — we fail closed rather than query the wrong account.
     """
 
     def __init__(
@@ -144,15 +154,26 @@ class AccountSessions:
         role_name: str | None = None,
         external_id: str | None = None,
         label: str = "",
+        account: str | None = None,
+        fallback_profile: str | None = None,
     ) -> None:
-        self.profile = profile
         self.region = region
         self.role_name = role_name
         self.external_id = external_id
         self.label = label
-        self._base = boto3.Session(profile_name=profile, region_name=region)
+        self.explicit_profile = profile
+        self.fallback_profile = fallback_profile
+        self.profile = profile or self._derive(account) or fallback_profile
+        if self.profile and self.profile != profile and self.profile != fallback_profile:
+            log.info("%s: using profile %s for account %s", label or "Session", self.profile, account)
+        self._base = boto3.Session(profile_name=self.profile, region_name=region)
         self._caller: str | None = None
         self._cache: dict[str, boto3.Session] = {}
+
+    def _derive(self, account: str | None) -> str | None:
+        if self.role_name:
+            return None
+        return derive_profile(account, preferred=self.fallback_profile)
 
     @property
     def caller_account(self) -> str:
@@ -167,25 +188,37 @@ class AccountSessions:
             return self._base
         if account in self._cache:
             return self._cache[account]
-        if not self.role_name:
-            raise PermissionError(
-                f"{self.label or 'Session'} credentials (profile={self.profile or 'default'}) are for account "
-                f"{self.caller_account}, but account {account} was requested. Use a matching profile or --role-name."
-            )
+        if self.role_name:
+            sess = self._assume(account)
+        else:
+            derived = self._derive(account)
+            if not derived:
+                raise PermissionError(
+                    f"{self.label or 'Session'} credentials (profile={self.profile or 'default'}) are for account "
+                    f"{self.caller_account}, but account {account} was requested and no profile maps to it. "
+                    "Use a matching profile or --role-name."
+                )
+            log.info("%s: using profile %s for account %s", self.label or "Session", derived, account)
+            sess = boto3.Session(profile_name=derived, region_name=self.region)
+            actual = sess.client("sts", config=BOTO_CONFIG).get_caller_identity()["Account"]
+            if actual != account:
+                raise PermissionError(f"Profile {derived} is configured for {account} but authenticates as {actual}")
+        self._cache[account] = sess
+        return sess
+
+    def _assume(self, account: str) -> boto3.Session:
         role_arn = f"arn:{self.partition}:iam::{account}:role/{self.role_name}"
         log.debug("Assuming %s", role_arn)
         params: dict[str, Any] = {"RoleArn": role_arn, "RoleSessionName": "aws-vpce-tools"}
         if self.external_id:
             params["ExternalId"] = self.external_id
         creds = self._base.client("sts", config=BOTO_CONFIG).assume_role(**params)["Credentials"]
-        sess = boto3.Session(
+        return boto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
             region_name=self.region,
         )
-        self._cache[account] = sess
-        return sess
 
     @property
     def partition(self) -> str:
@@ -199,8 +232,9 @@ class AccountSessions:
 class AccountContext:
     vpc_account: str | None
     phz_account: str | None
-    vpc_profile: str | None
-    phz_profile: str | None
+    vpc_profile: str | None  # explicit --vpc-profile only
+    phz_profile: str | None  # explicit --phz-profile only
+    profile: str | None  # --profile / AWS_PROFILE fallback
     role_name: str | None
     external_id: str | None
     region: str
@@ -213,18 +247,25 @@ class AccountContext:
         return cls(
             vpc_account=vpc_acct,
             phz_account=phz_acct,
-            vpc_profile=args.vpc_profile or args.profile,
-            phz_profile=args.phz_profile or args.profile,
+            vpc_profile=args.vpc_profile,
+            phz_profile=args.phz_profile,
+            profile=args.profile,
             role_name=args.role_name,
             external_id=args.external_id,
             region=args.region,
         )
 
     def vpc_sessions(self) -> AccountSessions:
-        return AccountSessions(self.vpc_profile, self.region, self.role_name, self.external_id, label="VPC-side")
+        return AccountSessions(
+            self.vpc_profile, self.region, self.role_name, self.external_id,
+            label="VPC-side", account=self.vpc_account, fallback_profile=self.profile,
+        )
 
     def phz_sessions(self) -> AccountSessions:
-        return AccountSessions(self.phz_profile, self.region, self.role_name, self.external_id, label="PHZ-side")
+        return AccountSessions(
+            self.phz_profile, self.region, self.role_name, self.external_id,
+            label="PHZ-side", account=self.phz_account, fallback_profile=self.profile,
+        )
 
 
 # --------------------------------------------------------------------------- VPC refs

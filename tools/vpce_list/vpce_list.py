@@ -198,9 +198,9 @@ def main(argv: list[str] | None = None) -> int:
     if accounts:
         ctx.vpc_account = accounts.pop()
 
-    vpc_side = ctx.vpc_sessions()
     rows: list[dict[str, Any]] = []
     try:
+        vpc_side = ctx.vpc_sessions()
         for region in regions:
             region_vpcs = [r.vpc_id for r in vpcs if r.region in (None, region)]
             if vpcs and not region_vpcs:
@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     except ClientError as e:
         log_client_error(e)
         return 1
-    except PermissionError as e:
+    except (PermissionError, ValueError) as e:
         log.error("%s", e)
         return 1
 
