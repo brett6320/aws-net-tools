@@ -18,28 +18,52 @@ together with `FilterAtSource`.
 
 ## Usage
 
+HTML reports are written by default. Each analysis gets its own file under the reports folder,
+organized by date and account:
+
+```text
+reports/
+└── 2026-10-23/                                      # analysis start date (UTC)
+    └── 111122223333/                                # account that owns the analysis (from its ARN)
+        ├── app-to-db-5432_nia-0fedcba9876543210.html  # <Name tag>_<analysis-id>.html
+        └── nia-0ccc000000000ccc3.html                 # no Name tag
+```
+
+- The root is `./reports` relative to the current directory. Change it with `--reports-dir` or `RA_REPORTS_DIR`.
+- The file name uses the analysis `Name` tag, then the path `Name` tag, then just the analysis ID.
+- The account is read from the analysis ARN, never from your local AWS profile. Re-exporting an analysis
+  overwrites the same file.
+- `create`/`analyze` wait for the analysis to finish and then write the report. `--export FILE` writes to that
+  file instead. `--no-report` skips the report and returns as soon as the analysis starts (unless `--wait`
+  or `--json-out` is also given).
+- `export` without `-o` writes one report per analysis into the reports folder. `-o FILE` writes one combined
+  file.
+- `reports/` is git-ignored.
+
+
 ```bash
 # Dry-run (default: prints the API requests, makes no changes)
 python reachability.py create -s i-0abc... -d i-0def... --dest-port 5432
 
-# Create path + run analysis, wait, export HTML
+# Create path + run analysis, wait, write HTML report to reports/<date>/<account>/
 python reachability.py create --execute -s i-0abc... -d i-0def... \
     --protocol tcp --dest-port 5432 --source-port 1024-65535 --source-ip 10.0.1.15 \
-    --name app-to-db --export app-to-db.html
+    --name app-to-db
 
-# IP address destination
-python reachability.py create --apply -s eni-0abc... --dest-ip 8.8.8.8 -p udp --dest-port 53 --wait
+# IP address destination, report written to a specific file instead
+python reachability.py create --apply -s eni-0abc... --dest-ip 8.8.8.8 -p udp --dest-port 53 --export dns.html
 
-# Re-run an existing path through a specific transit gateway
+# Re-run an existing path through a specific transit gateway, no report, don't wait
 python reachability.py analyze nip-0123... --execute \
-    --filter-in arn:aws:ec2:us-east-1:111122223333:transit-gateway/tgw-0abc... --wait
+    --filter-in arn:aws:ec2:us-east-1:111122223333:transit-gateway/tgw-0abc... --no-report
 
 # Inspect / export
 python reachability.py paths
 python reachability.py analyses --path-id nip-0123...
 python reachability.py show nia-0123...
-python reachability.py export nia-0123... nia-0456... -o traces.html --json-out traces.json
-python reachability.py export --from-json traces.json -o traces.html   # offline re-render
+python reachability.py export nia-0123... nia-0456...                  # one report each, in reports/
+python reachability.py export nia-0123... nia-0456... -o traces.html --json-out traces.json   # one combined file
+python reachability.py export --from-json traces.json                  # offline re-render into reports/
 
 # Cleanup (dry-run unless --execute)
 python reachability.py delete-path nip-0123... --with-analyses --execute
@@ -94,12 +118,12 @@ Analysis nia-0bad000000000bad1  (path nip-0aaaabbbbccccdddd)
 | Command | Mutates | Description |
 |---|---|---|
 | `types` | no | List supported source/destination and intermediate types |
-| `create` | yes | Create a path, then start an analysis (skip with `--no-analyze`) |
-| `analyze PATH_ID` | yes | Start a new analysis on an existing path |
+| `create` | yes | Create a path, start an analysis, wait, write the report (`--no-analyze` creates the path only) |
+| `analyze PATH_ID` | yes | Start a new analysis on an existing path, wait, write the report |
 | `paths` | no | List paths (`--json`) |
 | `analyses` | no | List analyses (newest first), optionally for one path (`--path-id`, `--json`) |
 | `show ANALYSIS_ID` | no | Print a hop-by-hop summary (`--json` for the raw bundle) |
-| `export ID... -o FILE` | no | Write self-contained HTML. `--from-json` re-renders saved bundles offline. `--wait` waits for running analyses first |
+| `export ID...` | no | Write one HTML report per analysis to the reports folder, or one combined file with `-o FILE`. `--from-json` re-renders saved bundles offline. `--wait` waits for running analyses first |
 | `delete-path` / `delete-analysis` | yes | Delete resources. `delete-path --with-analyses` also deletes the path's analyses |
 
 ### Options
@@ -120,7 +144,11 @@ Analysis nia-0bad000000000bad1  (path nip-0aaaabbbbccccdddd)
 | `--additional-account ID` | Extra account for cross-account analysis (repeatable) |
 | `--analysis-name` | Name tag for the analysis |
 | `--wait`, `--timeout N` | Wait for the analysis to finish (`create`/`analyze` default `RA_WAIT_TIMEOUT` or 600s; `export --timeout` default 600s) |
-| `--export FILE.html`, `--json-out FILE.json` | Wait, then export (`create`/`analyze`). On `export`, `--json-out` also saves the bundle(s) |
+| `--reports-dir DIR` | Reports root (default `RA_REPORTS_DIR` or `./reports`). Files go to `DIR/<YYYY-MM-DD>/<account-id>/` |
+| `--export FILE.html` | `create`/`analyze`: write the report to this file instead of the reports folder |
+| `--no-report` | `create`/`analyze`: skip the HTML report, and don't wait unless `--wait`/`--json-out` is given |
+| `-o/--output FILE.html` | `export`: write one combined file instead of per-analysis reports |
+| `--json-out FILE.json` | Also save the path+analysis JSON bundle(s) (`create`/`analyze` wait first) |
 | `--title TEXT` | Page title for the HTML export (default "Reachability Trace") |
 | `--check-permissions` | In dry-run, call the API with `DryRun=True` to check IAM permissions (`create`/`analyze`) |
 | `-v` / `-q` | Debug / warnings-only logging |
@@ -202,6 +230,7 @@ then its parent directories. CLI flags override `.env` values.
 | `AWS_REGION` | profile region | Target region |
 | `AWS_DEFAULT_REGION` | — | Region fallback when `AWS_REGION` is unset |
 | `RA_WAIT_TIMEOUT` | `600` | Default `--timeout` for `create` and `analyze` (not `export`) |
+| `RA_REPORTS_DIR` | `reports` | Root folder for HTML reports |
 
 ## Platform Notes
 
@@ -248,7 +277,9 @@ AWS charges for each analysis run. See AWS pricing.
   in which case they log `[EXECUTE]`. Dry-runs make no API calls, except `--check-permissions` and
   `delete-path --with-analyses`, which lists the path's analyses.
 - Logs go to stderr. Results (summaries, listings, `--json`) go to stdout, so `--json` output can be piped.
-- `show`/`--wait` print a hop-by-hop summary to stdout. `--json` prints raw API data.
+- `show` and finished `create`/`analyze` runs print a hop-by-hop summary to stdout. `--json` prints raw API data.
+- Each written report is logged as `Wrote HTML export <path>`.
+- Dry-runs of `create`/`analyze` log where the report would go (`reports/<date>/<account>/<analysis>.html`).
 - Exit codes: `0` success, `1` validation, credential, lookup, timeout, or AWS error, `2` analysis finished
   with status `failed` (argparse usage errors also exit `2`).
 

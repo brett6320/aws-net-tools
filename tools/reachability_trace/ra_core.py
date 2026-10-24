@@ -1,10 +1,13 @@
 """Core Reachability Analyzer operations: input validation, path/analysis API calls."""
 from __future__ import annotations
 
+import datetime as dt
 import ipaddress
 import logging
+import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterator
 
 import boto3
@@ -292,6 +295,43 @@ def delete_path(ec2, path_id: str) -> None:
 def delete_analysis(ec2, analysis_id: str) -> None:
     log.info("[EXECUTE] Deleting analysis %s", analysis_id)
     ec2.delete_network_insights_analysis(NetworkInsightsAnalysisId=analysis_id)
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip("-.")[:60]
+
+
+def report_path(bundle: dict[str, Any], reports_dir: str | Path) -> Path:
+    """Default report location: <reports_dir>/<YYYY-MM-DD>/<account-id>/[<name>_]<analysis-id>.html.
+
+    The date is the analysis start date (UTC), so re-exporting an analysis lands in
+    the same place. The account comes from the analysis ARN (the account that owns
+    the analysis), never from the local AWS profile.
+    """
+    a = bundle.get("analysis") or {}
+    p = bundle.get("path") or {}
+    arn = a.get("NetworkInsightsAnalysisArn") or p.get("NetworkInsightsPathArn") or ""
+    parts = arn.split(":")
+    account = parts[4] if len(parts) > 5 and parts[4] else "unknown-account"
+
+    started = a.get("StartDate")
+    if isinstance(started, str):
+        try:
+            started = dt.datetime.fromisoformat(started.replace("Z", "+00:00"))
+        except ValueError:
+            started = None
+    if not isinstance(started, dt.datetime):
+        started = dt.datetime.now(dt.timezone.utc)
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=dt.timezone.utc)
+    day = started.astimezone(dt.timezone.utc).strftime("%Y-%m-%d")
+
+    aid = a.get("NetworkInsightsAnalysisId") or p.get("NetworkInsightsPathId") or "analysis"
+    name = next((t.get("Value") for tags in (a.get("Tags"), p.get("Tags")) for t in tags or []
+                 if t.get("Key") == "Name" and t.get("Value")), None)
+    slug = _slug(name) if name else ""
+    filename = f"{slug}_{aid}.html" if slug else f"{aid}.html"
+    return Path(reports_dir) / day / account / filename
 
 
 def build_bundle(path: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
