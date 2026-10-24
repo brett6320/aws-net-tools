@@ -80,32 +80,45 @@ Run the script from this directory or by path. It imports the sibling `ra_*.py` 
 
 ### Example summary output
 
-`show`, and `create`/`analyze` with `--wait`, print a hop-by-hop summary (from `tests/fixtures/`):
+`show`, and finished `create`/`analyze` runs, print a hop-by-hop summary. For cross-account paths every hop is
+tagged with its owning `<account>`. These examples come from `tests/fixtures/`:
 
 ```text
-Analysis nia-0fedcba9876543210  (path nip-0123456789abcdef0)
-  i-0src00000000000a1 -> i-0dst00000000000b2  TCP
-  filter@source: src=10.0.1.15:1024-65535 dst=any:5432
+Analysis nia-0xacct1111222233a  (path nip-0xacct11112222333)
+  i-0app1111222233334 -> arn:aws:ec2:us-east-1:444455556666:instance/i-0db44445555666677  TCP
+  Accounts: owner=111122223333 source=111122223333 destination=444455556666  [CROSS-ACCOUNT]
+    111122223333: Analysis owner, Source; forward hops 5, return hops 2
+    444455556666: Destination, Additional (requested); forward hops 4, return hops 3
+    222233334444: Additional (requested); forward hops 3, return hops 3
+  filter@source: src=any:1024-65535 dst=any:5432
   Status: succeeded  Result: REACHABLE
   Forward path:
-    1. EC2 instance                 i-0src00000000000a1 (app-server-1)
-    2. Network interface            eni-0src0000000000a1
-    3. Security group               sg-0app00000000000a1 (app-sg)  [egress All All (0-65535) 10.0.0.0/16]
-    4. Network ACL                  acl-0a0000000000000a1  [rule 100 egress ALLOW All All 0.0.0.0/0]
-    5. Route table                  rtb-0a0000000000000a1 (app-rt)  [10.0.0.0/16 -> local]
-    6. Network ACL                  acl-0b0000000000000b2  [rule 110 ingress ALLOW TCP 5432 10.0.1.0/24]
-    7. Security group               sg-0db000000000000b2 (db-sg)  [ingress TCP 5432 10.0.1.0/24]
-    8. Network interface            eni-0dst0000000000b2
-    9. EC2 instance                 i-0dst00000000000b2 (db-1)
+    1. EC2 instance                 i-0app1111222233334 (app-api-1)  <111122223333>
+    2. Network interface            eni-0app111122223333a  <111122223333>
+    3. Security group               sg-0app11112222333aa (app-api-sg)  [egress TCP 5432 10.20.0.0/16]  <111122223333>
+    4. Network ACL                  acl-0app11112222333a  [rule 200 egress ALLOW TCP 5432 10.20.0.0/16]  <111122223333>
+    5. Route table                  rtb-0app11112222333a (app-private-rt)  [10.20.0.0/16 -> tgw-0net2222333344445]  <111122223333>
+    6. Transit gateway attachment   tgw-attach-0app11112222333a (app-vpc-attach)  <222233334444>
+    7. Transit gateway              tgw-0net2222333344445 (core-tgw)  <222233334444>
+    8. Transit gateway attachment   tgw-attach-0db444455556666b (data-vpc-attach)  <222233334444>
+    9. Network ACL                  acl-0db444455556666a  [rule 100 ingress ALLOW TCP 5432 10.10.0.0/16]  <444455556666>
+   10. Security group               sg-0db444455556666aa (data-db-sg)  [ingress TCP 5432 10.10.1.0/24]  <444455556666>
+   11. Network interface            eni-0db444455556666aa  <444455556666>
+   12. EC2 instance                 i-0db44445555666677 (data-pg-1)  <444455556666>
   Return path:
-    1. Network interface            eni-0dst0000000000b2
-    2. Network ACL                  acl-0b0000000000000b2  [rule 120 egress ALLOW TCP 1024-65535 10.0.1.0/24]
-    3. Route table                  rtb-0b0000000000000b2 (db-rt)  [10.0.0.0/16 -> local]
-    4. Network ACL                  acl-0a0000000000000a1  [rule 100 ingress ALLOW All All 0.0.0.0/0]
-    5. Network interface            eni-0src0000000000a1
+    1. Network interface            eni-0db444455556666aa  <444455556666>
+    2. Network ACL                  acl-0db444455556666a  [rule 110 egress ALLOW TCP 1024-65535 10.10.0.0/16]  <444455556666>
+    3. Route table                  rtb-0db444455556666a (data-private-rt)  [10.10.0.0/16 -> tgw-0net2222333344445]  <444455556666>
+    4. Transit gateway attachment   tgw-attach-0db444455556666b (data-vpc-attach)  <222233334444>
+    5. Transit gateway              tgw-0net2222333344445 (core-tgw)  <222233334444>
+    6. Transit gateway attachment   tgw-attach-0app11112222333a (app-vpc-attach)  <222233334444>
+    7. Network ACL                  acl-0app11112222333a  [rule 210 ingress ALLOW TCP 1024-65535 10.20.0.0/16]  <111122223333>
+    8. Network interface            eni-0app111122223333a  <111122223333>
 
 Analysis nia-0bad000000000bad1  (path nip-0aaaabbbbccccdddd)
   eni-0src0000000000a1 -> tgw-attach-0abc123def4567890  TCP
+  Accounts: owner=111122223333 source=111122223333 destination=111122223333
+  Suggested accounts: 444455556666
   filter@source: src=any:All dst=any:443
   Status: succeeded  Result: NOT REACHABLE
   Warning: Some components could not be fully analyzed.
@@ -147,6 +160,8 @@ Analysis nia-0bad000000000bad1  (path nip-0aaaabbbbccccdddd)
 | `--reports-dir DIR` | Reports root (default `RA_REPORTS_DIR` or `./reports`). Files go to `DIR/<YYYY-MM-DD>/<account-id>/` |
 | `--export FILE.html` | `create`/`analyze`: write the report to this file instead of the reports folder |
 | `--no-report` | `create`/`analyze`: skip the HTML report, and don't wait unless `--wait`/`--json-out` is given |
+| `--theme dark\|light\|auto` | HTML report theme (default `RA_THEME` or `dark`). `auto` follows the OS. Each report also has an in-page toggle |
+| `--no-auto-accounts` | `create`/`analyze`: don't add source/destination/filter ARN accounts to `AdditionalAccounts` |
 | `-o/--output FILE.html` | `export`: write one combined file instead of per-analysis reports |
 | `--json-out FILE.json` | Also save the path+analysis JSON bundle(s) (`create`/`analyze` wait first) |
 | `--title TEXT` | Page title for the HTML export (default "Reachability Trace") |
@@ -173,18 +188,25 @@ Network Firewall firewalls, transit gateways, transit gateway attachments, VPC p
 
 ## HTML export
 
-| Light | Dark |
+Reports open in **dark mode** by default. Use `--theme light` or `--theme auto` (follow the OS), or set
+`RA_THEME`. A ◐ Theme button in each report switches between dark and light, and printing always uses light.
+
+| Dark (default) | Light |
 |---|---|
-| ![Light mode](docs/images/reachable-overview.png) | ![Dark mode](docs/images/reachable-overview-dark.png) |
+| ![Dark mode](docs/images/reachable-overview.png) | ![Light mode](docs/images/reachable-overview-light.png) |
 
-One `.html` file with no external assets: inline CSS and inline SVG icons, light and dark mode,
-print-friendly. Multiple analyses go in one file with a jump bar. For each analysis it shows:
+One `.html` file with no external assets: inline CSS, inline SVG icons, and a few lines of inline JavaScript
+for the theme toggle. It's print-friendly. Multiple analyses go in one file with a jump bar. For each analysis it shows:
 
-- **Path**: ID/ARN, source and destination (with icons), protocol, filter at source/destination, created date, tags
+- **Path**: ID/ARN, source and destination (with icons and owning accounts), path owner account, protocol,
+  filter at source/destination, created date, tags
 - **Analysis**: ID/ARN, status, reachable/not-reachable badge, status and warning messages, filter-in/out ARNs,
   additional and suggested accounts, tags
+- **Accounts**: every account involved, with its roles (analysis owner, source, destination, additional,
+  suggested by AWS, filter component, in explanations) and how many forward/return hops it owns
 - **Forward and return path diagrams**: one icon card per component with its sequence number, type, ID, name, and a
   short rule/route hint. Click a card to jump to its details
+- **Account on every hop**: each component's details show its owning account (from its ARN, else its VPC/subnet)
 - **Component details**: VPC, subnet, attached-to, source/destination VPC, transit gateway, inbound/outbound packet
   headers, security group rule, network ACL rule, route table route, TGW route and policy entry, ELB listener,
   Network Firewall stateless/stateful rules, additional details, and per-component explanations
@@ -206,6 +228,47 @@ Internet gateway → Network Load Balancer → instance, showing per-hop packet 
 ![IGW to NLB path](docs/images/igw-nlb-path.png)
 
 The export includes only data returned by the EC2 API. The AWS profile name and credentials are never written.
+
+## Cross-account paths
+
+Sources and destinations are often in different accounts, for example an app account reaching a database
+account through a transit gateway owned by a network account. Reachability Analyzer supports this for accounts
+in the same AWS Organization once trusted access is enabled. Paths and analyses are created in the account you
+run as (the **path owner**), typically the management account or a delegated administrator. See
+[Cross-account analyses](https://docs.aws.amazon.com/vpc/latest/reachability/multi-account.html).
+
+**Running them**
+
+- Give resources in other accounts as **ARNs** (`-s`/`-d`, `--filter-in`/`--filter-out`). A bare ID is looked up in
+  the path owner's account.
+- `create` and `analyze` automatically add every account in the source, destination, and filter ARNs that isn't the
+  path owner to `AdditionalAccounts`, and log which ones they added. Add others (such as a network account that only
+  owns a transit gateway in the middle) with `--additional-account`. Turn the automatic part off with
+  `--no-auto-accounts`.
+- If AWS returns `SuggestedAccounts` that weren't included, the CLI logs a warning with the exact
+  `--additional-account` flags to re-run with, and the report repeats it.
+
+```bash
+python reachability.py create --execute \
+    -s arn:aws:ec2:us-east-1:111122223333:instance/i-0app... \
+    -d arn:aws:ec2:us-east-1:444455556666:instance/i-0db... \
+    --additional-account 222233334444 --dest-port 5432 --name app-to-data-db-5432
+```
+
+**What's reported**
+
+- A **⇄ Cross-account** badge when the path owner, source, destination, and traversed hops span more than one account.
+  Accounts that were only requested or suggested don't count.
+- The **Accounts** card: each account's roles and forward/return hop counts.
+- In the diagrams, each node shows its account with a per-account color on its top border (legend below). Dashed
+  **account boundary** links mark every point where traffic moves to a different account.
+- Each component's details show its owning account.
+- The CLI summary adds an `Accounts:` line, a per-account breakdown, and `<account>` on each hop.
+
+![Cross-account path through a transit gateway](docs/images/cross-account.png)
+
+Reports are filed under the **path owner's** account (`reports/<date>/<owner-account>/`), since that's where the
+analysis lives and can be re-run. The source and destination accounts are inside the report.
 
 ## Requirements
 
@@ -231,6 +294,7 @@ then its parent directories. CLI flags override `.env` values.
 | `AWS_DEFAULT_REGION` | — | Region fallback when `AWS_REGION` is unset |
 | `RA_WAIT_TIMEOUT` | `600` | Default `--timeout` for `create` and `analyze` (not `export`) |
 | `RA_REPORTS_DIR` | `reports` | Root folder for HTML reports |
+| `RA_THEME` | `dark` | Default report theme: `dark`, `light`, or `auto` |
 
 ## Platform Notes
 
@@ -291,20 +355,17 @@ pytest tests
 ```
 
 Tests cover input validation, `FilterAtSource` request building, dry-run safety (no API calls), icon
-classification, and HTML rendering against the fixtures in `tests/fixtures/`.
+classification, account attribution and cross-account reporting, themes, and HTML rendering against the
+fixtures in `tests/fixtures/`.
 
 ### Regenerating the screenshots
 
-The images in `docs/images/` are headless-Chrome captures of fixture exports, with the theme forced through
-the page's `data-theme` attribute:
+The images in `docs/images/` are headless-Chrome captures of the fixture exports. Regenerate them all with
+(macOS: needs Google Chrome and `sips`):
 
 ```bash
-python reachability.py export --from-json tests/fixtures/reachable.json -o /tmp/r.html --title "Reachability trace"
-sed 's/<html lang="en">/<html lang="en" data-theme="light">/' /tmp/r.html > /tmp/r-light.html   # or data-theme="dark"
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
-  --force-device-scale-factor=1 --window-size=1300,1000 \
-  --screenshot=docs/images/reachable-overview.png file:///tmp/r-light.html
+python docs/make_screenshots.py            # --chrome PATH to use another Chrome/Chromium binary
 ```
 
-`return-path.png` is a crop of a full-page capture of the same export (`--window-size=1300,<page height>`), cropped
-with `sips --cropOffset <y> 0 -c 1100 1300` to start at the Return path card.
+The script renders each fixture in the theme listed in its `SHOTS` table, measures the region to keep, captures it,
+and crops it.

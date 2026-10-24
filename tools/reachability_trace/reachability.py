@@ -17,8 +17,9 @@ truststore.inject_into_ssl()
 from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
+import ra_accounts as accounts  # noqa: E402
 import ra_core as core  # noqa: E402
-from ra_export import port_range, proto, render_html  # noqa: E402
+from ra_export import THEMES, port_range, proto, render_html  # noqa: E402
 from ra_icons import classify, label_for  # noqa: E402
 
 load_dotenv()
@@ -49,9 +50,9 @@ def _dump(obj: Any) -> str:
     return json.dumps(obj, indent=2, default=_json_default)
 
 
-def _write_export(bundles: list[dict], out: str | Path, title: str | None) -> None:
+def _write_export(bundles: list[dict], out: str | Path, title: str | None, theme: str = "dark") -> None:
     Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(render_html(bundles, title), encoding="utf-8")
+    Path(out).write_text(render_html(bundles, title, theme), encoding="utf-8")
     log.info("Wrote HTML export %s", out)
 
 
@@ -61,7 +62,7 @@ def _write_json(bundles: list[dict], out: str) -> None:
     log.info("Wrote JSON %s", out)
 
 
-def _comp_line(pc: dict) -> str:
+def _comp_line(pc: dict, show_account: bool = False) -> str:
     c = pc.get("Component") or {}
     kind, sub = classify(c.get("Id"), c.get("Arn"))
     ident = c.get("Id") or (c.get("Arn") or "").split("/")[-1]
@@ -80,7 +81,8 @@ def _comp_line(pc: dict) -> str:
         tgt = next((v for k, v in r.items() if k.endswith("Id") and k != "DestinationPrefixListId" and v), "")
         extra = f"  [{r.get('DestinationCidr') or r.get('DestinationPrefixListId')} -> {tgt}]"
     name = f" ({c['Name']})" if c.get("Name") and c.get("Name") != ident else ""
-    return f"  {pc.get('SequenceNumber'):>3}. {label_for(kind, sub):<28} {ident}{name}{extra}"
+    acct = f"  <{accounts.component_account(pc) or '?'}>" if show_account else ""
+    return f"  {pc.get('SequenceNumber'):>3}. {label_for(kind, sub):<28} {ident}{name}{extra}{acct}"
 
 
 def print_summary(bundle: dict) -> None:
@@ -89,6 +91,15 @@ def print_summary(bundle: dict) -> None:
     dst = p.get("Destination") or p.get("DestinationIp") or ""
     print(f"\nAnalysis {a.get('NetworkInsightsAnalysisId')}  (path {p.get('NetworkInsightsPathId')})")
     print(f"  {src} -> {dst}  {proto(p.get('Protocol'))}")
+    acc = accounts.account_summary(p, a)
+    print(f"  Accounts: owner={acc['owner'] or '?'} source={acc['source'] or '?'} "
+          f"destination={acc['destination'] or '?'}" + ("  [CROSS-ACCOUNT]" if acc["cross_account"] else ""))
+    if acc["cross_account"]:
+        for acct, info in acc["accounts"].items():
+            roles = ", ".join(info["roles"]) or "transit"
+            print(f"    {acct}: {roles}; forward hops {info['forward']}, return hops {info['return']}")
+    if a.get("SuggestedAccounts"):
+        print(f"  Suggested accounts: {', '.join(a['SuggestedAccounts'])}")
     f = p.get("FilterAtSource")
     if f:
         print(f"  filter@source: src={f.get('SourceAddress') or 'any'}:{port_range(f.get('SourcePortRange'))} "
@@ -105,7 +116,7 @@ def print_summary(bundle: dict) -> None:
         if comps:
             print(f"  {title}:")
             for pc in comps:
-                print(_comp_line(pc))
+                print(_comp_line(pc, acc["cross_account"]))
     for x in a.get("Explanations") or []:
         comp = x.get("Component") or {}
         print(f"  Explanation: {x.get('ExplanationCode')} {comp.get('Id') or ''} {x.get('Direction') or ''}".rstrip())
@@ -127,10 +138,11 @@ def _finish(ec2, args, path: dict, analysis: dict) -> int:
     analysis = core.wait_for_analysis(ec2, analysis["NetworkInsightsAnalysisId"], timeout=args.timeout)
     bundle = core.build_bundle(path, analysis)
     print_summary(bundle)
+    _warn_suggested_accounts(analysis)
     if args.export:
-        _write_export([bundle], args.export, args.title)
+        _write_export([bundle], args.export, args.title, args.theme)
     elif not args.no_report:
-        _write_export([bundle], core.report_path(bundle, args.reports_dir), args.title)
+        _write_export([bundle], core.report_path(bundle, args.reports_dir), args.title, args.theme)
     if args.json_out:
         _write_json([bundle], args.json_out)
     return 0 if analysis.get("Status") == "succeeded" else 2
@@ -170,6 +182,11 @@ def cmd_create(args, execute: bool) -> int:
         log.info("[DRY-RUN] Would call CreateNetworkInsightsPath:\n%s", _dump(path_req))
         if an_req:
             log.info("[DRY-RUN] Would call StartNetworkInsightsAnalysis:\n%s", _dump(an_req))
+            arn_accts = sorted({a for a in map(accounts.arn_account, [args.source, args.dest,
+                                *(args.filter_in or []), *(args.filter_out or [])]) if a})
+            if arn_accts and not args.no_auto_accounts:
+                log.info("[DRY-RUN] Would also add to AdditionalAccounts any of %s not owning the path",
+                         ", ".join(arn_accts))
             _log_dry_run_report(args)
         if args.check_permissions:
             _check_permission(_ec2(args).create_network_insights_path, path_req)
@@ -181,6 +198,7 @@ def cmd_create(args, execute: bool) -> int:
     if not an_req:
         return 0
     an_req["NetworkInsightsPathId"] = path["NetworkInsightsPathId"]
+    _auto_accounts(args, path, an_req)
     analysis = core.start_analysis(ec2, an_req)
     return _finish(ec2, args, path, analysis)
 
@@ -196,8 +214,31 @@ def cmd_analyze(args, execute: bool) -> int:
         return 0
     ec2 = _ec2(args)
     path = core.get_path(ec2, args.path_id)
+    _auto_accounts(args, path, an_req)
     analysis = core.start_analysis(ec2, an_req)
     return _finish(ec2, args, path, analysis)
+
+
+def _auto_accounts(args, path: dict, an_req: dict) -> None:
+    """Add accounts that own the source, destination, or filter components (but not the
+    path) to AdditionalAccounts, so Reachability Analyzer can describe them."""
+    if args.no_auto_accounts:
+        return
+    have = an_req.get("AdditionalAccounts") or []
+    new = [a for a in accounts.related_accounts(path, (args.filter_in or []) + (args.filter_out or []))
+           if a not in have]
+    if new:
+        an_req["AdditionalAccounts"] = have + new
+        log.info("Adding accounts %s to AdditionalAccounts (resources outside path owner account %s)",
+                 ", ".join(new), accounts.path_owner(path) or "?")
+
+
+def _warn_suggested_accounts(analysis: dict) -> None:
+    missing = [a for a in analysis.get("SuggestedAccounts") or []
+               if a not in (analysis.get("AdditionalAccounts") or [])]
+    if missing:
+        log.warning("AWS suggests including accounts %s. Re-run with %s for a complete result.",
+                    ", ".join(missing), " ".join(f"--additional-account {a}" for a in missing))
 
 
 def _log_dry_run_report(args) -> None:
@@ -272,10 +313,10 @@ def cmd_export(args, _execute: bool) -> int:
     if not bundles:
         raise core.ValidationError("Provide analysis IDs and/or --from-json files")
     if args.output:
-        _write_export(bundles, args.output, args.title)
+        _write_export(bundles, args.output, args.title, args.theme)
     else:
         for b in bundles:
-            _write_export([b], core.report_path(b, args.reports_dir), args.title)
+            _write_export([b], core.report_path(b, args.reports_dir), args.title, args.theme)
     if args.json_out:
         _write_json(bundles, args.json_out)
     return 0
@@ -323,6 +364,8 @@ def _add_mutating(p: argparse.ArgumentParser) -> None:
 
 
 def _add_report_opts(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--theme", choices=THEMES, default=os.getenv("RA_THEME", "dark"),
+                   help="HTML report theme: dark (default), light, or auto (follow OS); toggle in-page")
     p.add_argument("--reports-dir", default=os.getenv("RA_REPORTS_DIR", "reports"), metavar="DIR",
                    help="Reports root; reports go to DIR/<YYYY-MM-DD>/<account-id>/ (default: ./reports)")
 
@@ -334,6 +377,8 @@ def _add_analysis_opts(p: argparse.ArgumentParser) -> None:
                    help="Exclude this intermediate component (repeatable)")
     p.add_argument("--additional-account", action="append", metavar="ACCOUNT_ID",
                    help="Additional account for cross-account analysis (repeatable)")
+    p.add_argument("--no-auto-accounts", action="store_true",
+                   help="Don't add source/destination/filter ARN accounts to AdditionalAccounts automatically")
     p.add_argument("--analysis-name", help="Name tag for the analysis")
     p.add_argument("--wait", action="store_true", help="Wait for analysis to complete and print a summary")
     p.add_argument("--timeout", type=int, default=int(os.getenv("RA_WAIT_TIMEOUT", "600")),
@@ -443,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     except core.ValidationError as e:
         log.error("%s", e)
         return 1
-    except (LookupError, TimeoutError) as e:
+    except (LookupError, TimeoutError, ValueError) as e:
         log.error("%s", e)
         return 1
     except (NoCredentialsError, ProfileNotFound) as e:

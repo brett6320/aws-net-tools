@@ -12,8 +12,12 @@ import re
 from html import escape
 from typing import Any
 
+from ra_accounts import ROLE_SUGGESTED, account_summary, arn_account, component_account
 from ra_codes import describe_code
 from ra_icons import classify, icon_svg, label_for
+
+# Per-account accent colors for cross-account paths (assigned in first-seen order).
+ACCOUNT_COLORS = ["#0972d3", "#d45b07", "#037f0c", "#9469d6", "#c33d69", "#00819c", "#8d6605", "#5f6b7a"]
 
 PROTO_NAMES = {"-1": "All", "1": "ICMP", "6": "TCP", "17": "UDP", "58": "ICMPv6",
                "tcp": "TCP", "udp": "UDP", "icmp": "ICMP", "all": "All"}
@@ -78,6 +82,14 @@ def port_ranges(prs: list | None) -> str:
 
 def _is_component(v: Any) -> bool:
     return isinstance(v, dict) and bool({"Id", "Arn"} & v.keys()) and set(v.keys()) <= {"Id", "Arn", "Name"}
+
+
+def acct_pill(acct: str | None, colors: dict[str, str] | None = None, label: str = "acct") -> str:
+    if not acct:
+        return ""
+    color = (colors or {}).get(acct)
+    dot = f'<span class="dot" style="background:{color}"></span>' if color else ""
+    return f'<span class="acctpill" title="AWS account {_e(acct)}">{dot}{_e(label)} <code>{_e(acct)}</code></span>'
 
 
 def chip(c: dict | None, size: int = 18) -> str:
@@ -242,8 +254,10 @@ def _section(title: str, body: str) -> str:
     return f'<div class="sec"><h5>{_e(title)}</h5>{body}</div>'
 
 
-def render_component(pc: dict, direction: str, aid: str, blocked: set[str]) -> str:
+def render_component(pc: dict, direction: str, aid: str, blocked: set[str],
+                     colors: dict[str, str] | None = None) -> str:
     comp = pc.get("Component") or {}
+    acct = component_account(pc)
     kind, sub = classify(comp.get("Id"), comp.get("Arn"))
     ident = _comp_ident(comp)
     seq = pc.get("SequenceNumber")
@@ -299,14 +313,18 @@ def render_component(pc: dict, direction: str, aid: str, blocked: set[str]) -> s
       <div class="id"><code>{_e(ident)}</code>{f' <span class="nm">{_e(name)}</span>' if name and name != ident else ''}</div>
       {f'<div class="arn">{_e(comp.get("Arn"))}</div>' if comp.get("Arn") else ''}
     </div>
+    {f'<div class="cacct">{acct_pill(acct, colors, "Account")}</div>' if acct else ''}
   </header>
   <div class="body">{''.join(secs) or '<p class="muted">No additional details.</p>'}</div>
 </article>"""
 
 
 def render_flow(components: list[dict], direction: str, aid: str, blocked: set[str],
-                tail: str | None = None) -> str:
-    nodes = []
+                colors: dict[str, str] | None = None) -> str:
+    """Icon diagram of one direction. With `colors` (multi-account paths), each node
+    shows its account and account changes are drawn as labeled boundaries."""
+    out: list[str] = []
+    prev_acct = None
     for pc in sorted(components, key=lambda c: c.get("SequenceNumber") or 0):
         comp = pc.get("Component") or {}
         kind, sub = classify(comp.get("Id"), comp.get("Arn"))
@@ -325,20 +343,29 @@ def render_flow(components: list[dict], direction: str, aid: str, blocked: set[s
             hint = f"→ {r.get('DestinationCidr') or r.get('DestinationPrefixListId') or ''}"
         elif hdr:
             hint = f"{proto(hdr.get('Protocol'))} → {', '.join(hdr.get('DestinationAddresses') or [])}"
-        nodes.append(
-            f'<a class="node{flag}" href="#{_e(aid)}-{direction}-{_e(pc.get("SequenceNumber"))}" '
+        acct = component_account(pc)
+        if out:
+            if colors and acct and prev_acct and acct != prev_acct:
+                out.append(f'<span class="link xacct" title="Account boundary: {_e(prev_acct)} → {_e(acct)}">'
+                           f'<span class="xlbl">account<br>boundary</span></span>')
+            else:
+                out.append('<span class="link" aria-hidden="true"></span>')
+        prev_acct = acct or prev_acct
+        style = f' style="border-top:4px solid {colors[acct]}"' if colors and acct in colors else ""
+        acct_html = f'<span class="nacct">{_e(acct)}</span>' if colors and acct else ""
+        out.append(
+            f'<a class="node{flag}"{style} href="#{_e(aid)}-{direction}-{_e(pc.get("SequenceNumber"))}" '
             f'title="{_e(comp.get("Arn") or ident)}">'
             f'<span class="nseq">{_e(pc.get("SequenceNumber"))}</span>{icon_svg(kind, sub, 44)}'
             f'<span class="nty">{_e(label_for(kind, sub))}</span><code class="nid">{_e(ident)}</code>'
             + (f'<span class="nnm">{_e(comp.get("Name"))}</span>' if comp.get("Name") and comp.get("Name") != ident else "")
             + (f'<span class="nhint">{_e(hint.strip())}</span>' if hint.strip() else "")
-            + "</a>")
-    if tail:
-        nodes.append(tail)
-    return '<div class="flow">' + '<span class="link" aria-hidden="true"></span>'.join(nodes) + "</div>"
+            + acct_html + "</a>")
+    return '<div class="flow">' + "".join(out) + "</div>"
 
 
-def _endpoint_cell(ref: str | None, ip: str | None) -> str:
+def _endpoint_cell(ref: str | None, ip: str | None, acct: str | None = None,
+                   colors: dict[str, str] | None = None) -> str:
     parts = []
     if ref:
         if ref.startswith("arn:"):
@@ -347,6 +374,8 @@ def _endpoint_cell(ref: str | None, ip: str | None) -> str:
             parts.append(chip({"Id": ref}, 22))
     if ip:
         parts.append(f'<span class="chip">{icon_svg("ip-address", None, 22)}<code>{_e(ip)}</code></span>')
+    if acct:
+        parts.append(acct_pill(acct, colors))
     return " ".join(parts) or "—"
 
 
@@ -395,6 +424,36 @@ def _blocked_ids(a: dict) -> set[str]:
     return ids
 
 
+def _legend(colors: dict[str, str] | None) -> str:
+    if not colors:
+        return ""
+    return ('<div class="legend">' + "".join(
+        f'<span><span class="dot" style="background:{c}"></span><code>{_e(a)}</code></span>' for a, c in colors.items())
+        + '<span class="muted">Node top border = owning account</span></div>')
+
+
+def render_accounts(accts: dict, colors: dict[str, str] | None) -> str:
+    """Accounts card: every account involved, its roles, and hops it owns per direction."""
+    if not accts["accounts"]:
+        return ""
+    rows = []
+    for acct, info in accts["accounts"].items():
+        dot = f'<span class="dot" style="background:{colors[acct]}"></span>' if colors and acct in colors else ""
+        roles = " ".join(f'<span class="tag">{_e(r)}</span>' for r in info["roles"]) or '<span class="muted">Transit</span>'
+        rows.append(f'<tr><td>{dot}<code>{_e(acct)}</code></td><td>{roles}</td>'
+                    f'<td class="num">{info["forward"] or "—"}</td><td class="num">{info["return"] or "—"}</td></tr>')
+    note = ""
+    suggested = [a for a, i in accts["accounts"].items() if ROLE_SUGGESTED in i["roles"]]
+    if suggested:
+        note = ('<p class="warnmsg">AWS suggests including these accounts. Re-run the analysis with '
+                + " ".join(f"<code>--additional-account {_e(a)}</code>" for a in suggested)
+                + " for a complete result.</p>")
+    title = "Accounts" + (' <span class="muted">(cross-account path)</span>' if accts["cross_account"] else "")
+    return (f'<div class="card"><h3>{title}</h3><table class="grid"><thead><tr><th>Account</th><th>Roles</th>'
+            f'<th class="num">Forward hops</th><th class="num">Return hops</th></tr></thead><tbody>'
+            + "".join(rows) + f"</tbody></table>{note}</div>")
+
+
 def render_analysis(bundle: dict, idx: int) -> str:
     p = bundle.get("path") or {}
     a = bundle.get("analysis") or {}
@@ -405,12 +464,17 @@ def render_analysis(bundle: dict, idx: int) -> str:
 
     fwd = a.get("ForwardPathComponents") or []
     ret = a.get("ReturnPathComponents") or []
+    accts = account_summary(p, a)
+    colors = ({acct: ACCOUNT_COLORS[i % len(ACCOUNT_COLORS)] for i, acct in enumerate(accts["accounts"])}
+              if accts["cross_account"] else None)
 
     path_rows = {
         "Path ID": f"<code>{_e(p.get('NetworkInsightsPathId'))}</code>",
         "Path ARN": f"<code>{_e(p.get('NetworkInsightsPathArn'))}</code>",
-        "Source": _endpoint_cell(p.get("SourceArn") or p.get("Source"), p.get("SourceIp")),
-        "Destination": _endpoint_cell(p.get("DestinationArn") or p.get("Destination"), p.get("DestinationIp")),
+        "Source": _endpoint_cell(p.get("SourceArn") or p.get("Source"), p.get("SourceIp"), accts["source"], colors),
+        "Destination": _endpoint_cell(p.get("DestinationArn") or p.get("Destination"), p.get("DestinationIp"),
+                                      accts["destination"], colors),
+        "Path owner account": acct_pill(arn_account(p.get("NetworkInsightsPathArn")), colors, "") or "—",
         "Protocol": _e(proto(p.get("Protocol"))),
     }
     if p.get("DestinationPort") is not None:
@@ -457,12 +521,13 @@ def render_analysis(bundle: dict, idx: int) -> str:
   <div class="ahead">
     <div><h2>{_e(analysis_name or path_name or aid)}</h2>
       <div class="muted"><code>{_e(aid)}</code> · path <code>{_e(p.get('NetworkInsightsPathId'))}</code></div></div>
-    {_status_badge(a)}
+    <div class="badges">{'<span class="badge xa">⇄ Cross-account</span>' if accts["cross_account"] else ''}{_status_badge(a)}</div>
   </div>
   <div class="grid2">
     <div class="card"><h3>Path</h3>{_rows(path_rows)}</div>
     <div class="card"><h3>Analysis</h3>{_rows(an_rows)}</div>
-  </div>"""]
+  </div>
+  {render_accounts(accts, colors)}"""]
 
     if a.get("Explanations"):
         parts.append('<div class="card xcard"><h3>Explanations</h3>'
@@ -486,9 +551,10 @@ def render_analysis(bundle: dict, idx: int) -> str:
         if not comps:
             continue
         parts.append(f'<div class="card"><h3>{title} <span class="muted">({len(comps)} components)</span></h3>'
-                     + render_flow(comps, direction, aid, blocked)
+                     + render_flow(comps, direction, aid, blocked, colors)
+                     + _legend(colors)
                      + '<details class="comps" open><summary>Component details</summary>'
-                     + "".join(render_component(pc, direction, aid, blocked)
+                     + "".join(render_component(pc, direction, aid, blocked, colors)
                                for pc in sorted(comps, key=lambda c: c.get("SequenceNumber") or 0))
                      + "</details></div>")
 
@@ -504,13 +570,11 @@ def render_analysis(bundle: dict, idx: int) -> str:
 
 
 CSS = """
-:root{--bg:#f4f5f7;--card:#fff;--fg:#16191f;--muted:#5f6b7a;--line:#d5dbdb;--code:#eef1f4;
---ok:#037f0c;--okbg:#e9f7ea;--bad:#d1321e;--badbg:#fdecea;--warn:#8d6605;--warnbg:#fff6dd;--accent:#0972d3}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1419;--card:#192029;--fg:#e6e9ee;
---muted:#9aa5b1;--line:#2e3a47;--code:#232d38;--ok:#5fd16a;--okbg:#14301a;--bad:#ff7b6b;--badbg:#3a1714;
---warn:#f2c94c;--warnbg:#3a2f0c;--accent:#58a6ff}}
-:root[data-theme="dark"]{--bg:#0f1419;--card:#192029;--fg:#e6e9ee;--muted:#9aa5b1;--line:#2e3a47;--code:#232d38;
---ok:#5fd16a;--okbg:#14301a;--bad:#ff7b6b;--badbg:#3a1714;--warn:#f2c94c;--warnbg:#3a2f0c;--accent:#58a6ff}
+/* Dark is the default; data-theme="light" or "auto" (follow the OS) override it. */
+:root{--bg:#0f1419;--card:#192029;--fg:#e6e9ee;--muted:#9aa5b1;--line:#2e3a47;--code:#232d38;--ok:#5fd16a;--okbg:#14301a;--bad:#ff7b6b;--badbg:#3a1714;--warn:#f2c94c;--warnbg:#3a2f0c;--accent:#58a6ff;color-scheme:dark}
+:root[data-theme="light"]{--bg:#f4f5f7;--card:#fff;--fg:#16191f;--muted:#5f6b7a;--line:#d5dbdb;--code:#eef1f4;--ok:#037f0c;--okbg:#e9f7ea;--bad:#d1321e;--badbg:#fdecea;--warn:#8d6605;--warnbg:#fff6dd;--accent:#0972d3;color-scheme:light}
+@media (prefers-color-scheme:light){:root[data-theme="auto"]{--bg:#f4f5f7;--card:#fff;--fg:#16191f;--muted:#5f6b7a;--line:#d5dbdb;--code:#eef1f4;--ok:#037f0c;--okbg:#e9f7ea;--bad:#d1321e;--badbg:#fdecea;--warn:#8d6605;--warnbg:#fff6dd;--accent:#0972d3;color-scheme:light}}
+@media print{:root,:root[data-theme]{--bg:#f4f5f7;--card:#fff;--fg:#16191f;--muted:#5f6b7a;--line:#d5dbdb;--code:#eef1f4;--ok:#037f0c;--okbg:#e9f7ea;--bad:#d1321e;--badbg:#fdecea;--warn:#8d6605;--warnbg:#fff6dd;--accent:#0972d3;color-scheme:light}.themebtn{display:none}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 main{max-width:1280px;margin:0 auto;padding:24px 16px 64px}
@@ -570,6 +634,21 @@ details.comps>summary,details.raw>summary{cursor:pointer;font-weight:600;margin:
 .xdesc{margin:4px 0 8px}
 .hdr .arr{color:var(--muted)}
 pre{overflow:auto;max-height:520px;background:var(--code);padding:12px;border-radius:8px;font-size:12px}
+.themebtn{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font:inherit;font-size:12px;cursor:pointer}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge.xa{color:var(--accent);background:var(--code)}
+.acctpill{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.nacct{font:10px ui-monospace,Menlo,monospace;color:var(--muted);margin-top:2px}
+.cacct{margin-left:auto}
+.link.xacct{width:56px;height:0;background:none;border-top:2px dashed var(--accent);display:flex;justify-content:center}
+.link.xacct::after{border-left-color:var(--accent);top:-6px}
+.xlbl{position:relative;top:4px;font-size:9.5px;line-height:1.1;color:var(--accent);text-align:center;font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:12px;margin:2px 0 4px}
+table.grid{border-collapse:collapse;width:100%}
+table.grid th,table.grid td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.grid th{color:var(--muted);font-weight:500;font-size:12px}
+table.grid .num{text-align:right;width:110px}
 footer{color:var(--muted);font-size:12px;margin-top:32px}
 @media print{details{display:block}details>summary{display:none}.node{break-inside:avoid}.comp{break-inside:avoid}
 body{background:#fff}.card{border-color:#ccc}}
@@ -577,7 +656,20 @@ body{background:#fff}.card{border-color:#ccc}}
 """
 
 
-def render_html(bundles: list[dict], title: str | None = None) -> str:
+THEMES = ("dark", "light", "auto")
+
+# Inline toggle: flips between dark and light without leaving the page (no storage, no network).
+_THEME_JS = (
+    "document.querySelector('.themebtn').addEventListener('click',function(){"
+    "var r=document.documentElement,c=r.getAttribute('data-theme');"
+    "if(c==='auto')c=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';"
+    "r.setAttribute('data-theme',c==='light'?'dark':'light');});"
+)
+
+
+def render_html(bundles: list[dict], title: str | None = None, theme: str = "dark") -> str:
+    if theme not in THEMES:
+        raise ValueError(f"theme must be one of {THEMES}")
     generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     page_title = title or "Reachability Trace"
     toc = ""
@@ -588,12 +680,13 @@ def render_html(bundles: list[dict], title: str | None = None) -> str:
             for i, b in enumerate(bundles)) + "</nav>"
     body = "".join(render_analysis(b, i) for i, b in enumerate(bundles))
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en" data-theme="{theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_e(page_title)}</title><style>{CSS}</style></head>
 <body><main>
 <div class="top"><div><h1>{_e(page_title)}</h1>
-<div class="muted">AWS VPC Reachability Analyzer · exported {generated}</div></div></div>
+<div class="muted">AWS VPC Reachability Analyzer · exported {generated}</div></div>
+<button class="themebtn" type="button" title="Toggle light/dark">◐ Theme</button></div>
 {toc}{body}
 <footer>Generated from the EC2 Network Insights API. Analyses are retained by AWS for 120 days.</footer>
-</main></body></html>
+</main><script>{_THEME_JS}</script></body></html>
 """

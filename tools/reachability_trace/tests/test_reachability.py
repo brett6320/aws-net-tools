@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import ra_accounts as accounts  # noqa: E402
 import ra_core as core  # noqa: E402
 import reachability  # noqa: E402
 from ra_export import render_html  # noqa: E402
@@ -141,7 +142,7 @@ def test_export_reachable_is_self_contained():
     assert "Reachable" in html and "Not reachable" not in html
     # no external resources
     assert not re.search(r'(src|href)="(https?:)?//', html)
-    assert "<link" not in html and "<script" not in html
+    assert "<link" not in html and "<script src" not in html  # only the inline theme toggle script
     # every forward/return component rendered with an icon and anchor
     for seq in range(1, 10):
         assert f'id="nia-0fedcba9876543210-fwd-{seq}"' in html
@@ -244,3 +245,110 @@ def test_dry_run_mentions_report_location(caplog):
     caplog.set_level(logging.INFO)
     assert reachability.main(["create", "-s", "i-aaa", "-d", "i-bbb", "--reports-dir", "out"]) == 0
     assert "out/<date>/<account>/<analysis>.html" in caplog.text
+
+
+# ---------- theme ----------
+
+def test_dark_is_default_theme():
+    html = render_html([load("reachable.json")])
+    assert '<html lang="en" data-theme="dark">' in html
+    assert ":root{--bg:#0f1419" in html  # dark tokens on bare :root
+
+
+@pytest.mark.parametrize("theme", ["light", "auto"])
+def test_theme_option(tmp_path, theme):
+    out = tmp_path / "t.html"
+    assert reachability.main(["export", "--from-json", str(FIXTURES / "reachable.json"), "-o", str(out),
+                              "--theme", theme]) == 0
+    assert f'data-theme="{theme}"' in out.read_text()
+
+
+def test_invalid_theme_rejected():
+    with pytest.raises(ValueError):
+        render_html([load("reachable.json")], theme="neon")
+
+
+# ---------- cross-account ----------
+
+def test_arn_account():
+    assert accounts.arn_account("arn:aws:ec2:us-east-1:444455556666:instance/i-1") == "444455556666"
+    assert accounts.arn_account("i-1") is None
+    assert accounts.arn_account("arn:aws:s3:::bucket") is None
+
+
+def test_account_summary_cross_account():
+    b = load("cross_account.json")
+    acc = accounts.account_summary(b["path"], b["analysis"])
+    assert acc["cross_account"]
+    assert (acc["owner"], acc["source"], acc["destination"]) == ("111122223333", "111122223333", "444455556666")
+    assert list(acc["accounts"]) == ["111122223333", "444455556666", "222233334444"]
+    net = acc["accounts"]["222233334444"]
+    assert net["roles"] == ["Additional (requested)"] and (net["forward"], net["return"]) == (3, 3)
+    assert acc["accounts"]["111122223333"]["roles"] == ["Analysis owner", "Source"]
+
+
+def test_account_summary_single_account():
+    b = load("reachable.json")
+    assert not accounts.account_summary(b["path"], b["analysis"])["cross_account"]
+    # requested/suggested-only accounts don't make a path cross-account
+    b = load("not_reachable.json")
+    acc = accounts.account_summary(b["path"], b["analysis"])
+    assert not acc["cross_account"]
+    assert "Suggested by AWS" in acc["accounts"]["444455556666"]["roles"]
+
+
+def test_related_accounts_excludes_owner():
+    p = load("cross_account.json")["path"]
+    extra = ["arn:aws:ec2:us-east-1:222233334444:transit-gateway/tgw-1",
+             "arn:aws:ec2:us-east-1:111122223333:transit-gateway/tgw-2"]
+    assert accounts.related_accounts(p, extra) == ["444455556666", "222233334444"]
+
+
+def test_export_cross_account_rendering():
+    html = render_html([load("cross_account.json")])
+    assert "Cross-account" in html and "<h3>Accounts" in html
+    # boundaries: app->network and network->data on forward; data->network and network->app on return
+    assert html.count('class="link xacct"') == 4
+    assert html.count('class="nacct"') == 12 + 8
+    assert "Path owner account" in html
+
+
+def test_export_single_account_has_no_boundaries():
+    html = render_html([load("reachable.json")])
+    assert "xacct" not in html.split("</style>")[1] and "⇄ Cross-account" not in html
+
+
+def test_export_suggested_accounts_note():
+    html = render_html([load("not_reachable.json")])
+    assert "--additional-account 444455556666" in html
+
+
+class _FakeArgs:
+    no_auto_accounts = False
+    filter_in = ["arn:aws:ec2:us-east-1:222233334444:transit-gateway/tgw-1"]
+    filter_out = None
+
+
+def test_auto_accounts_added_to_request(caplog):
+    caplog.set_level(logging.INFO)
+    p = load("cross_account.json")["path"]
+    req = {"NetworkInsightsPathId": "nip-1", "AdditionalAccounts": ["444455556666"]}
+    reachability._auto_accounts(_FakeArgs(), p, req)
+    assert req["AdditionalAccounts"] == ["444455556666", "222233334444"]
+    args = _FakeArgs()
+    args.no_auto_accounts = True
+    req = {"NetworkInsightsPathId": "nip-1"}
+    reachability._auto_accounts(args, p, req)
+    assert "AdditionalAccounts" not in req
+
+
+def test_suggested_accounts_warning(caplog):
+    reachability._warn_suggested_accounts({"SuggestedAccounts": ["444455556666", "555"],
+                                           "AdditionalAccounts": ["555"]})
+    assert "--additional-account 444455556666" in caplog.text and "--additional-account 555" not in caplog.text
+
+
+def test_summary_shows_accounts(capsys):
+    reachability.print_summary(load("cross_account.json"))
+    out = capsys.readouterr().out
+    assert "[CROSS-ACCOUNT]" in out and "<222233334444>" in out
