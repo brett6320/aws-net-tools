@@ -242,13 +242,14 @@ def render(title: str, *, meta: list[str] | None = None, cards: list[tuple] | No
     """
     data = {"title": title, "meta": meta or [], "cards": [list(c) for c in cards or []], "tables": tables,
             "extra_html": extra_html}
-    # Inside <script type=application/json>, only "</" can end the element early.
-    payload = json.dumps(data, default=str).replace("</", "<\\/")
+    # Inside <script type=application/json>, "</" would end the element early; escaping every "<"
+    # as \u003c also rules out "<!--" script-data states.
+    payload = json.dumps(data, default=str).replace("<", "\\u003c")
     extra = ""
     if extra_data is not None:
-        # a str is embedded as-is (already JSON; "</" escaping is idempotent), e.g. when the caller hashes it
+        # a str is embedded as-is (already JSON; "<" escaping is idempotent), e.g. when the caller hashes it
         text = extra_data if isinstance(extra_data, str) else json.dumps(extra_data, default=str)
-        extra = '<script id="extra-data" type="application/json">' + text.replace("</", "<\\/") + "</script>"
+        extra = '<script id="extra-data" type="application/json">' + text.replace("<", "\\u003c") + "</script>"
     # Fill each placeholder once, in template order, so data can never be mistaken for one.
     out, rest = [], TEMPLATE
     for marker, value in (("__TITLE__", title.replace("&", "&amp;").replace("<", "&lt;")),
