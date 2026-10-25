@@ -172,8 +172,9 @@ See the [repository README](../../README.md#getting-started) for a shared virtua
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in values (CLI flags override them). `.env` is searched for in the
-current directory, then its parents.
+Copy `.env.example` to `.env` and fill in values (CLI flags override them). `.env` is read from this tool's
+directory, or from the nearest parent directory that has one (such as the repository root). The directory you
+run the tool from doesn't matter.
 
 | Variable | Default | Description |
 |---|---|---|
