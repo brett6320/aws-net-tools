@@ -10,8 +10,8 @@ IPAM pool it belongs to, with a console link for manual review. Each query produ
 report with the full hierarchy, from the IPAM through scope, pools, allocation, VPC, subnet and resource,
 down to the query.
 
-It is a companion to [`reachability_trace`](../reachability_trace/): locate an unknown address first, then
-trace a path to it.
+It is a companion to [`reachability_trace`](../reachability_trace/): locate an unknown address here, then
+trace a path to it there.
 
 ![Located instance (dark)](docs/images/located-instance.png)
 
@@ -156,6 +156,7 @@ otherwise it's the IPAM owner account. `reports/` is git-ignored.
 ## Requirements
 
 - Python 3.11+
+- AWS credentials configured (profile, env vars, SSO, or IAM role)
 - An IPAM, and credentials for its owner or delegated administrator account. Organization-wide discovery
   needs IPAM integrated with AWS Organizations, or resource discoveries shared and associated with the IPAM.
 - Instance names come from `GetIpamAddressHistory`. If that call is denied or unavailable, the tool still
@@ -167,9 +168,12 @@ otherwise it's the IPAM owner account. `reports/` is git-ignored.
 pip install -r requirements.txt
 ```
 
+See the [repository README](../../README.md#getting-started) for a shared virtual environment.
+
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in values (CLI flags override them):
+Copy `.env.example` to `.env` and fill in values (CLI flags override them). `.env` is searched for in the
+current directory, then its parents.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -224,8 +228,8 @@ pip install -r requirements-dev.txt
 python -m pytest tests
 ```
 
-The tests use an in-memory fake of the IPAM API (`tests/fake_ipam.py`) with a synthetic organization. No
-AWS credentials are needed.
+No AWS credentials are needed. The tests use an in-memory fake of the IPAM API (`tests/fake_ipam.py`) with a
+synthetic organization.
 
 ## Regenerating screenshots
 
@@ -234,8 +238,8 @@ python docs/make_screenshots.py            # all
 python docs/make_screenshots.py pool-only  # one
 ```
 
-This needs macOS and Google Chrome. It renders the fixtures in `tests/fixtures/` and captures them with
-headless Chrome.
+The images in `docs/images/` are headless-Chrome captures of the fixture reports. This needs macOS and Google
+Chrome.
 
 ## Platform Notes
 
