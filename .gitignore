@@ -12,3 +12,10 @@ snapshots/
 .claude/wrappers/
 .cache/
 *cache*.json
+.coverage
+.coverage.*
+coverage.json
+coverage.xml
+htmlcov/
+junit.xml
+stats.json

@@ -1,0 +1,7 @@
+# Coverage settings for the CI test workflows (passed with --cov-config). Measures each tool's
+# own code, not its tests or the screenshot helpers.
+[run]
+omit =
+    */tests/*
+    */docs/*
+    conftest.py

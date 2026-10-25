@@ -1,5 +1,7 @@
 # Firewall Tools
 
+[![firewall tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml) ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-tests.json) ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-coverage.json) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+
 Read-only review tools for AWS Firewall Manager (FMS) policies, network ACLs,
 security groups and managed prefix lists. None of them make changes in AWS.
 
@@ -181,9 +183,20 @@ lib/output.py           common output flags, report paths and writers
 lib/security_groups.py  group / interface / instance / Lambda ids and ARNs, per-account profiles, loading rules and prefix lists
 .env.example            configuration template
 requirements.txt        runtime dependencies (same as the repository's)
+requirements-dev.txt    test dependencies (pytest, pytest-cov, moto)
+tests/                  pytest suite: one file per module, plus a --help smoke test for every tool
 ```
 
-The suite has no automated tests yet.
+## Testing
+
+```bash
+pip install -r tools/firewall/requirements-dev.txt
+cd tools/firewall && python -m pytest              # add --cov=. for a coverage report
+```
+
+The tests need no AWS credentials. The interval and box maths in `lib/boxes.py` is checked against brute-force
+point sets, the shared HTML report renderer is checked for escaping, and each tool family runs end to end against `moto` (EC2,
+STS) or a small fake Firewall Manager client, since `moto` does not support Firewall Manager.
 
 ## Regenerating screenshots
 
