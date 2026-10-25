@@ -10,3 +10,5 @@ reports/
 snapshots/
 *.plan.sh
 .claude/wrappers/
+.cache/
+*cache*.json
