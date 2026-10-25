@@ -1,0 +1,32 @@
+name: pl_review tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/pl_review/**"
+      - ".github/workflows/tests-pl_review.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/pl_review/**"
+      - ".github/workflows/tests-pl_review.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: pl_review
+      path: tools/pl_review
+    permissions:
+      contents: write

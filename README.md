@@ -1,5 +1,7 @@
 # AWS Network Tools
 
+[![CodeQL](https://github.com/brett6320/aws-net-tools/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/codeql.yml) [![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ftotal-tests.json)](#tests-and-ci) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ftotal-coverage.json)](#tests-and-ci) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white) [![License: custom](https://img.shields.io/badge/license-custom-lightgrey)](LICENSE) ![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)
+
 Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, reviewing
 firewall policy, security groups, NACLs and prefix lists, and running centralized VPC endpoints. All but the
 `vpce` tools write self-contained HTML reports you can share or attach to a ticket.
@@ -70,16 +72,43 @@ covers usage, options, output, configuration and IAM permissions.
 
 Where each tool writes, and what it expects:
 
-| Tool | Output | Variable prefix | Exit codes | Tests |
-|---|---|---|---|---|
-| `reachability_trace` | HTML in `reports/<date>/<account>/` | `RA_` | 0 ok, 1 error, 2 analysis failed | `python -m pytest tests` |
-| `ipam_locate` | HTML in `reports/<date>/<account>/` | `IPAM_` | 0 ok, 1 error | `python -m pytest tests` |
-| `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal | none yet |
-| `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated | `PYTHONPATH=. python tests/test_pl_review.py` |
-| `vpce/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input | `python -m pytest` |
+| Tool | Output | Variable prefix | Exit codes |
+|---|---|---|---|
+| `reachability_trace` | HTML in `reports/<date>/<account>/` | `RA_` | 0 ok, 1 error, 2 analysis failed |
+| `ipam_locate` | HTML in `reports/<date>/<account>/` | `IPAM_` | 0 ok, 1 error |
+| `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal |
+| `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated |
+| `vpce/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
 
-The `reports/` root is relative to the current directory and is git-ignored. Run the tests from the tool or
-suite directory. They use fixtures, in-memory fakes or moto, so no AWS credentials are needed.
+The `reports/` root is relative to the current directory and is git-ignored.
+
+## Tests and CI
+
+Each tool and suite has its own GitHub Actions workflow. It runs the tests on Python 3.11, 3.12 and 3.13
+whenever that tool's folder changes, and on every pull request that touches it. Each run's summary page lists
+the test count, failures, duration and coverage for every Python version. CodeQL scans the code on every
+pull request and weekly, and Dependabot proposes dependency updates weekly.
+
+| Tool | Status | Tests | Coverage |
+|---|---|---|---|
+| [`reachability_trace`](tools/reachability_trace/) | [![reachability_trace tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-reachability_trace.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-reachability_trace.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Freachability_trace-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Freachability_trace-coverage.json) |
+| [`ipam_locate`](tools/ipam_locate/) | [![ipam_locate tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-ipam_locate.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-ipam_locate.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fipam_locate-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fipam_locate-coverage.json) |
+| [`firewall`](tools/firewall/) | [![firewall tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-coverage.json) |
+| [`pl_review`](tools/pl_review/) | [![pl_review tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-coverage.json) |
+| [`vpce`](tools/vpce/) | [![vpce tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-coverage.json) |
+
+The test and coverage badges show the latest run on `main` on Python 3.13. The workflow publishes them to
+the `badges` branch, so no external service is involved. The totals at the top add up the test counts and
+average the coverage across tools.
+
+To run the tests locally, from the tool or suite directory:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest                 # add --cov=. for a coverage report
+```
+
+They use fixtures, in-memory fakes or moto, so no AWS credentials are needed.
 
 ## Repository layout
 

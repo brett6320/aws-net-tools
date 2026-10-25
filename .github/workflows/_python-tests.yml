@@ -1,0 +1,101 @@
+# Reusable: run one tool's or suite's pytest suite on every supported Python version, write a job
+# summary, and (on main only) publish its test-count and coverage badges to the `badges` branch.
+name: Python tests (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: Display name, e.g. reachability_trace
+        type: string
+        required: true
+      path:
+        description: Tool or suite directory, e.g. tools/reachability_trace
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: ${{ inputs.path }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.path }}/requirements*.txt
+      - name: Install
+        run: python -m pip install -r requirements-dev.txt
+      - name: Test
+        run: >
+          python -m pytest tests -q
+          --junitxml=junit.xml
+          --cov=. --cov-config="$GITHUB_WORKSPACE/.github/coveragerc"
+          --cov-report=term --cov-report=json:coverage.json
+      - name: Summary
+        if: ${{ !cancelled() && hashFiles(format('{0}/junit.xml', inputs.path)) != '' }}
+        run: >
+          python "$GITHUB_WORKSPACE/.github/scripts/test_report.py" summary
+          --name "${{ inputs.name }}" --python "${{ matrix.python }}"
+          --junit junit.xml --coverage coverage.json --stats-out stats.json
+      - name: Keep stats for the badges
+        if: ${{ matrix.python == '3.13' && !cancelled() && hashFiles(format('{0}/stats.json', inputs.path)) != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-${{ inputs.name }}
+          path: ${{ inputs.path }}/stats.json
+          retention-days: 7
+
+  badges:
+    name: Publish badges
+    needs: test
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: badges-branch
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: stats-${{ inputs.name }}
+          path: stats
+      - name: Update the badges branch
+        env:
+          SLUG: ${{ inputs.name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            rm -rf badges
+            if git ls-remote --exit-code --heads origin badges >/dev/null; then
+              git fetch --depth=1 origin badges
+              git worktree add badges FETCH_HEAD
+              git -C badges checkout -B badges
+            else
+              git worktree add --orphan -b badges badges
+            fi
+            python .github/scripts/test_report.py badges --stats stats/stats.json --slug "$SLUG" --out badges
+            git -C badges add -A
+            if git -C badges diff --cached --quiet; then echo "No badge changes"; exit 0; fi
+            git -C badges commit -q -m "Badges: $SLUG (${GITHUB_SHA::7})"
+            if git -C badges push origin badges; then exit 0; fi
+            git worktree remove --force badges
+            sleep $((attempt * 5))
+          done
+          exit 1

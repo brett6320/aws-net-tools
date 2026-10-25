@@ -748,7 +748,7 @@ def analyze(rules: list[Rule], A: TargetSet, B: TargetSet, scope: str) -> tuple[
             parts = [f"{role}: missing {','.join(labels)}" for role, labels in missing.items()]
             findings.append(Finding(
                 rule=r, roles_a=ra, a_hits=ha, missing_b=missing,
-                reason=f"A matched ({', '.join(f'{k} as {'/'.join(v)}' for k, v in ha.items())}); "
+                reason=f"A matched ({', '.join(f'{k} as ' + '/'.join(v) for k, v in ha.items())}); "
                        f"no {r.kind} {r.direction} {r.action} {r.proto} rule in same {scope} for "
                        f"{'; '.join(parts)} (B mode={B.mode})",
             ))

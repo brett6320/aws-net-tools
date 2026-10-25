@@ -1,5 +1,7 @@
 # Reachability Trace
 
+[![reachability_trace tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-reachability_trace.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-reachability_trace.yml) ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Freachability_trace-tests.json) ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Freachability_trace-coverage.json) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+
 CLI for AWS VPC Reachability Analyzer (EC2 Network Insights). Creates paths between any supported
 source and destination, runs analyses, prints hop-by-hop summaries, and exports traces to a single
 self-contained HTML file with an icon-based path diagram and full component detail.

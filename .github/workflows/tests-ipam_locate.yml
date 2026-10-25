@@ -1,0 +1,32 @@
+name: ipam_locate tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/ipam_locate/**"
+      - ".github/workflows/tests-ipam_locate.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/ipam_locate/**"
+      - ".github/workflows/tests-ipam_locate.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: ipam_locate
+      path: tools/ipam_locate
+    permissions:
+      contents: write

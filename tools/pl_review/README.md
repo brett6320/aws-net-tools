@@ -1,5 +1,7 @@
 # Prefix List Review
 
+[![pl_review tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml) ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-tests.json) ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-coverage.json) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+
 Reviews every security group (SG) associated with an AWS Managed Prefix List (PL), including SGs in other accounts that consume the PL via AWS RAM sharing. For each SG it computes the weighted rule count per direction, expanding every referenced prefix list to its `MaxEntries` (that is how AWS charges PL references against the SG rule quota), and reports whether growing the target PL to a proposed length would push any SG over the rule limit. Read-only; it never mutates anything.
 
 ![Prefix list review HTML report](docs/images/report.png)
@@ -110,12 +112,10 @@ Never cached: SG rules, PL entries, PL associations, and the target PL itself (i
 
 ```bash
 pip install -r tools/pl_review/requirements-dev.txt
-cd tools/pl_review && PYTHONPATH=. python tests/test_pl_review.py
+cd tools/pl_review && python -m pytest
 ```
 
-The test is a plain script (it doesn't run under pytest).
-
-Uses `moto`; `get_managed_prefix_list_associations` is stubbed because moto does not implement it.
+The tests use `moto`; `get_managed_prefix_list_associations` is stubbed because moto does not implement it.
 
 ## Regenerating screenshots
 

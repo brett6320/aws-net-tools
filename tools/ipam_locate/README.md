@@ -1,5 +1,7 @@
 # IPAM Locate
 
+[![ipam_locate tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-ipam_locate.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-ipam_locate.yml) ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fipam_locate-tests.json) ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fipam_locate-coverage.json) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+
 Finds the account, Region, VPC, subnet and resource behind an IP address or CIDR using Amazon VPC
 IP Address Manager (IPAM). It reads the IPAM's pools, pool CIDRs and allocations, discovered resource CIDRs,
 public addresses and address history from the IPAM home Region. Then it narrows the query to its owner(s):
