@@ -1,0 +1,288 @@
+{
+  "query": "10.1.1.25/32",
+  "family": "ipv4",
+  "generated": "2026-10-24T09:30:00+00:00",
+  "ipam": {
+    "IpamId": "ipam-0aaa",
+    "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+    "IpamRegion": "us-east-1",
+    "OwnerId": "111111111111",
+    "Tier": "advanced",
+    "Description": null,
+    "OperatingRegions": [
+      {
+        "RegionName": "us-east-1"
+      },
+      {
+        "RegionName": "eu-west-1"
+      }
+    ],
+    "Tags": null
+  },
+  "scopes": [
+    {
+      "IpamScopeId": "ipam-scope-0priv",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamScopeType": "private",
+      "IsDefault": true
+    },
+    {
+      "IpamScopeId": "ipam-scope-0pub",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0pub",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamScopeType": "public",
+      "IsDefault": true
+    }
+  ],
+  "discoveries": [
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "OwnerId": "111111111111",
+      "IsDefault": true,
+      "Regions": [
+        "us-east-1",
+        "eu-west-1"
+      ]
+    }
+  ],
+  "pools": [
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0top",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0top",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "None",
+      "PoolDepth": 1,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "org-10-8"
+        }
+      ],
+      "MatchedCidrs": [
+        {
+          "Cidr": "10.0.0.0/8",
+          "State": "provisioned",
+          "IpamPoolCidrId": "cidr-10.0.0.0/8",
+          "Relation": "contains"
+        }
+      ],
+      "MatchedAllocations": [
+        {
+          "Cidr": "10.1.0.0/16",
+          "IpamPoolAllocationId": "ipam-pool-alloc-ipam-pool-0use1",
+          "ResourceId": "ipam-pool-0use1",
+          "ResourceType": "ipam-pool",
+          "ResourceRegion": "us-east-1",
+          "ResourceOwner": "111111111111",
+          "Relation": "contains"
+        }
+      ]
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0use1",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0use1",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "us-east-1",
+      "PoolDepth": 2,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0top",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "use1"
+        }
+      ],
+      "MatchedCidrs": [
+        {
+          "Cidr": "10.1.0.0/16",
+          "State": "provisioned",
+          "IpamPoolCidrId": "cidr-10.1.0.0/16",
+          "Relation": "contains"
+        }
+      ],
+      "MatchedAllocations": [
+        {
+          "Cidr": "10.1.0.0/17",
+          "IpamPoolAllocationId": "ipam-pool-alloc-prod",
+          "ResourceId": "ipam-pool-0prod",
+          "ResourceType": "ipam-pool",
+          "ResourceRegion": "us-east-1",
+          "ResourceOwner": "111111111111",
+          "Relation": "contains"
+        }
+      ]
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0euw1",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0euw1",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "eu-west-1",
+      "PoolDepth": 2,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0top",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "euw1"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0prod",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0prod",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "us-east-1",
+      "PoolDepth": 3,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0use1",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "use1-prod"
+        }
+      ],
+      "MatchedCidrs": [
+        {
+          "Cidr": "10.1.0.0/17",
+          "State": "provisioned",
+          "IpamPoolCidrId": "cidr-10.1.0.0/17",
+          "Relation": "contains"
+        }
+      ],
+      "MatchedAllocations": [
+        {
+          "Cidr": "10.1.0.0/20",
+          "IpamPoolAllocationId": "ipam-pool-alloc-app",
+          "ResourceId": "vpc-0app",
+          "ResourceType": "vpc",
+          "ResourceRegion": "us-east-1",
+          "ResourceOwner": "222222222222",
+          "Relation": "contains"
+        }
+      ]
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0rsv",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0rsv",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "None",
+      "PoolDepth": 2,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0top",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "reserved"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    }
+  ],
+  "resources": [
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "ResourceRegion": "us-east-1",
+      "ResourceId": "vpc-0app",
+      "ResourceOwnerId": "222222222222",
+      "ResourceCidr": "10.1.0.0/20",
+      "IpSource": "none",
+      "ResourceType": "vpc",
+      "ResourceTags": [
+        {
+          "Key": "Name",
+          "Value": "app-prod"
+        }
+      ],
+      "SampleTime": "2026-10-24T09:00:00+00:00",
+      "Relation": "contains"
+    },
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "ResourceRegion": "us-east-1",
+      "ResourceId": "subnet-0appa",
+      "ResourceOwnerId": "222222222222",
+      "ResourceCidr": "10.1.1.0/24",
+      "IpSource": "none",
+      "ResourceType": "subnet",
+      "ResourceTags": [
+        {
+          "Key": "Name",
+          "Value": "app-a"
+        }
+      ],
+      "SampleTime": "2026-10-24T09:00:00+00:00",
+      "VpcId": "vpc-0app",
+      "Relation": "contains"
+    },
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "ResourceRegion": "us-east-1",
+      "ResourceId": "eni-0app1",
+      "ResourceOwnerId": "222222222222",
+      "ResourceCidr": "10.1.1.25/32",
+      "IpSource": "none",
+      "ResourceType": "eni",
+      "ResourceTags": [],
+      "SampleTime": "2026-10-24T09:00:00+00:00",
+      "VpcId": "vpc-0app",
+      "SubnetId": "subnet-0appa",
+      "NetworkInterfaceAttachmentStatus": "in-use",
+      "Relation": "contains"
+    }
+  ],
+  "public_addresses": [],
+  "history": [
+    {
+      "ResourceOwnerId": "222222222222",
+      "ResourceRegion": "us-east-1",
+      "ResourceType": "network-interface",
+      "ResourceId": "eni-0app1",
+      "ResourceCidr": "10.1.1.25/32",
+      "VpcId": "vpc-0app",
+      "SampledStartTime": "2026-10-24T09:00:00+00:00",
+      "IpamScopeId": "ipam-scope-0priv"
+    },
+    {
+      "ResourceOwnerId": "222222222222",
+      "ResourceRegion": "us-east-1",
+      "ResourceType": "instance",
+      "ResourceId": "i-0app1",
+      "ResourceName": "app-1",
+      "ResourceCidr": "10.1.1.25/32",
+      "VpcId": "vpc-0app",
+      "SampledStartTime": "2026-10-24T09:00:00+00:00",
+      "IpamScopeId": "ipam-scope-0priv"
+    }
+  ],
+  "warnings": []
+}
