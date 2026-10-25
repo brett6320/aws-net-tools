@@ -15,7 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lib.aws_common import (  # noqa: E402
     AccountContext,

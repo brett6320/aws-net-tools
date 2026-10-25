@@ -32,8 +32,8 @@ python phz_assoc.py associate --offline --phz-account 222222222222 --vpc-account
 | `--zone-name GLOB`, `--zone-tag K=V`, `--exclude-zone-tag K=V` | Select PHZs by name/tag (online only) |
 | `--vpc ID\|ARN` | VPC(s), repeatable / comma-separated. ARNs can point at different accounts |
 | `--vpc-region` | Region for bare VPC IDs (default `--region`) |
-| `--account` / `--vpc-account` / `--phz-account` | Same account for both, or split (see [root README](../../README.md#accounts-and-credentials)) |
-| `--profile` / `--vpc-profile` / `--phz-profile` / `--role-name` | Credentials for the read-only validation calls. Without them, a profile is derived from each account ID ([details](../../README.md#profile-derivation)) |
+| `--account` / `--vpc-account` / `--phz-account` | Same account for both, or split (see [suite README](../README.md#accounts-and-credentials)) |
+| `--profile` / `--vpc-profile` / `--phz-profile` / `--role-name` | Credentials for the read-only validation calls. Without them, a profile is derived from each account ID ([details](../README.md#profile-derivation)) |
 | `--cli-vpc-profile` / `--cli-phz-profile` | Profile names written into the generated commands. Default: `--vpc-profile` / `--phz-profile`, or `--profile` when no role is assumed. Derived profiles are **not** written into scripts (they are usually read-only) |
 | `--offline` | No API calls. Requires `--zone` IDs, the PHZ account, and the VPC account (flag or ARN) |
 | `--keep-authorization` | associate: leave the cross-account authorization in place |
@@ -93,7 +93,7 @@ python phz_assoc.py disassociate --phz-account 222222222222 --disassociate-as ph
 
 ## Requirements / Installation / Configuration
 
-Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../../.env.example).
+Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../.env.example).
 
 ## Platform Notes
 

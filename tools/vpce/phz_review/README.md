@@ -29,7 +29,7 @@ python phz_review.py by-zone [--zone ID] [--zone-name GLOB] [--zone-tag K=V] [--
 | `--resolve-owners` | `by-zone`: look up VPC owner accounts from the PHZ account (works for its own and RAM-shared VPCs; others show `external/unknown`) |
 | `--wide` | `zones`: add VPC list, comment, tags |
 | `-o table\|json\|csv`, `--json` | Output format |
-| account/profile flags | See the [root README](../../README.md#accounts-and-credentials) |
+| account/profile flags | See the [suite README](../README.md#accounts-and-credentials) |
 
 In `by-zone`, `status` is `associated`, `authorized` (authorization still exists for an associated VPC, which is stale), or `authorized-pending` (authorized but not yet associated).
 
@@ -53,7 +53,7 @@ python phz_review.py by-zone --profile hub --zone-name ssm.us-east-1.amazonaws.c
 
 ## Requirements / Installation / Configuration
 
-Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../../.env.example).
+Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../.env.example).
 
 ## Platform Notes
 

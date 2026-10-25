@@ -1,24 +1,29 @@
-# aws-vpce-tools
+# VPC Endpoint Tools
 
 Tools for running **centralized VPC endpoints**: a hub VPC hosts interface endpoints (private DNS disabled), and a Route 53 private hosted zone (PHZ) per service DNS name (e.g. `ssm.us-east-1.amazonaws.com`) is associated with spoke VPCs, often in other accounts.
+
+The three tools in this suite share the code in `lib/`. This page covers what they have in common. For the other tools in this repository, see the [repository README](../../README.md).
 
 All tools are **read-only**: they never change AWS resources. `phz_assoc` prints the commands for you to review and run.
 
 | Tool | Purpose |
 |---|---|
-| [`tools/vpce_list`](tools/vpce_list/README.md) | Enumerate VPC endpoints, filter by tag / service / VPC / type / state, optionally correlate with PHZs |
-| [`tools/phz_review`](tools/phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`) |
-| [`tools/phz_assoc`](tools/phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations |
+| [`vpce_list`](vpce_list/README.md) | Enumerate VPC endpoints, filter by tag / service / VPC / type / state, optionally correlate with PHZs |
+| [`phz_review`](phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`) |
+| [`phz_assoc`](phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations |
 
 All tools are Python 3.11+ / boto3.
 
 ## Install
 
+Set up the shared virtual environment as described in the [repository README](../../README.md#getting-started), or install this suite on its own:
+
 ```bash
-python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env   # optional defaults
+pip install -r tools/vpce/requirements.txt
+cp tools/vpce/.env.example tools/vpce/.env   # optional defaults
 ```
+
+`.env` is read from this directory, or from the nearest parent directory that has one (such as the repository root). The directory you run a tool from doesn't matter.
 
 ## Accounts and credentials
 
@@ -67,17 +72,17 @@ An ARN carries its own region and account. A bare ID uses `--vpc-region` (or `--
 
 ```bash
 # Endpoints tagged Central=true in the hub account, with matching PHZs
-python tools/vpce_list/vpce_list.py --profile hub --tag Central=true --with-phz
+python tools/vpce/vpce_list/vpce_list.py --profile hub --tag Central=true --with-phz
 
 # Which PHZs is this spoke VPC associated with (any owner account)?
-python tools/phz_review/phz_review.py by-vpc --profile spoke \
+python tools/vpce/phz_review/phz_review.py by-vpc --profile spoke \
   --vpc arn:aws:ec2:us-east-1:111111111111:vpc/vpc-0123456789abcdef0
 
 # Which VPCs are associated with (or authorized for) the endpoint PHZs?
-python tools/phz_review/phz_review.py by-zone --profile hub --zone-tag Purpose=vpce
+python tools/vpce/phz_review/phz_review.py by-zone --profile hub --zone-tag Purpose=vpce
 
 # Generate the cross-account association script (hub owns PHZs, spoke owns VPC)
-python tools/phz_assoc/phz_assoc.py associate \
+python tools/vpce/phz_assoc/phz_assoc.py associate \
   --phz-account 222222222222 --phz-profile hub \
   --vpc-account 111111111111 --vpc-profile spoke \
   --zone-tag Purpose=vpce --vpc vpc-0123456789abcdef0 --out spoke.plan.sh
@@ -118,19 +123,19 @@ Disassociation can be run by either account (`--disassociate-as vpc|phz`). Route
 }
 ```
 
-Add `sts:AssumeRole` on the target role ARNs when using `--role-name`. Whoever runs a generated `phz_assoc` script needs the write permissions listed in [its README](tools/phz_assoc/README.md#iam-permissions).
+Add `sts:AssumeRole` on the target role ARNs when using `--role-name`. Whoever runs a generated `phz_assoc` script needs the write permissions listed in [its README](phz_assoc/README.md#iam-permissions).
 
 ## Platform Notes
 
 - **macOS**: System PKI truststore used automatically via Security.framework (`truststore`). No extra cert config needed.
-- **Windows**: Windows Certificate Store used automatically. Credentials at `%USERPROFILE%\.aws\credentials`. Run scripts with `python tools\...\tool.py`; generated `.sh` plans need Git Bash/WSL, or use `--format json`.
+- **Windows**: Windows Certificate Store used automatically. Credentials at `%USERPROFILE%\.aws\credentials`. Run scripts with `python tools\vpce\<tool>\<tool>.py`; generated `.sh` plans need Git Bash/WSL, or use `--format json`.
 - **Linux**: System CA bundle used via `truststore`. Ensure `ca-certificates` is installed (`apt install ca-certificates` / `yum install ca-certificates`); if it's missing the tools warn and fall back to certifi.
 
 ## Development
 
 ```bash
-pip install -r requirements-dev.txt
-pytest
+pip install -r tools/vpce/requirements-dev.txt
+cd tools/vpce && python -m pytest
 ```
 
 Tests use [moto](https://github.com/getmoto/moto). moto does not implement Route 53 VPC association authorizations, so cross-account planning is covered by unit tests of the planner (`tests/test_phz_assoc_plan.py`), not end-to-end.

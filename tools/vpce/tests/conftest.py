@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def load_tool(name: str):
-    path = ROOT / "tools" / name / f"{name}.py"
+    path = ROOT / name / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
