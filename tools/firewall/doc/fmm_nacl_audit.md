@@ -5,6 +5,11 @@
 Checks the live network ACLs in FMS member accounts against Firewall Manager
 `NETWORK_ACL_COMMON` policies.
 
+![fmm_nacl_audit report](../docs/images/fmm-nacl-audit.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/fmm_nacl_audit.py`](../docs/samples/fmm_nacl_audit.py) (made-up account and resource IDs).
+
 How a run works:
 1. Asks FMS which member accounts are in scope for each policy (`fms:ListComplianceStatus`).
 2. Picks a local AWS profile for each of those accounts.

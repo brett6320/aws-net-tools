@@ -7,6 +7,11 @@ Checks a security group migration before the old group is removed:
 - whether the new group is attached there too;
 - exactly what access each resource would lose, or gain, when the old group is removed.
 
+![sg_migration_check report](../docs/images/sg-migration-check.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/sg_migration_check.py`](../docs/samples/sg_migration_check.py) (made-up account and resource IDs).
+
 It also lists rules in other groups that reference the old group and are
 not mirrored for the new one.
 

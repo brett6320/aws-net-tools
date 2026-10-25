@@ -8,6 +8,11 @@ checked against their **combined** access, as if all of them were attached to
 the same network interface. A range split across two right groups therefore
 counts as granted.
 
+![sg_access_gap report](../docs/images/sg-access-gap.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/sg_access_gap.py`](../docs/samples/sg_access_gap.py) (made-up account and resource IDs).
+
 - Access the right groups grant beyond the left is not reported.
 - Ingress and egress are checked separately.
 - Descriptions are shown for reference but never compared.

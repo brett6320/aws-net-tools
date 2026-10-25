@@ -8,6 +8,11 @@ candidates: unattached groups, stale references, and VPC default groups that
 allow traffic. It is the security group counterpart of
 [`fmm_nacl_audit`](fmm_nacl_audit.md)'s NACL limit check.
 
+![sg_quota_audit report](../docs/images/sg-quota-audit.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/sg_quota_audit.py`](../docs/samples/sg_quota_audit.py) (made-up account and resource IDs).
+
 Prefix lists are the usual surprise. A rule that references a managed prefix
 list counts against the rules-per-group quota as the list's **maximum
 entries**, not as one rule. A group with 11 rules can therefore be full.

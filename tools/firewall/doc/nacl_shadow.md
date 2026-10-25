@@ -5,6 +5,11 @@
 Finds network ACL rules that are hidden, completely or in part, by
 lower-numbered rules.
 
+![nacl_shadow report](../docs/images/nacl-shadow.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/nacl_shadow.py`](../docs/samples/nacl_shadow.py) (made-up account and resource IDs).
+
 NACL entries are evaluated in rule-number order and the first match wins. A
 rule that is fully covered by earlier rules never matches anything:
 

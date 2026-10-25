@@ -5,6 +5,11 @@
 Saves Firewall Manager (FMS) policies as snapshots, and compares them over
 time or across regions.
 
+![fmm_policy_snapshot report](../docs/images/fmm-policy-snapshot.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/fmm_policy_snapshot.py`](../docs/samples/fmm_policy_snapshot.py) (made-up account and resource IDs).
+
 **Intent.** FMS keeps no change history. A policy edited by hand, or changed
 in one region but not another, is easy to miss. Snapshots give a reviewable
 history; the diffs show exactly which fields changed.

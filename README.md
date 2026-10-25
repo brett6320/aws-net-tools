@@ -32,12 +32,12 @@ The tools work well together. For example:
 - Use `firewall/prefix_list_audit` to find prefix lists near capacity, then `pl_review` to check whether one
   can grow.
 
-| Reachability trace | IPAM locate |
-|---|---|
-| ![Reachability trace report](tools/reachability_trace/docs/images/reachable-overview.png) | ![IPAM locate report](tools/ipam_locate/docs/images/located-instance.png) |
+| Reachability trace | IPAM locate | Security group access tester |
+|---|---|---|
+| ![Reachability trace report](tools/reachability_trace/docs/images/reachable-overview.png) | ![IPAM locate report](tools/ipam_locate/docs/images/located-instance.png) | ![Security group rule inventory access tester](tools/firewall/docs/images/sg-rule-inventory-tester.png) |
 
-> The screenshots are simulated. They are rendered from synthetic test fixtures (made-up account IDs and
-> resource IDs).
+> The screenshots are simulated. They are rendered from synthetic test fixtures and samples (made-up account
+> IDs and resource IDs).
 
 ## Getting started
 
@@ -89,7 +89,7 @@ tools/
 │   ├── requirements.txt   # runtime dependencies (requirements-dev.txt adds test tools)
 │   ├── .env.example
 │   ├── README.md
-│   ├── docs/              # optional: screenshots and the script that renders them
+│   ├── docs/              # optional: screenshots, and the script and fixtures/samples that render them
 │   └── tests/
 └── <suite>/               # several tools that share code
     ├── lib/               # shared code

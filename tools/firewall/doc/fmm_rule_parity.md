@@ -6,6 +6,11 @@ Walks every FMS policy in one or more regions, expands the rules the policies
 carry, and reports each rule where any **A target** (IP + protocol + port, or a
 managed prefix list) is present but the expected **B target(s)** are not.
 
+![fmm_rule_parity report](../docs/images/fmm-rule-parity.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/fmm_rule_parity.py`](../docs/samples/fmm_rule_parity.py) (made-up account and resource IDs).
+
 Typical use: "every rule that allows the old load balancer IP should have a
 sibling rule for the new prefix list".
 

@@ -29,9 +29,17 @@ other tools in this repository, see the [repository README](../../README.md).
 | [`sg_quota_audit.py`](doc/sg_quota_audit.md) | Which security groups and network interfaces are at or near their quotas, and which groups are stale, unattached, or default groups with rules? |
 | [`prefix_list_audit.py`](doc/prefix_list_audit.md) | Are managed prefix lists full, unused, oversized for the security group rule quota, or different between same-named copies? |
 
+| Security group rule inventory | NACL shadowed rules | FMS rule parity |
+|---|---|---|
+| ![sg_rule_inventory access tester](docs/images/sg-rule-inventory-tester.png) | ![nacl_shadow report](docs/images/nacl-shadow.png) | ![fmm_rule_parity report](docs/images/fmm-rule-parity.png) |
+
+> The screenshots are simulated. They're the real reports rendered from the synthetic samples in
+> [`docs/samples/`](docs/samples/) (made-up account and resource IDs). Each tool's page shows its own report.
+
 **Contents:** [Getting started](#getting-started) ·
 [Configuration](#configuration) · [Accounts and profiles](#accounts-and-profiles) ·
-[Reports](#reports) · [Exit codes](#exit-codes) · [Layout](#layout)
+[Reports](#reports) · [Exit codes](#exit-codes) · [Layout](#layout) ·
+[Regenerating screenshots](#regenerating-screenshots)
 
 ---
 
@@ -164,6 +172,7 @@ sg_migration_check.py   old -> new security group migration: attachments and acc
 sg_quota_audit.py       security group / interface quotas and clean-up candidates
 sg_rule_inventory.py    rules of groups / interfaces / instances / Lambdas, combined access, interface differences, access tester
 doc/                    one page per tool
+docs/                   make_screenshots.py, samples/ (synthetic report data) and images/
 lib/accounts.py         account -> profile mapping, account selection, admin profile
 lib/aws_common.py       AWS sessions/clients, FMS policy calls, regions; loads .env, logging
 lib/boxes.py            protocol x port x address range arithmetic (SG / NACL comparisons)
@@ -175,3 +184,16 @@ requirements.txt        runtime dependencies (same as the repository's)
 ```
 
 The suite has no automated tests yet.
+
+## Regenerating screenshots
+
+```bash
+python docs/make_screenshots.py                  # all
+python docs/make_screenshots.py nacl-shadow      # one
+```
+
+Each `docs/samples/<tool>.py` builds made-up input data and, wherever the tool's code allows, runs it
+through the tool's own analysis before calling its `render_html()`. `sg_quota_audit` reads AWS directly while
+it scans, so its sample builds the report rows directly, using the tool's thresholds and wording. The images in
+`docs/images/` are headless-Chrome captures at 1600px, the reports' maximum width. This needs macOS and
+Google Chrome.

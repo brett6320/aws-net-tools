@@ -5,6 +5,11 @@
 Audits managed prefix lists across accounts and regions: room to grow, actual
 use, sizing, overlapping entries, and drift between same-named copies.
 
+![prefix_list_audit report](../docs/images/prefix-list-audit.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/prefix_list_audit.py`](../docs/samples/prefix_list_audit.py) (made-up account and resource IDs).
+
 **Why it matters.** Managed prefix lists are shared building blocks for
 security groups, route tables and Firewall Manager policies:
 - A full list blocks the next change.

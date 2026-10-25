@@ -5,6 +5,11 @@
 Reports what AWS Firewall Manager (FMS) itself flags as non-compliant: per
 policy, per member account and per resource, with FMS's reason.
 
+![fmm_compliance report](../docs/images/fmm-compliance.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/fmm_compliance.py`](../docs/samples/fmm_compliance.py) (made-up account and resource IDs).
+
 Use it as the ground truth to set against this suite's own audits
 ([fmm_nacl_audit](fmm_nacl_audit.md), [fmm_rule_parity](fmm_rule_parity.md)),
 and as a work list for remediation. Where FMS and the audits disagree, that is

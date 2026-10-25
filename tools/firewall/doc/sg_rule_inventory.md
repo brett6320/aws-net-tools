@@ -6,6 +6,15 @@ Reports every rule of a set of security groups and their **combined** access.
 The HTML report includes an **access tester**: try traffic against the rules,
 and switch individual groups or rules off to see what each one contributes.
 
+| Report | Access tester |
+|---|---|
+| ![sg_rule_inventory report](../docs/images/sg-rule-inventory.png) | ![sg_rule_inventory access tester](../docs/images/sg-rule-inventory-tester.png) |
+
+Light theme: [screenshot](../docs/images/sg-rule-inventory-light.png).
+
+> The screenshots are simulated: they're the real report rendered from the synthetic sample in
+> [`docs/samples/sg_rule_inventory.py`](../docs/samples/sg_rule_inventory.py) (made-up account and resource IDs).
+
 Security groups only allow traffic. Every group attached to a network
 interface adds to what it allows, so a set of groups allows the union of all
 their rules.
