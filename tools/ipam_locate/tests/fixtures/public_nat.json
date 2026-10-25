@@ -1,0 +1,194 @@
+{
+  "query": "203.0.113.10/32",
+  "family": "ipv4",
+  "generated": "2026-10-24T09:30:00+00:00",
+  "ipam": {
+    "IpamId": "ipam-0aaa",
+    "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+    "IpamRegion": "us-east-1",
+    "OwnerId": "111111111111",
+    "Tier": "advanced",
+    "Description": null,
+    "OperatingRegions": [
+      {
+        "RegionName": "us-east-1"
+      },
+      {
+        "RegionName": "eu-west-1"
+      }
+    ],
+    "Tags": null
+  },
+  "scopes": [
+    {
+      "IpamScopeId": "ipam-scope-0priv",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamScopeType": "private",
+      "IsDefault": true
+    },
+    {
+      "IpamScopeId": "ipam-scope-0pub",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0pub",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamScopeType": "public",
+      "IsDefault": true
+    }
+  ],
+  "discoveries": [
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "OwnerId": "111111111111",
+      "IsDefault": true,
+      "Regions": [
+        "us-east-1",
+        "eu-west-1"
+      ]
+    }
+  ],
+  "pools": [
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0top",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0top",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "None",
+      "PoolDepth": 1,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "org-10-8"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0use1",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0use1",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "us-east-1",
+      "PoolDepth": 2,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0top",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "use1"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0euw1",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0euw1",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "eu-west-1",
+      "PoolDepth": 2,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0top",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "euw1"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0prod",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0prod",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "us-east-1",
+      "PoolDepth": 3,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0use1",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "use1-prod"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    },
+    {
+      "OwnerId": "111111111111",
+      "IpamPoolId": "ipam-pool-0rsv",
+      "IpamPoolArn": "arn:aws:ec2::111111111111:ipam-pool/ipam-pool-0rsv",
+      "IpamScopeArn": "arn:aws:ec2::111111111111:ipam-scope/ipam-scope-0priv",
+      "IpamScopeType": "private",
+      "IpamArn": "arn:aws:ec2::111111111111:ipam/ipam-0aaa",
+      "IpamRegion": "us-east-1",
+      "Locale": "None",
+      "PoolDepth": 2,
+      "State": "create-complete",
+      "AddressFamily": "ipv4",
+      "SourceIpamPoolId": "ipam-pool-0top",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "reserved"
+        }
+      ],
+      "MatchedCidrs": [],
+      "MatchedAllocations": []
+    }
+  ],
+  "resources": [
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "ResourceRegion": "us-east-1",
+      "ResourceId": "eipalloc-0nat",
+      "ResourceOwnerId": "222222222222",
+      "ResourceCidr": "203.0.113.10/32",
+      "IpSource": "amazon",
+      "ResourceType": "eip",
+      "ResourceTags": [],
+      "SampleTime": "2026-10-24T09:00:00+00:00",
+      "Relation": "contains"
+    }
+  ],
+  "public_addresses": [
+    {
+      "IpamResourceDiscoveryId": "ipam-res-disco-0def",
+      "AddressRegion": "us-east-1",
+      "Address": "203.0.113.10",
+      "AddressOwnerId": "222222222222",
+      "AddressAllocationId": "eipalloc-0nat",
+      "AssociationStatus": "associated",
+      "AddressType": "amazon-owned-eip",
+      "Service": "nat-gateway",
+      "ServiceResource": "nat-0abc",
+      "VpcId": "vpc-0app",
+      "SubnetId": "subnet-0pub",
+      "NetworkInterfaceId": "eni-0nat",
+      "SampleTime": "2026-10-24T09:00:00+00:00",
+      "Relation": "contains"
+    }
+  ],
+  "history": [],
+  "warnings": []
+}
