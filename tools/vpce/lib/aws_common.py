@@ -1,4 +1,4 @@
-"""Shared helpers for the aws-vpce-tools suite.
+"""Shared helpers for the vpce suite.
 
 Covers: PKI truststore setup, logging, multi-account session handling,
 VPC ID/ARN parsing, hosted-zone ID normalisation, tag filters and output

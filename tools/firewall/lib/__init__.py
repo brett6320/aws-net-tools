@@ -1,1 +1,1 @@
-"""Shared library code for the tools in this repo."""
+"""Shared library code for the tools in this suite."""

@@ -5,7 +5,7 @@
 Reports what AWS Firewall Manager (FMS) itself flags as non-compliant: per
 policy, per member account and per resource, with FMS's reason.
 
-Use it as the ground truth to set against this repo's own audits
+Use it as the ground truth to set against this suite's own audits
 ([fmm_nacl_audit](fmm_nacl_audit.md), [fmm_rule_parity](fmm_rule_parity.md)),
 and as a work list for remediation. Where FMS and the audits disagree, that is
 worth a look in itself.

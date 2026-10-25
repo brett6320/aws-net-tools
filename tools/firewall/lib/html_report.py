@@ -1,5 +1,5 @@
 """
-Self-contained interactive HTML reports, shared by the tools in this repo.
+Self-contained interactive HTML reports, shared by the tools in this suite.
 
 Intent: give reviewers a single file they can open, filter and share without
 installing anything, with the same controls in every tool's report.

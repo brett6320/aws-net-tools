@@ -4,7 +4,7 @@ AWS Firewall Manager (FMS) compliance report.
 
 Intent: show what Firewall Manager itself reports as non-compliant, per
 policy, per member account and per resource, with the reason. This is the
-ground truth to compare against this repo's own audits (fmm_nacl_audit.py,
+ground truth to compare against this suite's own audits (fmm_nacl_audit.py,
 fmm_rule_parity.py), and a work list for remediation.
 
 What it does:

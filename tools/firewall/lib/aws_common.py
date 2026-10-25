@@ -1,5 +1,5 @@
 """
-Shared helpers for the tools in this repo: AWS sessions and clients, FMS
+Shared helpers for the tools in this suite: AWS sessions and clients, FMS
 policy listing, region resolution, and a few small parsing helpers.
 
 Intent: keep AWS access and run-time setup identical across the tools, so a
