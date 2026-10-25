@@ -4,6 +4,9 @@ CLI for AWS VPC Reachability Analyzer (EC2 Network Insights). Creates paths betw
 source and destination, runs analyses, prints hop-by-hop summaries, and exports traces to a single
 self-contained HTML file with an icon-based path diagram and full component detail.
 
+It is a companion to [`ipam_locate`](../ipam_locate/): use that to find which account, Region and resource
+own an address, then trace a path to it here.
+
 **Ports are applied at the source.** Source IP, source port range, and destination port range are
 sent as `FilterAtSource`, so the packet header is defined where the traffic originates. That header
 is checked against the source's outbound security group and network ACL rules, then carried (and
@@ -13,35 +16,14 @@ together with `FilterAtSource`.
 
 ![Reachable trace export](docs/images/reachable-overview.png)
 
-> Screenshots in this README are simulated: they are exports rendered from the synthetic fixtures in
-> `tests/fixtures/` (placeholder account `111122223333`), not from a live AWS account.
+> The screenshots are simulated. They are reports rendered from the synthetic fixtures in `tests/fixtures/`
+> (made-up account IDs and resource IDs).
 
 ## Usage
 
-HTML reports are written by default. Each analysis gets its own file under the reports folder,
-organized by date and account:
-
-```text
-reports/
-└── 2026-10-23/                                      # analysis start date (UTC)
-    └── 111122223333/                                # account that owns the analysis (from its ARN)
-        ├── app-to-db-5432_nia-0fedcba9876543210.html  # <Name tag>_<analysis-id>.html
-        └── nia-0ccc000000000ccc3.html                 # no Name tag
-```
-
-- The root is `./reports` relative to the current directory. Change it with `--reports-dir` or `RA_REPORTS_DIR`.
-- The file name uses the analysis `Name` tag, then the path `Name` tag, then just the analysis ID.
-- The account is read from the analysis ARN, never from your local AWS profile. Re-exporting an analysis
-  overwrites the same file.
-- `create`/`analyze` wait for the analysis to finish and then write the report. `--export FILE` writes to that
-  file instead. `--no-report` skips the report and returns as soon as the analysis starts (unless `--wait`
-  or `--json-out` is also given).
-- `export` without `-o` writes one report per analysis into the reports folder. `-o FILE` writes one combined
-  file.
-- A path ID with no analyses gets a path-only report, filed under the path's creation date and named
-  `[<Name>_]<path-id>.html`.
-- `reports/` is git-ignored.
-
+Mutating commands (`create`, `analyze`, `delete-*`) are dry-run by default and need `--execute` or
+`--apply`. Read-only commands (`types`, `paths`, `analyses`, `show`, `export`) never change anything.
+`create`/`analyze` write an HTML report by default; see [Reports folder](#reports-folder).
 
 ```bash
 # Dry-run (default: prints the API requests, makes no changes)
@@ -181,8 +163,8 @@ prefix is rejected.
 | Flag | Description |
 |---|---|
 | `--execute` / `--apply` | Apply changes (default: dry-run) |
-| `--profile NAME` | AWS profile (overrides `AWS_PROFILE`). Never included in exports |
-| `--region REGION` | AWS region (default `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the profile's region; errors if none) |
+| `--profile NAME` | AWS profile (overrides `AWS_PROFILE`). Never included in reports or JSON |
+| `--region REGION` | AWS Region (default `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the profile's Region; errors if none) |
 | `-s/--source` | Source ID or ARN (use an ARN for cross-account resources) |
 | `-d/--dest` | Destination ID or ARN |
 | `--dest-ip` | Destination IPv4 (alone, or to pick one IP on `--dest`) |
@@ -202,7 +184,7 @@ prefix is rejected.
 | `-o/--output FILE.html` | `export`: write one combined file instead of per-analysis reports |
 | `--latest` | `export`: for path IDs, use the most recent analysis without prompting |
 | `--json-out FILE.json` | Also save the path+analysis JSON bundle(s) (`create`/`analyze` wait first) |
-| `--title TEXT` | Page title for the HTML export (default "Reachability Trace") |
+| `--title TEXT` | Page title (default "Reachability Trace") |
 | `--check-permissions` | In dry-run, call the API with `DryRun=True` to check IAM permissions (`create`/`analyze`) |
 | `-v` / `-q` | Debug / warnings-only logging |
 
@@ -224,7 +206,7 @@ prefix is rejected.
 Intermediate components for `--filter-in` / `--filter-out` (ARNs): load balancers, NAT gateways,
 Network Firewall firewalls, transit gateways, transit gateway attachments, VPC peering connections.
 
-## HTML export
+## HTML report
 
 Reports open in **dark mode** by default. Use `--theme light` or `--theme auto` (follow the OS), or set
 `RA_THEME`. A ◐ Theme button in each report switches between dark and light, and printing always uses light.
@@ -289,7 +271,32 @@ Internet gateway → Network Load Balancer → instance, showing per-hop packet 
 
 ![IGW to NLB path](docs/images/igw-nlb-path.png)
 
-The export includes only data returned by the EC2 API. The AWS profile name and credentials are never written.
+The report includes only data returned by the EC2 API. The AWS profile name and credentials are never written.
+
+### Reports folder
+
+Each analysis gets its own file under the reports folder, organized by date and account:
+
+```text
+reports/
+└── 2026-10-23/                                      # analysis start date (UTC)
+    └── 111122223333/                                # account that owns the analysis (from its ARN)
+        ├── app-to-db-5432_nia-0fedcba9876543210.html  # <Name tag>_<analysis-id>.html
+        └── nia-0ccc000000000ccc3.html                 # no Name tag
+```
+
+- The root is `./reports` relative to the current directory. Change it with `--reports-dir` or `RA_REPORTS_DIR`.
+- The file name uses the analysis `Name` tag, then the path `Name` tag, then just the analysis ID.
+- The account is read from the analysis ARN, never from your local AWS profile. Re-exporting an analysis
+  overwrites the same file.
+- `create`/`analyze` wait for the analysis to finish and then write the report. `--export FILE` writes to that
+  file instead. `--no-report` skips the report and returns as soon as the analysis starts (unless `--wait`
+  or `--json-out` is also given).
+- `export` without `-o` writes one report per analysis into the reports folder. `-o FILE` writes one combined
+  file.
+- A path ID with no analyses gets a path-only report, filed under the path's creation date and named
+  `[<Name>_]<path-id>.html`.
+- `reports/` is git-ignored.
 
 ## Cross-account paths
 
@@ -340,29 +347,24 @@ analysis lives and can be re-run. The source and destination accounts are inside
 ## Installation
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+See the [repository README](../../README.md#getting-started) for a shared virtual environment.
+
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in values. `.env` is searched for starting in this directory and
-then its parent directories. CLI flags override `.env` values.
+Copy `.env.example` to `.env` and fill in values (CLI flags override them). `.env` is searched for in the
+current directory, then its parents.
 
 | Variable | Default | Description |
 |---|---|---|
-| `AWS_PROFILE` | (default chain) | AWS profile name |
-| `AWS_REGION` | profile region | Target region |
+| `AWS_PROFILE` | (default chain) | AWS profile name (never written to reports) |
+| `AWS_REGION` | profile Region | Target Region |
 | `AWS_DEFAULT_REGION` | — | Region fallback when `AWS_REGION` is unset |
 | `RA_WAIT_TIMEOUT` | `600` | Default `--timeout` for `create` and `analyze` (not `export`) |
 | `RA_REPORTS_DIR` | `reports` | Root folder for HTML reports |
 | `RA_THEME` | `dark` | Default report theme: `dark`, `light`, or `auto` |
-
-## Platform Notes
-
-- **macOS**: System PKI truststore used automatically via Security.framework. No extra cert config needed.
-- **Windows**: System Certificate Store used automatically. Credentials at `%USERPROFILE%\.aws\credentials`.
-- **Linux**: System CA bundle used via `truststore`. Ensure `ca-certificates` is installed.
 
 ## IAM Permissions
 
@@ -395,7 +397,8 @@ then its parent directories. CLI flags override `.env` values.
 ```
 
 Read-only use (`paths`, `analyses`, `show`, `export`) only needs the `Describe*` actions.
-AWS charges for each analysis run. See AWS pricing.
+AWS charges for each analysis run; see [Amazon VPC pricing](https://aws.amazon.com/vpc/pricing/) (Network
+Analysis tab).
 
 ## Output
 
@@ -413,18 +416,20 @@ AWS charges for each analysis run. See AWS pricing.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests
+python -m pytest tests
 ```
+
+No AWS credentials are needed.
 
 Tests cover input validation, `FilterAtSource` request building, dry-run safety (no API calls), icon
 classification, account attribution and cross-account reporting, breakpoints on blocked paths (forward, return,
 no hops, blocker in or outside the returned hops), themes, and HTML rendering against the fixtures in
 `tests/fixtures/`.
 
-### Regenerating the screenshots
+## Regenerating screenshots
 
-The images in `docs/images/` are headless-Chrome captures of the fixture exports. Regenerate them all with
-(macOS: needs Google Chrome and `sips`):
+The images in `docs/images/` are headless-Chrome captures of the fixture reports. This needs macOS, Google
+Chrome and `sips`:
 
 ```bash
 python docs/make_screenshots.py                 # all shots; --chrome PATH for another Chrome/Chromium binary
@@ -433,3 +438,10 @@ python docs/make_screenshots.py blocked-path    # just the named shot(s)
 
 The script renders each fixture in the theme listed in its `SHOTS` table, measures the region to keep, captures it,
 and crops it.
+
+## Platform Notes
+
+- **macOS:** the system PKI truststore is used automatically through Security.framework (`truststore`).
+- **Windows:** the Windows Certificate Store is used automatically. Credentials are at
+  `%USERPROFILE%\.aws\credentials`.
+- **Linux:** the system CA bundle is used through `truststore`. Make sure `ca-certificates` is installed.
