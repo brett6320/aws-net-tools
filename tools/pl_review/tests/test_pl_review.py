@@ -101,7 +101,12 @@ with mock_aws():
     assert r3.at_risk_count == 1 and set(pathlib.Path.cwd().rglob("*cache*.json")) == before
     pl_review.print_summary(r)
     paths = pl_review.write_report(r, pathlib.Path(tempfile.mkdtemp()))
-    assert [x.suffix for x in paths] == [".json", ".md", ".csv"], paths
+    assert [x.suffix for x in paths] == [".json", ".md", ".csv", ".html"], paths
+    page = paths[3].read_text(encoding="utf-8")
+    assert "1 security group would exceed the limit" in page and 'data-theme="dark"' in page, page[:300]
+    assert f"<code>{pl}</code> ×1 = 95" in page and 'class="pill fm"' in page and "Not evaluated:" in page
+    assert "999999999999" in page.split("Accounts without a profile")[1][:400]
+    assert 'data-theme="light"' in pl_review.write_report(r, pathlib.Path(tempfile.mkdtemp()), ["html"], "light")[0].read_text(encoding="utf-8")
     import csv as _csv
     rows = list(_csv.DictReader(paths[2].open()))
     assert len(rows) == 5 and rows[0]["status"] == "EXCEEDS" and rows[-1]["status"] == "ERROR", rows
@@ -127,7 +132,7 @@ with mock_aws():
     rn.security_groups[0].group_name = None
     rn.security_groups[0].vpc_id = None
     rn.security_groups[-1].error = None  # error row w/o message -> treated as normal row
-    for fn in (pl_review.render_markdown, pl_review.render_csv, pl_review.render_json):
+    for fn in (pl_review.render_markdown, pl_review.render_csv, pl_review.render_json, pl_review.render_html_report):
         out = fn(rn); assert "None" not in out.replace("null", ""), fn.__name__
     pl_review.print_summary(rn)
     # Unauthorized in an account -> error rows, run continues, report still renders
@@ -140,5 +145,5 @@ with mock_aws():
     pl_review.fetch_rules = real_fetch_rules
     assert ru.error_count == 3 and ru.at_risk_count == 0, (ru.error_count, ru.at_risk_count)
     assert all("UnauthorizedOperation" in (x.error or "") for x in ru.security_groups if x.profile), [x.error for x in ru.security_groups]
-    pl_review.render_markdown(ru); pl_review.render_csv(ru)
+    pl_review.render_markdown(ru); pl_review.render_csv(ru); pl_review.render_html_report(ru)
     print("ALL ASSERTS PASS")

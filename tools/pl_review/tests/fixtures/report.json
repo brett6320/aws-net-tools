@@ -1,0 +1,413 @@
+{
+  "generated_at": "2026-10-20T14:32:05+00:00",
+  "date": "2026-10-20",
+  "prefix_list_id": "pl-0a1b2c3d4e5f60718",
+  "prefix_list_name": "corp-onprem-v4",
+  "owner_account": "111122223333",
+  "owner_profile": "hcli-network-ro",
+  "region": "us-east-1",
+  "current_max_entries": 60,
+  "current_entry_count": 57,
+  "proposed_length": 90,
+  "limit": 100,
+  "profiles_scanned": [
+    "hcli-app-prod-ro",
+    "hcli-data-ro",
+    "hcli-network-ro"
+  ],
+  "accounts_without_profile": [
+    "222233334444"
+  ],
+  "security_groups": [
+    {
+      "account_id": "111122223333",
+      "profile": "hcli-network-ro",
+      "region": "us-east-1",
+      "group_id": "sg-04d5e6f708192a3b4",
+      "group_name": "legacy-vpn-allow",
+      "vpc_id": "vpc-0a1b2c3d4e5f60718",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 6,
+        "current_weight": 93,
+        "proposed_weight": 123,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1,
+          "pl-0f9e8d7c6b5a49382": 1,
+          "pl-0123456789abcdef0": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60,
+          "pl-0f9e8d7c6b5a49382": 20,
+          "pl-0123456789abcdef0": 10
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": true,
+        "headroom_proposed": -23
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 1,
+        "current_weight": 1,
+        "proposed_weight": 1,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 99
+      },
+      "error": null,
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": true
+    },
+    {
+      "account_id": "111122223333",
+      "profile": "hcli-network-ro",
+      "region": "us-east-1",
+      "group_id": "sg-0a3f9c2e71b4d5068",
+      "group_name": "FMManagedSecurityGroup3f2a9c1e",
+      "vpc_id": "vpc-0a1b2c3d4e5f60718",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 6,
+        "current_weight": 84,
+        "proposed_weight": 114,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1,
+          "pl-0f9e8d7c6b5a49382": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60,
+          "pl-0f9e8d7c6b5a49382": 20
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": true,
+        "headroom_proposed": -14
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 1,
+        "current_weight": 1,
+        "proposed_weight": 1,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 99
+      },
+      "error": null,
+      "fm_managed": true,
+      "fm_policy_id": "3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c",
+      "at_risk": true
+    },
+    {
+      "account_id": "444455556666",
+      "profile": "hcli-app-prod-ro",
+      "region": "us-east-1",
+      "group_id": "sg-0b7e1d4a9c3f20581",
+      "group_name": "FMManagedSecurityGroup3f2a9c1e",
+      "vpc_id": "vpc-0b2c3d4e5f6071829",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 6,
+        "current_weight": 84,
+        "proposed_weight": 114,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1,
+          "pl-0f9e8d7c6b5a49382": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60,
+          "pl-0f9e8d7c6b5a49382": 20
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": true,
+        "headroom_proposed": -14
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 1,
+        "current_weight": 1,
+        "proposed_weight": 1,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 99
+      },
+      "error": null,
+      "fm_managed": true,
+      "fm_policy_id": "3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c",
+      "at_risk": true
+    },
+    {
+      "account_id": "444455556666",
+      "profile": "hcli-app-prod-ro",
+      "region": "us-east-1",
+      "group_id": "sg-0c5d8e2f4a1b70936",
+      "group_name": "bastion-access",
+      "vpc_id": "vpc-0b2c3d4e5f6071829",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 4,
+        "current_weight": 122,
+        "proposed_weight": 182,
+        "target_pl_refs": 2,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 2
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60
+        },
+        "exceeds_now": true,
+        "exceeds_proposed": true,
+        "headroom_proposed": -82
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 1,
+        "current_weight": 1,
+        "proposed_weight": 1,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 99
+      },
+      "error": null,
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": true
+    },
+    {
+      "account_id": "111122223333",
+      "profile": "hcli-network-ro",
+      "region": "us-east-1",
+      "group_id": "sg-0e8f4c1a7d2b59360",
+      "group_name": "shared-services-ingress",
+      "vpc_id": "vpc-0a1b2c3d4e5f60718",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 7,
+        "current_weight": 66,
+        "proposed_weight": 96,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 4
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 1,
+        "current_weight": 1,
+        "proposed_weight": 1,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 99
+      },
+      "error": null,
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": false
+    },
+    {
+      "account_id": "222233334444",
+      "profile": null,
+      "region": "us-east-1",
+      "group_id": "sg-0f1e2d3c4b5a69788",
+      "group_name": "?",
+      "vpc_id": null,
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 0,
+        "current_weight": 0,
+        "proposed_weight": 0,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 100
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 0,
+        "current_weight": 0,
+        "proposed_weight": 0,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 100
+      },
+      "error": "no valid profile for account 222233334444",
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": false
+    },
+    {
+      "account_id": "444455556666",
+      "profile": "hcli-app-prod-ro",
+      "region": "us-east-1",
+      "group_id": "sg-02b3c4d5e6f708192",
+      "group_name": "app-tier",
+      "vpc_id": "vpc-0b2c3d4e5f6071829",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 9,
+        "current_weight": 68,
+        "proposed_weight": 98,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 2
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 3,
+        "current_weight": 3,
+        "proposed_weight": 3,
+        "target_pl_refs": 0,
+        "prefix_lists": {
+          "pl-63a5400a": 1
+        },
+        "pl_weights": {
+          "pl-63a5400a": 1
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 97
+      },
+      "error": null,
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": false
+    },
+    {
+      "account_id": "777788889999",
+      "profile": "hcli-data-ro",
+      "region": "us-east-1",
+      "group_id": "sg-01a2b3c4d5e6f7081",
+      "group_name": "reporting-db",
+      "vpc_id": "vpc-0c3d4e5f607182930",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 3,
+        "current_weight": 62,
+        "proposed_weight": 92,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 8
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 0,
+        "current_weight": 0,
+        "proposed_weight": 0,
+        "target_pl_refs": 0,
+        "prefix_lists": {},
+        "pl_weights": {},
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 100
+      },
+      "error": null,
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": false
+    },
+    {
+      "account_id": "777788889999",
+      "profile": "hcli-data-ro",
+      "region": "us-east-1",
+      "group_id": "sg-0d2a6b9e3f7c14805",
+      "group_name": "etl-workers",
+      "vpc_id": "vpc-0c3d4e5f607182930",
+      "ingress": {
+        "direction": "ingress",
+        "rule_count": 13,
+        "current_weight": 22,
+        "proposed_weight": 22,
+        "target_pl_refs": 0,
+        "prefix_lists": {
+          "pl-0123456789abcdef0": 1
+        },
+        "pl_weights": {
+          "pl-0123456789abcdef0": 10
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 78
+      },
+      "egress": {
+        "direction": "egress",
+        "rule_count": 5,
+        "current_weight": 64,
+        "proposed_weight": 94,
+        "target_pl_refs": 1,
+        "prefix_lists": {
+          "pl-0a1b2c3d4e5f60718": 1,
+          "pl-63a5400a": 1
+        },
+        "pl_weights": {
+          "pl-0a1b2c3d4e5f60718": 60,
+          "pl-63a5400a": 1
+        },
+        "exceeds_now": false,
+        "exceeds_proposed": false,
+        "headroom_proposed": 6
+      },
+      "error": null,
+      "fm_managed": false,
+      "fm_policy_id": null,
+      "at_risk": false
+    }
+  ],
+  "at_risk_count": 4,
+  "error_count": 1,
+  "fm_policies": {
+    "3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c": {
+      "replicas": 2,
+      "accounts": [
+        "111122223333",
+        "444455556666"
+      ],
+      "at_risk": 2,
+      "errors": 0,
+      "max_proposed_ingress": 114,
+      "max_proposed_egress": 1,
+      "account_count": 2
+    }
+  }
+}
