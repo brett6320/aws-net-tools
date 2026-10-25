@@ -1,4 +1,4 @@
-boto3>=1.34
-botocore>=1.34
-python-dotenv>=1.0
-truststore>=0.10
+boto3>=1.43.118
+botocore>=1.43.118
+python-dotenv>=1.2.4
+truststore>=0.10.5
