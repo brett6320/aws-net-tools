@@ -64,9 +64,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    concurrency:
-      group: badges-branch
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
@@ -81,7 +78,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for attempt in 1 2 3 4 5; do
+          # No concurrency group: GitHub keeps only one pending job per group and cancels the rest, and
+          # all five tool workflows finish together on a merge. Instead, every attempt starts from the
+          # latest badges branch (so the totals are recomputed) and a rejected push simply retries.
+          for attempt in 1 2 3 4 5 6 7 8; do
             rm -rf badges
             if git ls-remote --exit-code --heads origin badges >/dev/null; then
               git fetch --depth=1 origin badges
@@ -96,6 +96,6 @@ jobs:
             git -C badges commit -q -m "Badges: $SLUG (${GITHUB_SHA::7})"
             if git -C badges push origin badges; then exit 0; fi
             git worktree remove --force badges
-            sleep $((attempt * 5))
+            sleep $((attempt * 3 + RANDOM % 5))
           done
           exit 1
