@@ -1077,7 +1077,7 @@ def tester_data(payload: dict, groups: list[SG], rules: dict[str, list[SgRule]],
                        "boxes": [[sp, b[0][0], b[0][1], b[1][0], b[1][1], str(b[2][0]), str(b[2][1])]
                                  for sp, b in r.boxes]}
                       for g in groups for r in rules[g.group_id]]}
-    text = json.dumps(data, default=str).replace("</", "<\\/")
+    text = json.dumps(data, default=str).replace("<", "\\u003c")
     return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 

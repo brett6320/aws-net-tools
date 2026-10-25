@@ -989,7 +989,7 @@ def _slug(ts: TargetSet) -> str:
     slug = "+".join(parts)
     if len(slug) > 60:
         import hashlib
-        slug = slug[:48] + "_" + hashlib.sha1(slug.encode()).hexdigest()[:8]
+        slug = slug[:48] + "_" + hashlib.sha1(slug.encode(), usedforsecurity=False).hexdigest()[:8]
     return slug
 
 
