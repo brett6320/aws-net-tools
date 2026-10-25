@@ -44,6 +44,8 @@ from botocore.config import Config  # noqa: E402
 from botocore.exceptions import BotoCoreError, ClientError, ProfileNotFound  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
+from plr_export import THEMES, render_html  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -134,6 +136,7 @@ class DirectionUsage:
     proposed_weight: int = 0  # weight if target PL grows to proposed_length
     target_pl_refs: int = 0  # how many rules reference the target PL
     prefix_lists: dict[str, int] = field(default_factory=dict)  # pl-id -> refs
+    pl_weights: dict[str, int] = field(default_factory=dict)  # pl-id -> weight per reference (current)
     exceeds_now: bool = False
     exceeds_proposed: bool = False
     headroom_proposed: int = 0
@@ -547,10 +550,12 @@ def weigh_direction(
             u.prefix_lists[pl_id] = u.prefix_lists.get(pl_id, 0) + 1
             if pl_id == target_pl:
                 u.target_pl_refs += 1
+                u.pl_weights[pl_id] = target_weight_now
                 u.current_weight += target_weight_now
                 u.proposed_weight += proposed_length
             else:
                 w = resolver.max_entries(profile, pl_id)
+                u.pl_weights[pl_id] = w
                 u.current_weight += w
                 u.proposed_weight += w
         else:
@@ -780,7 +785,7 @@ def _review(
 # --------------------------------------------------------------------------- #
 # Output
 # --------------------------------------------------------------------------- #
-REPORT_FORMATS = ("json", "md", "csv")
+REPORT_FORMATS = ("json", "md", "csv", "html")
 CSV_COLUMNS = (
     "date", "prefix_list_id", "account_id", "profile", "region", "group_id", "group_name", "vpc_id",
     "fm_managed", "fm_policy_id",
@@ -883,11 +888,16 @@ def render_markdown(report: PrefixListReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-RENDERERS = {"json": render_json, "md": render_markdown, "csv": render_csv}
+def render_html_report(report: PrefixListReport, theme: str = "dark") -> str:
+    return render_html(json.loads(render_json(report)), theme=theme)
 
 
-def write_report(report: PrefixListReport, out_dir: Path, formats: Iterable[str] = REPORT_FORMATS) -> list[Path]:
-    """Write <out_dir>/<YYYY-MM-DD>/<pl>_<HHMMSS>.{json,md,csv}; return paths."""
+RENDERERS = {"json": render_json, "md": render_markdown, "csv": render_csv, "html": render_html_report}
+
+
+def write_report(report: PrefixListReport, out_dir: Path, formats: Iterable[str] = REPORT_FORMATS,
+                 theme: str = "dark") -> list[Path]:
+    """Write <out_dir>/<YYYY-MM-DD>/<pl>_<HHMMSS>.{json,md,csv,html}; return paths."""
     ts = datetime.fromisoformat(report.generated_at)
     day_dir = out_dir / report.date
     day_dir.mkdir(parents=True, exist_ok=True)
@@ -897,7 +907,8 @@ def write_report(report: PrefixListReport, out_dir: Path, formats: Iterable[str]
         if fmt not in RENDERERS:
             raise SystemExit(f"Unknown report format {fmt!r}; choose from {', '.join(REPORT_FORMATS)}")
         path = day_dir / f"{stem}.{fmt}"
-        path.write_text(RENDERERS[fmt](report))
+        text = render_html_report(report, theme) if fmt == "html" else RENDERERS[fmt](report)
+        path.write_text(text, encoding="utf-8")
         paths.append(path)
     return paths
 
@@ -949,7 +960,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--profiles", nargs="*", help="Explicit profiles to scan (default: all valid local profiles)")
     p.add_argument("--out-dir", default=os.getenv("PL_REVIEW_OUT_DIR", "reports"), help="Report root; files land in <out-dir>/<date>/")
     p.add_argument("--formats", default=os.getenv("PL_REVIEW_FORMATS", ",".join(REPORT_FORMATS)),
-                   help="Comma-separated report formats to write (default: json,md,csv)")
+                   help="Comma-separated report formats to write (default: json,md,csv,html)")
+    p.add_argument("--theme", choices=THEMES, default=os.getenv("PL_REVIEW_THEME", "dark"),
+                   help="HTML report theme: dark (default), light, or auto (follow OS); toggle in-page")
     p.add_argument("--json", action="store_true", help="Print JSON report to stdout instead of table")
     p.add_argument("--no-write", action="store_true", help="Do not write report file")
     p.add_argument("--cache-path", default=DEFAULT_CACHE_PATH, help="Persist metadata cache to this JSON file (default: in-memory only)")
@@ -992,7 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_write:
         formats = [f.strip().lower() for f in args.formats.split(",") if f.strip()]
-        for path in write_report(report, Path(args.out_dir), formats):
+        for path in write_report(report, Path(args.out_dir), formats, args.theme):
             log.info("Report written to %s", path)
     if args.json:
         print(render_json(report))

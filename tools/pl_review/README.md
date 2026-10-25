@@ -2,6 +2,11 @@
 
 Reviews every security group (SG) associated with an AWS Managed Prefix List (PL), including SGs in other accounts that consume the PL via AWS RAM sharing. For each SG it computes the weighted rule count per direction, expanding every referenced prefix list to its `MaxEntries` (that is how AWS charges PL references against the SG rule quota), and reports whether growing the target PL to a proposed length would push any SG over the rule limit. Read-only; it never mutates anything.
 
+![Prefix list review HTML report](docs/images/report.png)
+
+> The screenshot is simulated. It's the HTML report rendered from the synthetic fixture in `tests/fixtures/`
+> (made-up account IDs and resource IDs).
+
 ## How it works
 
 1. Discovers local profiles matching the naming policy: start with `hcli-`, do not end with `-priv` or `-cpar`.
@@ -38,7 +43,8 @@ print(report.at_risk_count)
 | `--region REGION` | Region of the PL and SGs (default `us-east-1`) |
 | `--profiles A B ...` | Restrict scan to these profiles |
 | `--out-dir DIR` | Report root (default `reports`) |
-| `--formats LIST` | Comma-separated formats to write: `json,md,csv` (default all) |
+| `--formats LIST` | Comma-separated formats to write: `json,md,csv,html` (default all) |
+| `--theme THEME` | HTML report theme: `dark` (default), `light`, or `auto` (follow the OS); toggle in-page |
 | `--json` | Print JSON instead of table |
 | `--no-write` | Skip writing the report file |
 | `--cache-path FILE` | Persist metadata cache to this file (default: in-memory only) |
@@ -53,15 +59,32 @@ Authorization failures are non-fatal per account: if a profile is denied `Descri
 
 ## Output
 
-Reports are organized by date and written in three formats by default:
+Reports are organized by date and written in four formats by default:
 
 ```
 <out-dir>/<YYYY-MM-DD>/<pl-id>_<HHMMSS>.json   # full structured report
 <out-dir>/<YYYY-MM-DD>/<pl-id>_<HHMMSS>.md     # summary header + table, at-risk statuses bolded
 <out-dir>/<YYYY-MM-DD>/<pl-id>_<HHMMSS>.csv    # one row per SG per direction (error SGs = one row)
+<out-dir>/<YYYY-MM-DD>/<pl-id>_<HHMMSS>.html   # self-contained HTML report (see below)
 ```
 
 Select a subset with `--formats json,csv` or `PL_REVIEW_FORMATS`. The table on stdout is sorted with at-risk SGs first.
+
+The **HTML report** is a single self-contained file (inline CSS and JS, no external resources), safe to attach to a
+change ticket:
+- a verdict badge and summary cards: MaxEntries now and proposed, the limit, groups, accounts, at risk, over the
+  limit now, and not evaluated;
+- one row per security group and direction, at-risk groups first. Each row has a bar showing the current weight,
+  what the proposed length adds, and the limit, plus the prefix lists behind the weight (references × weight
+  each, with the target at its proposed length);
+- a search box and an "At risk only" filter;
+- the Firewall Manager policy rollup, coverage (profiles scanned, accounts without a profile), and the raw JSON.
+
+It's dark by default (`--theme` or `PL_REVIEW_THEME` change that), has an in-page toggle, and always prints in the
+light theme. `plr_export.render_html()` takes the same dict as the JSON report, so a saved JSON report can be
+rendered again with
+`python -c 'import json,plr_export; print(plr_export.render_html(json.load(open("report.json"))))' > report.html`
+(run it from `tools/pl_review/`).
 
 Columns: `RULES` raw rule count, `NOW` current weighted count, `PROP` weighted count at the proposed length, `ROOM` remaining headroom under the limit, `STATUS` one of `ok`, `OVER NOW`, `EXCEEDS`.
 
@@ -69,7 +92,7 @@ Accounts that own associated SGs but have no valid local profile are listed unde
 
 ## Firewall Manager (FMM) security groups
 
-SGs replicated by AWS Firewall Manager are detected by the `FMManaged` / `FMPolicyId` tags or the `FMManagedSecurityGroup<policy>` name. They are marked `[FM]` on stdout, carry `fm_managed` / `fm_policy_id` columns in CSV, Markdown and JSON, and are rolled up per policy (`fm_policies` in JSON, "Firewall Manager policies" table in Markdown): replica count, accounts, at-risk count, and the highest proposed weight seen in any replica. Replicas of one policy share the same rules, so one at-risk replica usually means the whole policy needs the quota raised or the rules trimmed.
+SGs replicated by AWS Firewall Manager are detected by the `FMManaged` / `FMPolicyId` tags or the `FMManagedSecurityGroup<policy>` name. They are marked `[FM]` on stdout and `FM` in the HTML report, carry `fm_managed` / `fm_policy_id` columns in CSV, Markdown and JSON, and are rolled up per policy (`fm_policies` in JSON, "Firewall Manager policies" table in Markdown and HTML): replica count, accounts, at-risk count, and the highest proposed weight seen in any replica. Replicas of one policy share the same rules, so one at-risk replica usually means the whole policy needs the quota raised or the rules trimmed.
 
 ## Cache
 
@@ -93,6 +116,16 @@ cd tools/pl_review && PYTHONPATH=. python tests/test_pl_review.py
 The test is a plain script (it doesn't run under pytest).
 
 Uses `moto`; `get_managed_prefix_list_associations` is stubbed because moto does not implement it.
+
+## Regenerating screenshots
+
+```bash
+python docs/make_screenshots.py            # all
+python docs/make_screenshots.py report     # one
+```
+
+The images in `docs/images/` are headless-Chrome captures of `tests/fixtures/report.json`, a made-up report
+whose weights are consistent with the tool's rules. This needs macOS and Google Chrome.
 
 ## Requirements
 
