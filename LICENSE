@@ -1,4 +1,4 @@
-AWS Reachability Analyzer Tools License
+AWS Network Tools License
 
 Copyright (c) 2026 brett6320 (https://github.com/brett6320)
 
@@ -18,8 +18,8 @@ substantial portion of the Software), in source or binary form, whether or not
 it is distributed, must:
 
   a. keep the copyright notice above and this license text; and
-  b. credit the Author, for example "Based on aws-reachability-analyzer by
-     brett6320 (https://github.com/brett6320/aws-reachability-analyzer)",
+  b. credit the Author, for example "Based on aws-net-tools by
+     brett6320 (https://github.com/brett6320/aws-net-tools)",
      in its documentation, notices, or other place where third-party
      attributions normally appear.
 

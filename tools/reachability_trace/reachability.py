@@ -454,7 +454,8 @@ def cmd_delete_path(args, execute: bool) -> int:
     ec2 = _ec2(args) if execute or args.with_analyses else None
     for pid in args.path_ids:
         if args.with_analyses:
-            for a in core.iter_analyses(ec2, pid):
+            # List them all first: deleting between page requests can make pagination skip some.
+            for a in list(core.iter_analyses(ec2, pid)):
                 if execute:
                     core.delete_analysis(ec2, a["NetworkInsightsAnalysisId"])
                 else:
