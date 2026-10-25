@@ -1,10 +1,11 @@
-# aws-firewall-tools
+# Firewall Tools
 
 Read-only review tools for AWS Firewall Manager (FMS) policies, network ACLs,
 security groups and managed prefix lists. None of them make changes in AWS.
 
-Each tool has its own page in [`doc/`](doc/). This page covers what the tools
-have in common.
+This suite is ten tools that share the code in `lib/`. Each tool has its own
+page in [`doc/`](doc/). This page covers what they have in common. For the
+other tools in this repository, see the [repository README](../../README.md).
 
 ## Tools
 
@@ -30,27 +31,30 @@ have in common.
 
 **Contents:** [Getting started](#getting-started) ·
 [Configuration](#configuration) · [Accounts and profiles](#accounts-and-profiles) ·
-[Reports](#reports) · [Exit codes](#exit-codes) · [Repository layout](#repository-layout)
+[Reports](#reports) · [Exit codes](#exit-codes) · [Layout](#layout)
 
 ---
 
 ## Getting started
 
-Requires Python 3.11+ and AWS credentials (local AWS profiles).
+Requires Python 3.11+ and AWS credentials (local AWS profiles). Set up the
+shared virtual environment as described in the
+[repository README](../../README.md#getting-started), or install this suite on
+its own:
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # optional defaults, see Configuration
+pip install -r tools/firewall/requirements.txt
+cp tools/firewall/.env.example tools/firewall/.env   # optional defaults, see Configuration
 ```
 
-The tools are executable, and every tool has `--help`:
+Every tool has `--help`:
 
 ```bash
-./fmm_compliance.py --help
+python tools/firewall/fmm_compliance.py --help
 ```
 
-`python <tool>.py ...` works too.
+The tools are also executable (`./fmm_compliance.py` from this directory) when
+the virtual environment is active.
 
 TLS uses the operating system's trust store (`truststore`):
 - macOS: Security.framework.
@@ -60,7 +64,9 @@ TLS uses the operating system's trust store (`truststore`):
 ## Configuration
 
 Settings come from `.env` (see [`.env.example`](.env.example)); command-line
-flags override them.
+flags override them. `.env` is read from this directory, or from the nearest
+parent directory that has one (such as the repository root). The directory you
+run a tool from doesn't matter.
 
 | Variable | Used by | Meaning |
 |---|---|---|
@@ -144,9 +150,9 @@ more precisely, as described on their pages. For example:
 - `sg_rule_inventory` exits 1 when the interfaces given differ;
 - `sg_migration_check` exits 0 only when every resource is `READY`.
 
-## Repository layout
+## Layout
 
-```
+```text
 fmm_compliance.py       FMS-reported compliance per policy, account and resource
 fmm_nacl_audit.py       live NACLs vs FMS NACL policy
 fmm_policy_snapshot.py  FMS policy snapshots, diffs and region comparison
@@ -165,5 +171,7 @@ lib/html_report.py      self-contained interactive HTML report renderer
 lib/output.py           common output flags, report paths and writers
 lib/security_groups.py  group / interface / instance / Lambda ids and ARNs, per-account profiles, loading rules and prefix lists
 .env.example            configuration template
-requirements.txt        Python dependencies
+requirements.txt        runtime dependencies (same as the repository's)
 ```
+
+The suite has no automated tests yet.

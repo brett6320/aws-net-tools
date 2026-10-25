@@ -7,3 +7,4 @@ __pycache__/
 !tools/reachability_trace/tests/fixtures/*.html
 .DS_Store
 reports/
+snapshots/
