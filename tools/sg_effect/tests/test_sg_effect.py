@@ -271,7 +271,7 @@ def test_no_resources(bundle):
     b["enis"], b["referencing"] = [], []
     r = an.analyze(b)
     assert r["resources"] == []
-    text = se_text.render(r)
+    text = se_text.render(r, full=True)
     assert f"No resources use {F.WEB}." in text and "Target rules across" not in text
     assert "No network interface uses this group" in render_html(r, b)
 
@@ -279,7 +279,7 @@ def test_no_resources(bundle):
 # ---------- output ----------
 
 def test_text_output(bundle):
-    text = se_text.render(an.analyze(bundle, ["sgr-0web0443"]))
+    text = se_text.render(an.analyze(bundle, ["sgr-0web0443"]), full=True)
     assert text.startswith(f"Security group {F.WEB} (web-sg), {F.VPC}, account {F.ACCOUNT}, us-east-1")
     assert "Scenario" not in text and "If the selected rules are removed" not in text   # HTML only
     assert "== EC2 instance i-0web1000000000001 (web-1)" in text and "(ENIs with different groups" in text
@@ -292,15 +292,44 @@ def test_text_output(bundle):
     assert f"Groups whose rules reference {F.WEB}:" in text and "% sg-0eee5555ffff66667" in text
 
 
-def test_text_redundant_everywhere_and_no_change(bundle):
+def test_concise_output(bundle):
+    text = se_text.render(an.analyze(bundle, ["sgr-0web0443"]))
+    assert text.startswith(f"{F.WEB} (web-sg) · {F.VPC} · account {F.ACCOUNT} · us-east-1 · 5 rules · "
+                           "used by 5 resources")
+    assert "Inbound (" not in text and "keeps" not in text and "sgr-0web0443" not in text
+    # resources losing the same access share one block
+    assert f"  EC2 instance {WEB2} (web-2) via eni-0web2000000000002\n  Lambda function api-fn\n" in text
+    assert f"  EC2 instance {WEB1} (web-1)   [also: {F.BASE} (base-sg)]" in text
+    assert "    ~ inbound tcp 22 from pl-0123456789abcdef0 (corp-networks) except 10.0.0.0/8" in text
+    assert "    - sg-0ddd4444eeee55556 (db-sg) would stop allowing inbound tcp 5432 from this resource" in text
+    assert f"No rule of {F.WEB} is redundant on every resource." in text
+    assert text.count("    - inbound tcp 443 from 0.0.0.0/0") == 2      # two blocks, not four resources
+
+
+def test_concise_no_change_and_redundant(bundle):
     b = copy.deepcopy(bundle)
     b["enis"] = [e for e in b["enis"] if e["resource"] == ALB]
     b["rules"] = [r for r in b["rules"] if r["id"] in ("sgr-0web0443", "sgr-0adm0443")]
     text = se_text.render(an.analyze(b))
+    assert "  No change: Application Load Balancer web-alb" in text
+    assert "Redundant on every resource (deleting them changes no access):\n  sgr-0web0443" in text
+    b["enis"] = []
+    assert se_text.render(an.analyze(b)).rstrip().endswith("not used by any resource")
+    b["rules"] = []
+    b["enis"] = [e for e in bundle["enis"] if e["resource"] == ALB]
+    text = se_text.render(an.analyze(b))                                  # a group with no rules
+    assert "Redundant on every resource" not in text and "No rule of" not in text
+
+
+def test_text_redundant_everywhere_and_no_change(bundle):
+    b = copy.deepcopy(bundle)
+    b["enis"] = [e for e in b["enis"] if e["resource"] == ALB]
+    b["rules"] = [r for r in b["rules"] if r["id"] in ("sgr-0web0443", "sgr-0adm0443")]
+    text = se_text.render(an.analyze(b), full=True)
     assert "redundant on all 1: removing it changes no access" in text
     assert "Outbound: nothing allowed" in text
     b["rules"] = [r for r in b["rules"] if r["group"] != F.WEB]
-    assert "     no change" in se_text.render(an.analyze(b))
+    assert "     no change" in se_text.render(an.analyze(b), full=True)
 
 
 def test_html_report(bundle):
@@ -324,6 +353,9 @@ def test_cli(fake, monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(core, "get_session", lambda profile, region: type("S", (), {"region_name": region})())
     monkeypatch.chdir(tmp_path)
     assert sg_effect.main([F.WEB, "--region", "us-east-1", "--json-out", "b.json", "-q"]) == 0
+    out = capsys.readouterr().out
+    assert "If sg-0aaa1111bbbb22223 (web-sg) is removed:" in out and "Inbound (" not in out
+    assert sg_effect.main(["--from-json", "b.json", "--full", "--no-report"]) == 0
     assert "Resources using" in capsys.readouterr().out
     reports = list(Path("reports").rglob("*.html"))
     assert reports and reports[0].name == f"sg-effect_{F.WEB}.html" and reports[0].parent.name == F.ACCOUNT

@@ -17,15 +17,20 @@ after counting every other security group on that resource:
 - **Referencing groups:** the security groups whose rules point at the target group, and the resources
   behind them.
 
-The tool is read-only.
+By default the terminal shows only what removing the group would cost each resource, and which rules are
+redundant everywhere. `--full` adds every rule, each resource's effective access, the access it keeps and the
+referencing groups. The tool is read-only.
 
 ![sg_effect report (dark)](docs/images/report.png)
 
 ## Usage
 
 ```bash
-# Every resource using the group, its effective access, and the cost of removing the group
+# What each resource using the group would lose if the group were removed
 python sg_effect.py sg-0aaa1111bbbb22223 --profile network-admin --region us-east-1
+
+# Also every rule, each resource's effective access, kept access and referencing groups
+python sg_effect.py sg-0aaa1111bbbb22223 --full
 
 # What would deleting these rules break? (sgr- IDs, or DIRECTION:PROTOCOL:PORTS:PEER; see the HTML report)
 python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule sgr-0web0443
@@ -56,15 +61,60 @@ The rule removal scenario appears only in the HTML report, as an "If the selecte
 each resource card and a badge in the summary. The terminal output and `--json` leave it out, and end with a
 line pointing to the report. `--remove-rule` can't be combined with `--no-report`.
 
-### Example: one instance
+### Example
 
 The target `web-sg` allows HTTPS and HTTP from anywhere, SSH from the `corp-networks` prefix list (10.0.0.0/8
-and 192.168.0.0/16), all traffic between its own members, and all outbound. The instance also has `base-sg`,
+and 192.168.0.0/16), all traffic between its own members, and all outbound. The instances also have `base-sg`,
 which allows SSH and ICMP from 10.0.0.0/8 and all outbound. `db-sg` allows 5432-5433 from `web-sg`, and 5433
 from `base-sg`.
 
 ```text
 $ python sg_effect.py sg-0aaa1111bbbb22223
+sg-0aaa1111bbbb22223 (web-sg) · vpc-0123456789abcdef0 · account 111122223333 · us-east-1 · 5 rules · used by 5 resources
+
+If sg-0aaa1111bbbb22223 (web-sg) is removed:
+
+  Application Load Balancer web-alb   [also: sg-0ccc3333dddd44445 (admin-sg)]
+    ~ inbound tcp 80 from 0.0.0.0/0 except 10.1.0.0/16
+    ~ inbound tcp 22 from pl-0123456789abcdef0 (corp-networks) except 10.1.0.0/16
+    - inbound all traffic from sg-0aaa1111bbbb22223 (web-sg)
+    - outbound all traffic to 0.0.0.0/0
+    - sg-0ddd4444eeee55556 (db-sg) would stop allowing inbound tcp 5432-5433 from this resource
+
+  EC2 instance i-0web1000000000001 (web-1)   [also: sg-0bbb2222cccc33334 (base-sg)]
+  EC2 instance i-0web2000000000002 (web-2) via eni-0web2000000000001   [also: sg-0bbb2222cccc33334 (base-sg)]
+    - inbound tcp 443 from 0.0.0.0/0
+    - inbound tcp 80 from 0.0.0.0/0
+    ~ inbound tcp 22 from pl-0123456789abcdef0 (corp-networks) except 10.0.0.0/8
+    - inbound all traffic from sg-0aaa1111bbbb22223 (web-sg)
+    - sg-0ddd4444eeee55556 (db-sg) would stop allowing inbound tcp 5432 from this resource
+
+  EC2 instance i-0web2000000000002 (web-2) via eni-0web2000000000002
+  Lambda function api-fn
+    - inbound tcp 443 from 0.0.0.0/0
+    - inbound tcp 80 from 0.0.0.0/0
+    - inbound tcp 22 from pl-0123456789abcdef0 (corp-networks)
+    - inbound all traffic from sg-0aaa1111bbbb22223 (web-sg)
+    - outbound all traffic to 0.0.0.0/0
+    - sg-0ddd4444eeee55556 (db-sg) would stop allowing inbound tcp 5432-5433 from this resource
+
+No rule of sg-0aaa1111bbbb22223 is redundant on every resource.
+
+~ = partly lost (the rest is still allowed by another rule). --full shows each resource's effective access.
+```
+
+Resources that would lose the same access are listed together, with their other groups. `-` is lost
+entirely, `~` partly: SSH from 10.0.0.0/8 survives on the instances through `base-sg`, so only
+192.168.0.0/16 is lost. The database keeps accepting 5433 from them through `base-sg`, so only 5432 is lost.
+An instance whose interfaces have different groups is listed once per interface ("via eni-…"); the second
+interface of `web-2` has only `web-sg`, so like the Lambda function it would lose everything.
+
+### Example: `--full`
+
+`--full` lists each resource's effective access, marking with `*` what the target group allows:
+
+```text
+$ python sg_effect.py sg-0aaa1111bbbb22223 --full
 ...
 == EC2 instance i-0web1000000000001 (web-1)
    ENI eni-0web1000000000001  10.0.1.11  subnet-0a1b2c3d4e5f60718
@@ -87,11 +137,7 @@ $ python sg_effect.py sg-0aaa1111bbbb22223
      sg-0ddd4444eeee55556 (db-sg) would stop allowing inbound tcp 5432 from this resource
 ```
 
-`*` marks access the target group allows. A partial loss names what's still allowed: SSH from 10.0.0.0/8
-survives through `base-sg`, so only 192.168.0.0/16 is lost. The database keeps accepting 5433 from this
-instance through `base-sg`, so only 5432 is lost.
-
-The end of the output summarizes each rule of the target group, and lists the groups that reference it:
+The end of the `--full` output summarizes each rule of the target group, and lists the groups that reference it:
 
 ```text
 Target rules across 5 resources:
@@ -146,8 +192,9 @@ is per interface.
 
 Unless you pass `--no-report`, the tool writes a self-contained HTML report to
 `reports/<YYYY-MM-DD>/<account>/sg-effect_<group>.html` (with `_remove-rules` when a scenario was given), or
-to `--output`. It has the summary, the rules table, one card per resource with its inbound and outbound
-tables and both scenarios (the rule removal scenario is only here), the referencing groups, warnings, and the raw bundle. `--theme dark|light|auto`
+to `--output`. It opens on the summary and, for each resource, what it would lose in both scenarios (the
+rule removal scenario is only here). The rules table and each resource's inbound and outbound tables are
+collapsed underneath. Then come the referencing groups, warnings, and the raw bundle. `--theme dark|light|auto`
 picks the look (default `dark`; `auto` follows the OS), and the button in the corner switches it.
 
 ![sg_effect report (light)](docs/images/report-light.png)
