@@ -1,0 +1,32 @@
+name: dx_backup tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/dx_backup/**"
+      - ".github/workflows/tests-dx_backup.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/dx_backup/**"
+      - ".github/workflows/tests-dx_backup.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: dx_backup
+      path: tools/dx_backup
+    permissions:
+      contents: write
