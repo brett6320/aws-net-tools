@@ -64,7 +64,7 @@ def selection_card(bundle: dict, tables: dict, key: str, query) -> str:
         lp = "n/a (public VIF)" if p["type"] == core.PUBLIC else \
             f"{p['local_pref']} ({core.LP_NAMES.get(p['local_pref'], '?')})<div class='td muted'>{_e(p['local_pref_source'])}</div>"
         rows.append([_state(p), _vif_cell(p), _code(p["next_hop"]), lp,
-                     f"{_code(p['as_path_text'] or '(empty)')}<div class='td muted'>length {p['as_path_len']}</div>",
+                     f"<code class='wrap'>{_e(p['as_path_text'] or '(empty)')}</code><div class='td muted'>length {p['as_path_len']}</div>",
                      " ".join(_code(c) for c in p["communities"]) or '<span class="nm">—</span>',
                      _e(p["evaluation"])])
     title = f"{prefix}" + (f" (longest match for {query})" if str(query) != prefix else "")
