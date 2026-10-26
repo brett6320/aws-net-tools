@@ -1,21 +1,17 @@
 import copy
 import ipaddress
 import json
-import sys
 from pathlib import Path
 
 import pytest
 from botocore.exceptions import ClientError
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parent)]
+import sg_effect_fake as F
+from conftest import load_tool
+from lib import sg_algebra as acc
+from lib.eni_owners import eni_owner
 
-import fake_ec2 as F  # noqa: E402
-import se_access as acc  # noqa: E402
-import se_analyze as an  # noqa: E402
-import se_core as core  # noqa: E402
-import se_text  # noqa: E402
-import sg_effect  # noqa: E402
-from se_export import render_html  # noqa: E402
+sge = load_tool("sg_effect")
 
 ALB, LAMBDA, WEB1, WEB2 = "web-alb", "api-fn", "i-0web1000000000001", "i-0web2000000000002"
 
@@ -23,13 +19,13 @@ ALB, LAMBDA, WEB1, WEB2 = "web-alb", "api-fn", "i-0web1000000000001", "i-0web200
 @pytest.fixture
 def fake(monkeypatch):
     holder = {"ec2": F.FakeEC2()}
-    monkeypatch.setattr(core, "get_client", lambda svc, session, region=None: holder["ec2"])
+    monkeypatch.setattr(sge, "get_client", lambda svc, session: holder["ec2"])
     return holder
 
 
 @pytest.fixture
 def bundle(fake):
-    return core.collect(object(), "us-east-1", F.WEB)
+    return sge.collect(object(), "us-east-1", F.WEB)
 
 
 def res(result, rid, groups=None):
@@ -119,7 +115,7 @@ def test_eni_owner_classification():
         ({}, ("Network interface", "eni-x")),
     ]
     for extra, want in cases:
-        assert core.eni_owner({"NetworkInterfaceId": "eni-x", **extra}) == want
+        assert eni_owner({"NetworkInterfaceId": "eni-x", **extra}) == want
 
 
 def test_collect(bundle, fake):
@@ -135,29 +131,29 @@ def test_collect(bundle, fake):
 
 
 def test_collect_errors(fake):
-    with pytest.raises(core.ValidationError, match="Not a security group"):
-        core.collect(object(), "us-east-1", "web-sg")
-    with pytest.raises(core.ValidationError, match="No region"):
-        core.collect(object(), None, F.WEB)
-    with pytest.raises(core.ValidationError, match="not found"):
-        core.collect(object(), "us-east-1", "sg-0fff0000ffff00001")
+    with pytest.raises(sge.ValidationError, match="Not a security group"):
+        sge.collect(object(), "us-east-1", "web-sg")
+    with pytest.raises(sge.ValidationError, match="No region"):
+        sge.collect(object(), None, F.WEB)
+    with pytest.raises(sge.ValidationError, match="not found"):
+        sge.collect(object(), "us-east-1", "sg-0fff0000ffff00001")
     d = F.data()
     d["groups"] = [g for g in d["groups"] if g["GroupId"] != F.WEB]
     fake["ec2"] = F.FakeEC2(d)
-    with pytest.raises(core.ValidationError, match="not found"):
-        core.collect(object(), "us-east-1", F.WEB)
+    with pytest.raises(sge.ValidationError, match="not found"):
+        sge.collect(object(), "us-east-1", F.WEB)
 
 
 def test_collect_partial_failures(fake):
     fake["ec2"] = F.FakeEC2(fail={"get_managed_prefix_list_entries", "describe_instances", "egress_filter",
                                   "describe_managed_prefix_lists"})
-    b = core.collect(object(), "us-east-1", F.WEB)
+    b = sge.collect(object(), "us-east-1", F.WEB)
     w = " ".join(b["warnings"])
-    assert "GetManagedPrefixListEntries failed" in w and "DescribeInstances failed" in w
-    assert "egress.ip-permission.group-id" in w and "DescribeManagedPrefixLists failed" in w
-    assert b["prefix_lists"][F.CORP]["entries"] is None
+    assert f"{F.CORP}: UnauthorizedOperation: prefix list entries unreadable" in w and "DescribeInstances failed" in w
+    assert "egress.ip-permission.group-id" in w
+    assert b["prefix_lists"][F.CORP] == {"id": F.CORP, "name": None, "entries": None}
     fake["ec2"] = F.FakeEC2(fail={"describe_security_group_rules"})
-    b = core.collect(object(), "us-east-1", F.WEB)
+    b = sge.collect(object(), "us-east-1", F.WEB)
     assert b["rules"] == [] and "DescribeSecurityGroupRules failed" in b["warnings"][0]
 
 
@@ -166,13 +162,13 @@ def test_collect_unexpected_error_propagates(fake, monkeypatch):
         raise ClientError({"Error": {"Code": "RequestLimitExceeded", "Message": "slow"}}, "Describe")
     monkeypatch.setattr(fake["ec2"], "describe_security_groups", boom)
     with pytest.raises(ClientError):
-        core.collect(object(), "us-east-1", F.WEB)
+        sge.collect(object(), "us-east-1", F.WEB)
 
 
 # ---------- analysis ----------
 
 def test_resources_grouping(bundle):
-    rs = an.resources(bundle)
+    rs = sge.resources(bundle)
     assert [(r["kind"], r["id"]) for r in rs] == [("Application Load Balancer", ALB), ("EC2 instance", WEB1),
                                                  ("EC2 instance", WEB2), ("EC2 instance", WEB2),
                                                  ("Lambda function", LAMBDA)]
@@ -182,7 +178,7 @@ def test_resources_grouping(bundle):
 
 
 def test_effective_access(bundle):
-    r = an.analyze(bundle)
+    r = sge.analyze(bundle)
     web1 = res(r, WEB1)
     inbound = {(e["traffic"], e["peer"]): e for e in web1["effective"]["inbound"]}
     assert inbound[("tcp 443", "0.0.0.0/0")]["only_target"] and inbound[("tcp 443", "0.0.0.0/0")]["open_to_world"]
@@ -195,7 +191,7 @@ def test_effective_access(bundle):
 
 
 def test_remove_sg_scenario(bundle):
-    r = an.analyze(bundle)
+    r = sge.analyze(bundle)
     web1 = res(r, WEB1)["remove_sg"]
     l_in = lost(web1)
     assert l_in["sgr-0web0443"] == ["tcp 443 from 0.0.0.0/0"]
@@ -214,17 +210,17 @@ def test_remove_sg_scenario(bundle):
 
 
 def test_remove_rules_scenario(bundle):
-    r = an.analyze(bundle, ["sgr-0web0443", "in:tcp:22:pl-0123456789abcdef0", "sgr-0web0443"])
+    r = sge.analyze(bundle, ["sgr-0web0443", "in:tcp:22:pl-0123456789abcdef0", "sgr-0web0443"])
     assert [x["id"] for x in r["removing"]] == ["sgr-0web0443", "sgr-0web0022"]
     assert lost(res(r, ALB)["remove_rules"])["sgr-0web0443"] == []
     assert lost(res(r, WEB1)["remove_rules"])["sgr-0web0022"] == \
         ["tcp 22 from pl-0123456789abcdef0 (corp-networks) except 10.0.0.0/8"]
     assert lost(res(r, LAMBDA)["remove_rules"])["sgr-0web0443"] == ["tcp 443 from 0.0.0.0/0"]
-    assert an.loses_access(r)
-    r = an.analyze(bundle, ["out:all:all:0.0.0.0/0"])
-    assert an.loses_access(r)                                                   # Lambda has no other group
-    r = an.analyze(bundle, ["sgr-0web0443"], only=[ALB])
-    assert [x["id"] for x in r["resources"]] == [ALB] and not an.loses_access(r)
+    assert sge.loses_access(r)
+    r = sge.analyze(bundle, ["out:all:all:0.0.0.0/0"])
+    assert sge.loses_access(r)                                                   # Lambda has no other group
+    r = sge.analyze(bundle, ["sgr-0web0443"], only=[ALB])
+    assert [x["id"] for x in r["resources"]] == [ALB] and not sge.loses_access(r)
 
 
 def test_remove_rules_kept_by_several_rules(bundle):
@@ -234,13 +230,13 @@ def test_remove_rules_kept_by_several_rules(bundle):
          "peer_kind": "cidr", "peer": "0.0.0.0/1"},
         {"id": "sgr-0adm0081", "group": F.ADMIN, "egress": False, "protocol": "tcp", "from": 80, "to": 80,
          "peer_kind": "cidr", "peer": "128.0.0.0/1"}]
-    r = an.analyze(b, ["sgr-0web0080"], only=[ALB])
+    r = sge.analyze(b, ["sgr-0web0080"], only=[ALB])
     item = res(r, ALB)["remove_rules"]["inbound"][0]
     assert item["lost"] == [] and item["kept_by"][0]["text"] == "several rules together"
 
 
 def test_rule_summary_and_referencing(bundle):
-    r = an.analyze(bundle)
+    r = sge.analyze(bundle)
     s = {x["rule"]: x for x in r["rule_summary"]}
     assert len(s["sgr-0web0443"]["unique_on"]) == 4 and s["sgr-0web0443"]["redundant_on"] == [
         "Application Load Balancer web-alb"]
@@ -252,34 +248,34 @@ def test_rule_summary_and_referencing(bundle):
 
 
 def test_rule_specs():
-    assert an.parse_rule_spec("in:tcp:443:0.0.0.0/0") == {"egress": False, "protocol": "tcp", "lo": 443, "hi": 443,
+    assert sge.parse_rule_spec("in:tcp:443:0.0.0.0/0") == {"egress": False, "protocol": "tcp", "lo": 443, "hi": 443,
                                                           "peer": "0.0.0.0/0"}
-    assert an.parse_rule_spec("egress:6:8000-8080:10.1.2.3/8")["peer"] == "10.0.0.0/8"
-    assert an.parse_rule_spec("out:all:*:sg-0123")["protocol"] == "-1"
-    with pytest.raises(core.ValidationError, match="DIRECTION:PROTOCOL"):
-        an.parse_rule_spec("tcp/443")
+    assert sge.parse_rule_spec("egress:6:8000-8080:10.1.2.3/8")["peer"] == "10.0.0.0/8"
+    assert sge.parse_rule_spec("out:all:*:sg-0123")["protocol"] == "-1"
+    with pytest.raises(sge.ValidationError, match="DIRECTION:PROTOCOL"):
+        sge.parse_rule_spec("tcp/443")
     rules = [R("tcp", 0, 65535, rid="a"), R("icmp", -1, -1, rid="b")]
-    assert an._matches(rules[0], an.parse_rule_spec("in:tcp:all:0.0.0.0/0"))
-    assert an._matches(rules[1], an.parse_rule_spec("in:icmp:all:0.0.0.0/0"))
-    assert not an._matches(rules[0], an.parse_rule_spec("out:tcp:all:0.0.0.0/0"))
-    with pytest.raises(core.ValidationError, match="No rule of the target group"):
-        an.select_rules(rules, ["sgr-0missing"])
+    assert sge._matches(rules[0], sge.parse_rule_spec("in:tcp:all:0.0.0.0/0"))
+    assert sge._matches(rules[1], sge.parse_rule_spec("in:icmp:all:0.0.0.0/0"))
+    assert not sge._matches(rules[0], sge.parse_rule_spec("out:tcp:all:0.0.0.0/0"))
+    with pytest.raises(sge.ValidationError, match="No rule of the target group"):
+        sge.select_rules(rules, ["sgr-0missing"])
 
 
 def test_no_resources(bundle):
     b = copy.deepcopy(bundle)
     b["enis"], b["referencing"] = [], []
-    r = an.analyze(b)
+    r = sge.analyze(b)
     assert r["resources"] == []
-    text = se_text.render(r, full=True)
+    text = sge.render_text(r, full=True)
     assert f"No resources use {F.WEB}." in text and "Target rules across" not in text
-    assert "No network interface uses this group" in render_html(r, b)
+    assert '"rows": []' in sge.render_html(r).replace("\\u003c", "<")
 
 
 # ---------- output ----------
 
 def test_text_output(bundle):
-    text = se_text.render(an.analyze(bundle, ["sgr-0web0443"]), full=True)
+    text = sge.render_text(sge.analyze(bundle, ["sgr-0web0443"]), full=True)
     assert text.startswith(f"Security group {F.WEB} (web-sg), {F.VPC}, account {F.ACCOUNT}, us-east-1")
     assert "Scenario" not in text and "If the selected rules are removed" not in text   # HTML only
     assert "== EC2 instance i-0web1000000000001 (web-1)" in text and "(ENIs with different groups" in text
@@ -293,7 +289,7 @@ def test_text_output(bundle):
 
 
 def test_concise_output(bundle):
-    text = se_text.render(an.analyze(bundle, ["sgr-0web0443"]))
+    text = sge.render_text(sge.analyze(bundle, ["sgr-0web0443"]))
     assert text.startswith(f"{F.WEB} (web-sg) · {F.VPC} · account {F.ACCOUNT} · us-east-1 · 5 rules · "
                            "used by 5 resources")
     assert "Inbound (" not in text and "keeps" not in text and "sgr-0web0443" not in text
@@ -310,14 +306,14 @@ def test_concise_no_change_and_redundant(bundle):
     b = copy.deepcopy(bundle)
     b["enis"] = [e for e in b["enis"] if e["resource"] == ALB]
     b["rules"] = [r for r in b["rules"] if r["id"] in ("sgr-0web0443", "sgr-0adm0443")]
-    text = se_text.render(an.analyze(b))
+    text = sge.render_text(sge.analyze(b))
     assert "  No change: Application Load Balancer web-alb" in text
     assert "Redundant on every resource (deleting them changes no access):\n  sgr-0web0443" in text
     b["enis"] = []
-    assert se_text.render(an.analyze(b)).rstrip().endswith("not used by any resource")
+    assert sge.render_text(sge.analyze(b)).rstrip().endswith("not used by any resource")
     b["rules"] = []
     b["enis"] = [e for e in bundle["enis"] if e["resource"] == ALB]
-    text = se_text.render(an.analyze(b))                                  # a group with no rules
+    text = sge.render_text(sge.analyze(b))                                  # a group with no rules
     assert "Redundant on every resource" not in text and "No rule of" not in text
 
 
@@ -325,69 +321,96 @@ def test_text_redundant_everywhere_and_no_change(bundle):
     b = copy.deepcopy(bundle)
     b["enis"] = [e for e in b["enis"] if e["resource"] == ALB]
     b["rules"] = [r for r in b["rules"] if r["id"] in ("sgr-0web0443", "sgr-0adm0443")]
-    text = se_text.render(an.analyze(b), full=True)
+    text = sge.render_text(sge.analyze(b), full=True)
     assert "redundant on all 1: removing it changes no access" in text
     assert "Outbound: nothing allowed" in text
     b["rules"] = [r for r in b["rules"] if r["group"] != F.WEB]
-    assert "     no change" in se_text.render(an.analyze(b), full=True)
+    assert "     no change" in sge.render_text(sge.analyze(b), full=True)
+
+
+def html_data(out: str) -> dict:
+    return json.loads(out.split('<script id="data" type="application/json">', 1)[1].split("</script>", 1)[0])
 
 
 def test_html_report(bundle):
     b = copy.deepcopy(bundle)
     b["groups"][F.ADMIN]["name"] = "<admin>"
-    r = an.analyze(b, ["sgr-0web0443"])
-    out = render_html(r, b, theme="light")
-    assert "&lt;admin&gt;" in out and "<admin>" not in out
-    assert "Removing 1 rule: 1 resource lose access" not in out and "4 resources lose access" in out
-    assert "target only" in out and "anywhere" in out and "covered by" in out and "as a peer" in out
-    assert 'data-theme="light"' in out and "Raw bundle" in out
-    ok = render_html(an.analyze(b, ["sgr-0web0443"], only=[ALB]), b)
-    assert "no resource loses access" in ok
-    with pytest.raises(ValueError):
-        render_html(r, b, theme="neon")
+    r = sge.analyze(b, ["sgr-0web0443"])
+    out = sge.render_html(r)
+    assert "<admin>" not in out and "\\u003cadmin>" in out
+    d = html_data(out)
+    assert [t["id"] for t in d["tables"]] == ["remove_group", "remove_rules", "rules", "access", "referencing",
+                                              "warnings"]
+    assert [5, "resources"] in d["cards"] and [4, "lose access if the selected rules are removed"] in d["cards"]
+    assert d["meta"][-1] == "Scenario: remove sgr-0web0443 inbound tcp 443 from 0.0.0.0/0"
+    group = d["tables"][0]["rows"]
+    alb = [x for x in group if x["resource"] == "Application Load Balancer web-alb"]
+    assert {"change": "keeps", "access": "tcp 443 from 0.0.0.0/0", "rule": "sgr-0web0443"}.items() <= alb[0].items()
+    assert alb[0]["note"].startswith("still allowed by inbound tcp 443 from 0.0.0.0/0 (sg-0ccc3333dddd44445")
+    assert any(x["change"] == "partly loses" and x["access"].endswith("except 10.1.0.0/16") for x in alb)
+    assert any(x["change"] == "as a peer" and x["direction"] == "inbound" for x in alb)
+    access = d["tables"][3]["rows"]
+    assert {x["target"] for x in access} == {"target only", "target + other", "other groups"}
+    assert any("anywhere" in x["note"] for x in access) and any("covered by" in x["note"] for x in access)
+    ok = html_data(sge.render_html(sge.analyze(b, ["sgr-0web0443"], only=[ALB])))
+    assert [0, "lose access if the selected rules are removed"] in ok["cards"]
+    assert [x["change"] for x in ok["tables"][1]["rows"]] == ["no change", "keeps"]
+    plain = html_data(sge.render_html(sge.analyze(b)))
+    assert [t["id"] for t in plain["tables"]][:2] == ["remove_group", "rules"]
+
+
+def test_change_rows_csv(bundle):
+    rows = sge.change_rows(sge.analyze(bundle))
+    assert set(rows[0]) == set(sge.CSV_COLUMNS)
+    assert {x["change"] for x in rows} >= {"loses", "partly loses", "as a peer", "keeps"}
 
 
 # ---------- CLI ----------
 
-def test_cli(fake, monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(core, "get_session", lambda profile, region: type("S", (), {"region_name": region})())
-    monkeypatch.chdir(tmp_path)
-    assert sg_effect.main([F.WEB, "--region", "us-east-1", "--json-out", "b.json", "-q"]) == 0
+@pytest.fixture
+def cli(fake, monkeypatch):
+    monkeypatch.setattr(sge, "resolve_account_profiles",
+                        lambda args, arns, bare: ({F.ACCOUNT: (None, "default credentials")}, F.ACCOUNT))
+
+
+def test_cli(cli, capsys):
+    assert sge.main([F.WEB, "--json-out", "r.json", "--html-out", "r.html", "-q"]) == 0
     out = capsys.readouterr().out
     assert "If sg-0aaa1111bbbb22223 (web-sg) is removed:" in out and "Inbound (" not in out
-    assert sg_effect.main(["--from-json", "b.json", "--full", "--no-report"]) == 0
+    assert "Saved:" in out and "r.html" in out
+    saved = json.loads(Path("r.json").read_text())
+    assert saved["bundle"]["target"] == F.WEB and saved["target"]["id"] == F.WEB
+    reports = sorted(Path("reports/sg_effect").rglob("*"))
+    assert [x.suffix for x in reports if x.is_file()] == [".csv"]          # json and html went to the flags
+    assert sge.main(["--from-json", "r.json", "--full", "--no-save"]) == 0
     assert "Resources using" in capsys.readouterr().out
-    reports = list(Path("reports").rglob("*.html"))
-    assert reports and reports[0].name == f"sg-effect_{F.WEB}.html" and reports[0].parent.name == F.ACCOUNT
-    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "--no-report"]) == 1
-    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "-o", "s.html"]) == 2
+    assert sge.main(["--from-json", "r.json", "--remove-rule", "sgr-0web0443", "--no-save"]) == 2
+    assert sge.main(["--from-json", "r.json", "--remove-rule", "sgr-0web0443", "--no-save",
+                     "--html-out", "s.html"]) == 1
     out = capsys.readouterr().out
-    assert "If the selected rules are removed" not in out and out.rstrip().endswith(
-        "Rule removal scenario (sgr-0web0443): see s.html")
+    assert "If the selected rules are removed" not in out
+    assert "Rule removal scenario (sgr-0web0443): see the HTML report" in out
     assert "If the selected rules are removed" in Path("s.html").read_text()
-    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "--resource", ALB,
-                           "--json", "-o", "x.html"]) == 0
+    assert sge.main(["--from-json", "r.json", "--remove-rule", "sgr-0web0443", "--resource", ALB,
+                     "--json", "--no-save", "--html-out", "x.html"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert [x["id"] for x in data["resources"]] == [ALB] and Path("x.html").is_file()
     assert "removing" not in data and "remove_rules" not in data["resources"][0]
-    assert sg_effect.main(["--from-json", "b.json", "--resource", "i-0nothing", "--no-report"]) == 0
-    assert sg_effect.main(["sg-0fff0000ffff00001", "--from-json", "b.json"]) == 1
-    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "bad"]) == 1
-    assert sg_effect.main(["--region", "us-east-1"]) == 1
-    assert sg_effect.main(["sg-0fff0000ffff00001", "--region", "us-east-1", "-v"]) == 1
+    assert sge.main(["--from-json", "r.json", "--resource", "i-0nothing", "--no-save"]) == 0
+    assert sge.main(["sg-0fff0000ffff00001", "--from-json", "r.json"]) == 2
+    arn = f"arn:aws:ec2:us-east-1:{F.ACCOUNT}:security-group/{F.WEB}"
+    assert sge.main([arn, "--from-json", "r.json", "--no-save"]) == 0
+    assert sge.main(["--from-json", "r.json", "--remove-rule", "bad", "--no-save"]) == 2
+    Path("other.json").write_text(json.dumps({"tool": "sg_quota_audit"}))
+    assert sge.main(["--from-json", "other.json"]) == 2
+    assert sge.main(["--no-save"]) == 2
+    assert sge.main(["web-sg", "--no-save"]) == 2
+    assert sge.main(["sg-0fff0000ffff00001", "--region", "us-east-1", "-v", "--no-save"]) == 2
+    assert sge.main([arn, "--no-save"]) == 0
 
 
-def test_cli_aws_errors(fake, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(core, "get_session", lambda profile, region: type("S", (), {"region_name": region})())
-
+def test_cli_aws_errors(cli, monkeypatch):
     def throttled(*a, **k):
         raise ClientError({"Error": {"Code": "Throttling", "Message": "slow"}}, "X")
-    monkeypatch.setattr(core, "collect", throttled)
-    assert sg_effect.main([F.WEB, "--region", "us-east-1"]) == 1
-
-    def nocreds(*a, **k):
-        from botocore.exceptions import NoCredentialsError
-        raise NoCredentialsError()
-    monkeypatch.setattr(core, "collect", nocreds)
-    assert sg_effect.main([F.WEB, "--region", "us-east-1"]) == 1
+    monkeypatch.setattr(sge, "collect", throttled)
+    assert sge.main([F.WEB, "--no-save"]) == 2

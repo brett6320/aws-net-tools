@@ -1,48 +1,54 @@
-# SG Effect
+[← Index](../README.md)
 
-Give it a security group ID. It finds every resource that uses the group (EC2 instances, load balancers, Lambda
-functions, RDS, VPC endpoints, ECS tasks, EFS and more) and shows what the group really does on each one,
-after counting every other security group on that resource:
+# sg_effect
 
-- **Effective access:** the resource's net inbound and outbound access, merged across all of its groups. Each
-  entry shows the group(s) and rule(s) that allow it, marks what only the target group allows, and notes
-  rules already covered by a broader one.
-- **If the group is removed:** what the resource would lose if the target group were taken off it. It counts
+Shows what one security group really does on every resource that uses it, and what each resource would lose if
+the group, or some of its rules, were removed. Every other security group on each resource is counted, so
+access another group already allows isn't reported as lost.
+
+![sg_effect report](../docs/images/sg-effect.png)
+
+> The screenshot is simulated: it's the real report rendered from the synthetic sample in
+> [`docs/samples/sg_effect.py`](../docs/samples/sg_effect.py) (made-up account and resource IDs).
+
+Give it a security group ID or ARN. It finds every resource that uses the group (EC2 instances, load balancers,
+Lambda functions, RDS, VPC endpoints, ECS tasks, EFS and more) and works out:
+
+- **If the group is removed:** what each resource would lose if the target group were taken off it. It counts
   the part of each rule that no other group allows, plus access that other groups grant to the target
   group's members.
 - **If rules are removed** (`--remove-rule`, in the HTML report only): what each resource would lose if those
   rules of the target group were deleted, and for the access it keeps, which rule still allows it.
-- **Rule summary:** for each rule of the target group, the resources where it's the only rule allowing that
-  traffic. A rule that's redundant everywhere can be deleted without changing any access.
-- **Referencing groups:** the security groups whose rules point at the target group, and the resources
-  behind them.
+- **Redundant rules:** the rules of the target group that no resource needs, because other rules already
+  allow their traffic everywhere. They can be deleted without changing any access.
+- **Effective access** (`--full`, and in the HTML report): each resource's net inbound and outbound access,
+  merged across all of its groups, with the group(s) and rule(s) that allow each entry.
+- **Referencing groups** (`--full`, and in the HTML report): the security groups whose rules point at the
+  target group, and the resources behind them.
 
-By default the terminal shows only what removing the group would cost each resource, and which rules are
-redundant everywhere. `--full` adds every rule, each resource's effective access, the access it keeps and the
-referencing groups. The tool is read-only.
-
-![sg_effect report (dark)](docs/images/report.png)
+The terminal shows only the removal effects and the redundant rules by default. `--full` adds the rest.
 
 ## Usage
 
 ```bash
 # What each resource using the group would lose if the group were removed
-python sg_effect.py sg-0aaa1111bbbb22223 --profile network-admin --region us-east-1
+./sg_effect.py --profile network-admin --region us-east-1 sg-0aaa1111bbbb22223
+./sg_effect.py arn:aws:ec2:us-east-1:111122223333:security-group/sg-0aaa1111bbbb22223
 
 # Also every rule, each resource's effective access, kept access and referencing groups
-python sg_effect.py sg-0aaa1111bbbb22223 --full
+./sg_effect.py sg-0aaa1111bbbb22223 --full
 
 # What would deleting these rules break? (sgr- IDs, or DIRECTION:PROTOCOL:PORTS:PEER; see the HTML report)
-python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule sgr-0web0443
-python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule in:tcp:22:pl-0123456789abcdef0 \
-                                         --remove-rule out:-1:all:0.0.0.0/0
+./sg_effect.py sg-0aaa1111bbbb22223 --remove-rule sgr-0web0443
+./sg_effect.py sg-0aaa1111bbbb22223 --remove-rule in:tcp:22:pl-0123456789abcdef0 \
+                                    --remove-rule out:-1:all:0.0.0.0/0
 
 # One resource only (instance ID, load balancer or function name, or ENI ID)
-python sg_effect.py sg-0aaa1111bbbb22223 --resource i-0web1000000000001
+./sg_effect.py sg-0aaa1111bbbb22223 --resource i-0web1000000000001
 
-# Save the data once, then try scenarios offline
-python sg_effect.py sg-0aaa1111bbbb22223 --json-out web-sg.json --no-report
-python sg_effect.py --from-json web-sg.json --remove-rule sgr-0web0080 -o remove-0080.html
+# Try scenarios offline against a saved JSON report
+./sg_effect.py sg-0aaa1111bbbb22223 --json-out web-sg.json
+./sg_effect.py --from-json web-sg.json --remove-rule sgr-0web0080 --html-out remove-0080.html
 ```
 
 A rule spec is `DIRECTION:PROTOCOL:PORTS:PEER`:
@@ -57,9 +63,15 @@ A rule spec is `DIRECTION:PROTOCOL:PORTS:PEER`:
 It has to match a rule of the target group exactly. Use `--remove-rule` more than once to remove several rules
 together.
 
-The rule removal scenario appears only in the HTML report, as an "If the selected rules are removed" section on
-each resource card and a badge in the summary. The terminal output and `--json` leave it out, and end with a
-line pointing to the report. `--remove-rule` can't be combined with `--no-report`.
+The rule removal scenario appears only in the HTML report, as an "If the selected rules are removed" table and
+a summary card. The terminal output, `--json`, and the saved CSV and JSON leave it out; the terminal output
+ends with a line pointing to the report. `--remove-rule` with `--no-save` needs `--html-out`.
+
+### Accounts and profiles
+
+A group ARN is read through the local profile for its account (`--profile` is used if it's for that account).
+A bare group ID is read with `--profile`, `AWS_PROFILE` or the default credentials, in `--region`,
+`AWS_REGION` or the profile's region. See [Accounts and profiles](../README.md#accounts-and-profiles).
 
 ### Example
 
@@ -69,7 +81,7 @@ which allows SSH and ICMP from 10.0.0.0/8 and all outbound. `db-sg` allows 5432-
 from `base-sg`.
 
 ```text
-$ python sg_effect.py sg-0aaa1111bbbb22223
+$ ./sg_effect.py sg-0aaa1111bbbb22223
 sg-0aaa1111bbbb22223 (web-sg) · vpc-0123456789abcdef0 · account 111122223333 · us-east-1 · 5 rules · used by 5 resources
 
 If sg-0aaa1111bbbb22223 (web-sg) is removed:
@@ -114,7 +126,7 @@ interface of `web-2` has only `web-sg`, so like the Lambda function it would los
 `--full` lists each resource's effective access, marking with `*` what the target group allows:
 
 ```text
-$ python sg_effect.py sg-0aaa1111bbbb22223 --full
+$ ./sg_effect.py sg-0aaa1111bbbb22223 --full
 ...
 == EC2 instance i-0web1000000000001 (web-1)
    ENI eni-0web1000000000001  10.0.1.11  subnet-0a1b2c3d4e5f60718
@@ -180,7 +192,7 @@ is per interface.
 ### What isn't considered
 
 - Network ACLs, route tables and firewalls on the resource itself. The result is what security groups allow,
-  not whether a path exists. Use `reachability_trace` for the path.
+  not whether a path exists. Use [`reachability_trace`](../../reachability_trace/) for the path.
 - The IP addresses behind a referenced group. A CIDR rule doesn't count as covering a group reference, even if
   the group's members sit inside the CIDR.
 - A prefix list whose entries can't be read. It's treated as an opaque peer, with a warning.
@@ -188,100 +200,39 @@ is per interface.
   warning.
 - Hyperplane ENIs shared by several Lambda functions are labeled with the function in the ENI description.
 
-## HTML report
+## Options
 
-Unless you pass `--no-report`, the tool writes a self-contained HTML report to
-`reports/<YYYY-MM-DD>/<account>/sg-effect_<group>.html` (with `_remove-rules` when a scenario was given), or
-to `--output`. It opens on the summary and, for each resource, what it would lose in both scenarios (the
-rule removal scenario is only here). The rules table and each resource's inbound and outbound tables are
-collapsed underneath. Then come the referencing groups, warnings, and the raw bundle. `--theme dark|light|auto`
-picks the look (default `dark`; `auto` follows the OS), and the button in the corner switches it.
+| Flag | Description |
+|---|---|
+| `SG` | Group ID or ARN (not needed with `--from-json`) |
+| `--profile NAME` | AWS profile for a bare group ID; see [Accounts and profiles](#accounts-and-profiles) |
+| `--region REGION` | Region for a bare group ID |
+| `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
+| `--exclude-profile-suffix LIST` | Profile suffixes never chosen (default `-priv,-cpar`) |
+| `--full` | Also list every rule, each resource's effective access, kept access and referencing groups |
+| `--remove-rule RULE` | Rule removal scenario, in the HTML report only (repeatable) |
+| `--resource ID` | Only this resource: instance ID, load balancer or function name, or ENI ID (repeatable) |
+| `--from-json PATH` | Re-analyze a saved sg_effect JSON report, offline |
 
-![sg_effect report (light)](docs/images/report-light.png)
-
-## Requirements
-
-- Python 3.11+
-- AWS credentials configured (profile, env vars, SSO, or IAM role)
-
-## Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-See the [repository README](../../README.md#getting-started) for a shared virtual environment.
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill in values (CLI flags override them). `.env` is read from this tool's
-directory, or from the nearest parent directory that has one (such as the repository root). The directory you
-run the tool from doesn't matter.
-
-| Variable | Default | Description |
-|---|---|---|
-| `AWS_PROFILE` | (default chain) | AWS profile name (never written to reports) |
-| `SGE_REGION` | `AWS_REGION` / `AWS_DEFAULT_REGION` | Region of the security group |
-| `SGE_REPORTS_DIR` | `reports` | Reports root |
-| `SGE_THEME` | `dark` | Default report theme (`dark`, `light`, `auto`) |
-
-## IAM Permissions
-
-All read-only:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ec2:DescribeSecurityGroups",
-        "ec2:DescribeSecurityGroupRules",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeManagedPrefixLists",
-        "ec2:GetManagedPrefixListEntries",
-        "ec2:DescribeInstances"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+Plus the [common output flags](../README.md#reports).
 
 ## Output
 
-- **stdout:** the text output above, or the analysis as JSON with `--json`. Neither includes the rule removal
-  scenario, which is only in the HTML report. `--json-out` saves the raw bundle for `--from-json`.
-- **Logs (stderr):** `%(asctime)s %(levelname)s sg_effect — message`. A call that fails (a prefix list or
-  group that can't be read) is a warning, shown in the output and the report; the rest continue.
-- **Exit codes:** 0 on success. 1 for a bad group ID or rule spec, credential problems or a fatal AWS error.
-  2 when the `--remove-rule` scenario takes access away from at least one resource, so a script can check
-  that a cleanup is safe.
+- **Text**: what each resource would lose if the group were removed (resources with the same losses are
+  listed together), and the rules that are redundant everywhere. With `--full`, every rule, each resource's
+  effective access, kept access, the rule summary and the referencing groups.
+- **CSV**: one row per change to a resource if the group were removed: resource, its other groups, change
+  (`loses`, `partly loses`, `as a peer`, `keeps`, `no change`), direction, access, rule and note.
+- **JSON**: the analysis, plus the collected data under `bundle`, which `--from-json` reads back.
+- **HTML**: summary cards, then filterable tables: the changes if the group is removed (kept access hidden until
+  ticked), the changes if the selected rules are removed, the target's rules and where each is the only rule
+  allowing its traffic, every resource's effective access, the referencing groups, and any warnings.
 
-## Tests
+Exit codes: `0` ok, `1` the `--remove-rule` scenario takes access away from at least one resource (so a script
+can check that a clean-up is safe), `2` fatal error.
 
-```bash
-pip install -r requirements-dev.txt
-python -m pytest
-```
+## IAM permissions
 
-No AWS credentials are needed. The tests use an in-memory fake of the EC2 calls with synthetic data
-(`tests/fake_ec2.py`).
-
-## Regenerating screenshots
-
-```bash
-python docs/make_screenshots.py           # all
-python docs/make_screenshots.py report    # one
-```
-
-The images in `docs/images/` are headless-Chrome captures of a report built from the test data. This needs
-macOS and Google Chrome.
-
-## Platform Notes
-
-- **macOS:** the system PKI truststore is used automatically through Security.framework (`truststore`).
-- **Windows:** the Windows Certificate Store is used automatically. Credentials are at
-  `%USERPROFILE%\.aws\credentials`.
-- **Linux:** the system CA bundle is used through `truststore`. Make sure `ca-certificates` is installed.
+`sts:GetCallerIdentity`, `ec2:DescribeSecurityGroups`, `ec2:DescribeSecurityGroupRules`,
+`ec2:DescribeNetworkInterfaces`, `ec2:DescribeManagedPrefixLists`, `ec2:GetManagedPrefixListEntries`,
+`ec2:DescribeInstances`.

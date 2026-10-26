@@ -1,4 +1,10 @@
-"""Security group rule algebra for sg_effect.
+"""
+Security group rule algebra with peer sets, for sg_effect.py.
+
+Intent: say what a resource would lose in the terms of its rules ("tcp 22 from
+pl-0123 except 10.0.0.0/8"). lib/boxes.py keeps one address range per box, which
+suits gap and overlap checks; here a rule keeps its peers together as one set, so a
+partial loss can be described as the rule minus what's still allowed.
 
 A rule allows a block of traffic: a protocol, a port range (ICMP type range for ICMP)
 and a set of peers. Security groups only allow, so a resource's access in one

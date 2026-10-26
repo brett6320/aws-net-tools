@@ -5,7 +5,7 @@
 Read-only review tools for AWS Firewall Manager (FMS) policies, network ACLs,
 security groups and managed prefix lists. None of them make changes in AWS.
 
-This suite is ten tools that share the code in `lib/`. Each tool has its own
+This suite is eleven tools that share the code in `lib/`. Each tool has its own
 page in [`doc/`](doc/). This page covers what they have in common. For the
 other tools in this repository, see the [repository README](../../README.md).
 
@@ -27,6 +27,7 @@ other tools in this repository, see the [repository README](../../README.md).
 | [`nacl_shadow.py`](doc/nacl_shadow.md) | Which NACL rules can never take effect, or are partly overridden, because an earlier rule already matches their traffic? |
 | [`sg_rule_inventory.py`](doc/sg_rule_inventory.md) | What do these security groups (or the groups on interfaces, EC2 instances or Lambda functions, across accounts) allow, together? How do several interfaces differ? Would a given flow be allowed, and what if a rule or group were removed? (interactive tester in the HTML report) |
 | [`sg_migration_check.py`](doc/sg_migration_check.md) | Before removing an old security group for a new one: where is the old attached, is the new attached there too, and what access does each resource lose or gain? |
+| [`sg_effect.py`](doc/sg_effect.md) | For one security group: what does it really do on every resource that uses it, after counting each resource's other groups? What would each resource lose if the group, or some of its rules, were removed, and which rules are redundant everywhere? |
 | [`sg_access_gap.py`](doc/sg_access_gap.md) | What access does one security group grant that one or more others, combined, do not? |
 | [`sg_quota_audit.py`](doc/sg_quota_audit.md) | Which security groups and network interfaces are at or near their quotas, and which groups are stale, unattached, or default groups with rules? |
 | [`prefix_list_audit.py`](doc/prefix_list_audit.md) | Are managed prefix lists full, unused, oversized for the security group rule quota, or different between same-named copies? |
@@ -80,7 +81,7 @@ run a tool from doesn't matter.
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `AWS_PROFILE` | all | Default AWS profile (`--profile` overrides). `sg_rule_inventory`, `sg_access_gap` and `sg_migration_check` use it only when no ARN names an account; otherwise each ARN's account uses its own local profile |
+| `AWS_PROFILE` | all | Default AWS profile (`--profile` overrides). `sg_rule_inventory`, `sg_access_gap`, `sg_migration_check` and `sg_effect` use it only when no ARN names an account; otherwise each ARN's account uses its own local profile |
 | `AWS_REGION` | all | Default region (`--region` overrides) |
 | `FMM_REPORT_DIR` | all | Base directory for saved reports (default `./reports`) |
 | `FMM_ADMIN_ACCOUNT` | `fmm_*` | FMS administrator (security) account id; its profile is found by account id |
@@ -104,7 +105,7 @@ Tools that look inside member accounts scan the accounts you select:
   - `--profile`'s account by default;
   - `--account ID[,ID]` for specific accounts;
   - `--all-accounts` for every account with a local profile.
-- `sg_rule_inventory`, `sg_access_gap` and `sg_migration_check` read the accounts named in their ARNs, each through its local profile (`--profile` is used for its own account).
+- `sg_rule_inventory`, `sg_access_gap`, `sg_migration_check` and `sg_effect` read the accounts named in their ARNs, each through its local profile (`--profile` is used for its own account).
 
 Each account's profile comes from the local AWS config (`AWS_CONFIG_FILE` is honoured):
 - A profile's account is its `sso_account_id`, `aws_account_id`, or the account in its `role_arn`.
@@ -158,7 +159,8 @@ Long list cells can show one item per line (table option `lines`).
 This makes the tools usable in scripts and CI. Some tools define "findings"
 more precisely, as described on their pages. For example:
 - `sg_rule_inventory` exits 1 when the interfaces given differ;
-- `sg_migration_check` exits 0 only when every resource is `READY`.
+- `sg_migration_check` exits 0 only when every resource is `READY`;
+- `sg_effect` exits 1 when its `--remove-rule` scenario takes access away from a resource.
 
 ## Layout
 
@@ -170,6 +172,7 @@ fmm_rule_parity.py      FMS policy rule parity (A present, B missing)
 nacl_shadow.py          NACL rules hidden by earlier rules
 prefix_list_audit.py    managed prefix list capacity, usage and drift
 sg_access_gap.py        left SG access absent from right SG(s)
+sg_effect.py            one SG on every resource that uses it: removal effects, redundant rules, effective access
 sg_migration_check.py   old -> new security group migration: attachments and access change per resource
 sg_quota_audit.py       security group / interface quotas and clean-up candidates
 sg_rule_inventory.py    rules of groups / interfaces / instances / Lambdas, combined access, interface differences, access tester
@@ -178,9 +181,11 @@ docs/                   make_screenshots.py, samples/ (synthetic report data) an
 lib/accounts.py         account -> profile mapping, account selection, admin profile
 lib/aws_common.py       AWS sessions/clients, FMS policy calls, regions; loads .env, logging
 lib/boxes.py            protocol x port x address range arithmetic (SG / NACL comparisons)
+lib/eni_owners.py       the resource behind a network interface (instance, load balancer, Lambda, RDS ...)
 lib/html_report.py      self-contained interactive HTML report renderer
 lib/output.py           common output flags, report paths and writers
 lib/security_groups.py  group / interface / instance / Lambda ids and ARNs, per-account profiles, loading rules and prefix lists
+lib/sg_algebra.py       security group rule arithmetic with peer sets, for losses phrased "X except Y" (sg_effect)
 .env.example            configuration template
 requirements.txt        runtime dependencies (same as the repository's)
 requirements-dev.txt    test dependencies (pytest, pytest-cov, moto)
@@ -196,7 +201,9 @@ cd tools/firewall && python -m pytest              # add --cov=. for a coverage 
 
 The tests need no AWS credentials. The interval and box maths in `lib/boxes.py` is checked against brute-force
 point sets, the shared HTML report renderer is checked for escaping, and each tool family runs end to end against `moto` (EC2,
-STS) or a small fake Firewall Manager client, since `moto` does not support Firewall Manager.
+STS) or a small fake Firewall Manager client, since `moto` does not support Firewall Manager. `sg_effect` runs
+against an in-memory fake of the EC2 calls (`tests/sg_effect_fake.py`), because its resources (load balancer,
+Lambda and RDS interfaces) need fields `moto` doesn't fill in.
 
 ## Regenerating screenshots
 
