@@ -22,6 +22,7 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 | Tool | AWS service | What it does |
 |---|---|---|
 | [`firewall`](tools/firewall/) (suite of 10) | Firewall Manager, EC2 | Read-only reviews of Firewall Manager policies (rule parity, NACL policy vs live NACLs, compliance, policy snapshots and drift), NACL shadowed rules, security group inventory, access gaps, migration checks and quotas, and prefix list capacity and drift |
+| [`sg_effect`](tools/sg_effect/) | EC2 security groups | For one security group: every resource that uses it, each resource's net inbound and outbound access across all of its groups, and what the resource would lose if the group, or chosen rules of it, were removed. Flags rules that are redundant everywhere |
 | [`pl_review`](tools/pl_review/) | EC2 managed prefix lists | Before growing a managed prefix list: every security group that references it, in any account, and whether the proposed `MaxEntries` would push any of them over the rule quota |
 
 **Centralized VPC endpoints**
@@ -35,6 +36,7 @@ The tools work well together. For example:
   can reach it.
 - Use `dx_route` to see which Direct Connect VIF AWS uses for an on-premises prefix, and why, and
   `dx_backup` to see what changed in the Direct Connect configuration since the last backup.
+- Use `sg_effect` before deleting a security group rule, to see which resources would actually lose access.
 - Use `firewall/prefix_list_audit` to find prefix lists near capacity, then `pl_review` to check whether one
   can grow.
 
@@ -85,6 +87,7 @@ Where each tool writes, and what it expects:
 | `dx_route` | stdout: Cisco-style output; HTML in `reports/<date>/<scope>/` | `DXR_` | 0 ok, 1 error, 2 no route |
 | `dx_backup` | JSON backups in `backups/<account>/<timestamp>/`; diff HTML in `reports/<date>/<account>/`; restore plan: shell script | `DXB_` | 0 ok, 1 error, 2 changes found |
 | `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal |
+| `sg_effect` | stdout: text or JSON; HTML in `reports/<date>/<account>/` | `SGE_` | 0 ok, 1 error, 2 a `--remove-rule` scenario loses access |
 | `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated |
 | `vpce/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
 
@@ -104,6 +107,7 @@ pull request and weekly, and Dependabot proposes dependency updates weekly.
 | [`dx_route`](tools/dx_route/) | [![dx_route tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_route.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_route.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_route-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_route-coverage.json) |
 | [`dx_backup`](tools/dx_backup/) | [![dx_backup tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_backup.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_backup.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_backup-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_backup-coverage.json) |
 | [`firewall`](tools/firewall/) | [![firewall tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-coverage.json) |
+| [`sg_effect`](tools/sg_effect/) | [![sg_effect tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-sg_effect.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-sg_effect.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fsg_effect-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fsg_effect-coverage.json) |
 | [`pl_review`](tools/pl_review/) | [![pl_review tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-coverage.json) |
 | [`vpce`](tools/vpce/) | [![vpce tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-coverage.json) |
 
