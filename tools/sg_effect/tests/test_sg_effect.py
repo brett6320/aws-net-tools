@@ -281,14 +281,13 @@ def test_no_resources(bundle):
 def test_text_output(bundle):
     text = se_text.render(an.analyze(bundle, ["sgr-0web0443"]))
     assert text.startswith(f"Security group {F.WEB} (web-sg), {F.VPC}, account {F.ACCOUNT}, us-east-1")
-    assert "Scenario: remove this rule" in text
+    assert "Scenario" not in text and "If the selected rules are removed" not in text   # HTML only
     assert "== EC2 instance i-0web1000000000001 (web-1)" in text and "(ENIs with different groups" in text
     assert "   * tcp 443 from 0.0.0.0/0" in text
     assert "(covered by inbound tcp 22 from pl-0123456789abcdef0 (corp-networks))" in text
     assert "     loses inbound tcp 443 from 0.0.0.0/0   [sgr-0web0443]" in text
     assert "     partly loses inbound tcp 80 from 0.0.0.0/0 except 10.1.0.0/16   [sgr-0web0080]" in text
     assert "keeps outbound all traffic to 0.0.0.0/0   (still allowed by outbound all traffic to 0.0.0.0/0" in text
-    assert "If the selected rules are removed:" in text
     assert "sgr-0web0out  outbound all traffic to 0.0.0.0/0: only rule allowing it on 3, redundant on 2" in text
     assert f"Groups whose rules reference {F.WEB}:" in text and "% sg-0eee5555ffff66667" in text
 
@@ -328,12 +327,17 @@ def test_cli(fake, monkeypatch, tmp_path, capsys):
     assert "Resources using" in capsys.readouterr().out
     reports = list(Path("reports").rglob("*.html"))
     assert reports and reports[0].name == f"sg-effect_{F.WEB}.html" and reports[0].parent.name == F.ACCOUNT
-    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "--no-report"]) == 2
-    capsys.readouterr()
+    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "--no-report"]) == 1
+    assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "-o", "s.html"]) == 2
+    out = capsys.readouterr().out
+    assert "If the selected rules are removed" not in out and out.rstrip().endswith(
+        "Rule removal scenario (sgr-0web0443): see s.html")
+    assert "If the selected rules are removed" in Path("s.html").read_text()
     assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "sgr-0web0443", "--resource", ALB,
                            "--json", "-o", "x.html"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert [x["id"] for x in data["resources"]] == [ALB] and Path("x.html").is_file()
+    assert "removing" not in data and "remove_rules" not in data["resources"][0]
     assert sg_effect.main(["--from-json", "b.json", "--resource", "i-0nothing", "--no-report"]) == 0
     assert sg_effect.main(["sg-0fff0000ffff00001", "--from-json", "b.json"]) == 1
     assert sg_effect.main(["--from-json", "b.json", "--remove-rule", "bad"]) == 1

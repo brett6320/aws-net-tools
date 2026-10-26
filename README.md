@@ -22,7 +22,7 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 | Tool | AWS service | What it does |
 |---|---|---|
 | [`firewall`](tools/firewall/) (suite of 10) | Firewall Manager, EC2 | Read-only reviews of Firewall Manager policies (rule parity, NACL policy vs live NACLs, compliance, policy snapshots and drift), NACL shadowed rules, security group inventory, access gaps, migration checks and quotas, and prefix list capacity and drift |
-| [`sg_effect`](tools/sg_effect/) | EC2 security groups | For one security group: every resource that uses it, each resource's net inbound and outbound access across all of its groups, and what the resource would lose if the group, or chosen rules of it, were removed. Flags rules that are redundant everywhere |
+| [`sg_effect`](tools/sg_effect/) | EC2 security groups | For one security group: every resource that uses it, each resource's net inbound and outbound access across all of its groups, and what the resource would lose if the group were removed. The HTML report adds a rule removal scenario. Flags rules that are redundant everywhere |
 | [`pl_review`](tools/pl_review/) | EC2 managed prefix lists | Before growing a managed prefix list: every security group that references it, in any account, and whether the proposed `MaxEntries` would push any of them over the rule quota |
 
 **Centralized VPC endpoints**

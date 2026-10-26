@@ -10,8 +10,8 @@ after counting every other security group on that resource:
 - **If the group is removed:** what the resource would lose if the target group were taken off it. It counts
   the part of each rule that no other group allows, plus access that other groups grant to the target
   group's members.
-- **If rules are removed** (`--remove-rule`): what each resource would lose if those rules of the target group
-  were deleted, and for the access it keeps, which rule still allows it.
+- **If rules are removed** (`--remove-rule`, in the HTML report only): what each resource would lose if those
+  rules of the target group were deleted, and for the access it keeps, which rule still allows it.
 - **Rule summary:** for each rule of the target group, the resources where it's the only rule allowing that
   traffic. A rule that's redundant everywhere can be deleted without changing any access.
 - **Referencing groups:** the security groups whose rules point at the target group, and the resources
@@ -27,7 +27,7 @@ The tool is read-only.
 # Every resource using the group, its effective access, and the cost of removing the group
 python sg_effect.py sg-0aaa1111bbbb22223 --profile network-admin --region us-east-1
 
-# What would deleting these rules break? (sgr- IDs, or DIRECTION:PROTOCOL:PORTS:PEER)
+# What would deleting these rules break? (sgr- IDs, or DIRECTION:PROTOCOL:PORTS:PEER; see the HTML report)
 python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule sgr-0web0443
 python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule in:tcp:22:pl-0123456789abcdef0 \
                                          --remove-rule out:-1:all:0.0.0.0/0
@@ -37,7 +37,7 @@ python sg_effect.py sg-0aaa1111bbbb22223 --resource i-0web1000000000001
 
 # Save the data once, then try scenarios offline
 python sg_effect.py sg-0aaa1111bbbb22223 --json-out web-sg.json --no-report
-python sg_effect.py --from-json web-sg.json --remove-rule sgr-0web0080
+python sg_effect.py --from-json web-sg.json --remove-rule sgr-0web0080 -o remove-0080.html
 ```
 
 A rule spec is `DIRECTION:PROTOCOL:PORTS:PEER`:
@@ -52,6 +52,10 @@ A rule spec is `DIRECTION:PROTOCOL:PORTS:PEER`:
 It has to match a rule of the target group exactly. Use `--remove-rule` more than once to remove several rules
 together.
 
+The rule removal scenario appears only in the HTML report, as an "If the selected rules are removed" section on
+each resource card and a badge in the summary. The terminal output and `--json` leave it out, and end with a
+line pointing to the report. `--remove-rule` can't be combined with `--no-report`.
+
 ### Example: one instance
 
 The target `web-sg` allows HTTPS and HTTP from anywhere, SSH from the `corp-networks` prefix list (10.0.0.0/8
@@ -60,7 +64,7 @@ which allows SSH and ICMP from 10.0.0.0/8 and all outbound. `db-sg` allows 5432-
 from `base-sg`.
 
 ```text
-$ python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule sgr-0web0443
+$ python sg_effect.py sg-0aaa1111bbbb22223
 ...
 == EC2 instance i-0web1000000000001 (web-1)
    ENI eni-0web1000000000001  10.0.1.11  subnet-0a1b2c3d4e5f60718
@@ -81,8 +85,6 @@ $ python sg_effect.py sg-0aaa1111bbbb22223 --remove-rule sgr-0web0443
      loses inbound all traffic from sg-0aaa1111bbbb22223 (web-sg)   [sgr-0webself]
      keeps outbound all traffic to 0.0.0.0/0   (still allowed by outbound all traffic to 0.0.0.0/0 [sg-0bbb2222cccc33334 (base-sg)])
      sg-0ddd4444eeee55556 (db-sg) would stop allowing inbound tcp 5432 from this resource
-   If the selected rules are removed:
-     loses inbound tcp 443 from 0.0.0.0/0   [sgr-0web0443]
 ```
 
 `*` marks access the target group allows. A partial loss names what's still allowed: SSH from 10.0.0.0/8
@@ -145,7 +147,7 @@ is per interface.
 Unless you pass `--no-report`, the tool writes a self-contained HTML report to
 `reports/<YYYY-MM-DD>/<account>/sg-effect_<group>.html` (with `_remove-rules` when a scenario was given), or
 to `--output`. It has the summary, the rules table, one card per resource with its inbound and outbound
-tables and both scenarios, the referencing groups, warnings, and the raw bundle. `--theme dark|light|auto`
+tables and both scenarios (the rule removal scenario is only here), the referencing groups, warnings, and the raw bundle. `--theme dark|light|auto`
 picks the look (default `dark`; `auto` follows the OS), and the button in the corner switches it.
 
 ![sg_effect report (light)](docs/images/report-light.png)
@@ -202,8 +204,8 @@ All read-only:
 
 ## Output
 
-- **stdout:** the text output above, or the full analysis as JSON with `--json`. `--json-out` saves the raw
-  bundle for `--from-json`.
+- **stdout:** the text output above, or the analysis as JSON with `--json`. Neither includes the rule removal
+  scenario, which is only in the HTML report. `--json-out` saves the raw bundle for `--from-json`.
 - **Logs (stderr):** `%(asctime)s %(levelname)s sg_effect — message`. A call that fails (a prefix list or
   group that can't be read) is a warning, shown in the output and the report; the rest continue.
 - **Exit codes:** 0 on success. 1 for a bad group ID or rule spec, credential problems or a fatal AWS error.

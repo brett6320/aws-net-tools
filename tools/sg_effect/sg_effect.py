@@ -5,9 +5,10 @@ For each resource (EC2 instance, load balancer, Lambda function, RDS, VPC endpoi
 ECS task, ...) whose network interface has the group, sg_effect shows the resource's
 net inbound and outbound access across all of its security groups, which rules come
 from the target group, and what the resource would lose if the group were removed from
-it. With --remove-rule it also shows what each resource would lose if those rules of
-the target group were deleted, after counting every other rule that still allows the
-same traffic. Groups whose rules reference the target are listed too. Read-only.
+it. With --remove-rule, the HTML report (only) also shows what each resource would lose
+if those rules of the target group were deleted, after counting every other rule that
+still allows the same traffic. Groups whose rules reference the target are listed too.
+Read-only.
 
     sg_effect.py sg-0123456789abcdef0 --region us-east-1
     sg_effect.py sg-0123456789abcdef0 --remove-rule sgr-0abc... --remove-rule in:tcp:22:10.0.0.0/8
@@ -53,7 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
                                 epilog="\n".join(__doc__.splitlines()[2:]))
     p.add_argument("group", nargs="?", metavar="SG_ID", help="Security group ID (not needed with --from-json)")
     p.add_argument("--remove-rule", action="append", default=[], metavar="RULE",
-                   help="Scenario: delete this rule of the target group (repeatable). An sgr- ID, or "
+                   help="Scenario, shown in the HTML report only: delete this rule of the target group "
+                        "(repeatable). An sgr- ID, or "
                         "DIRECTION:PROTOCOL:PORTS:PEER such as in:tcp:443:0.0.0.0/0, out:-1:all:0.0.0.0/0, "
                         "in:tcp:5432:sg-0123... or in:tcp:22:pl-0123...")
     p.add_argument("--resource", action="append", default=[], metavar="ID",
@@ -82,6 +84,13 @@ def report_path(result: dict, reports_dir: str, scenario: bool) -> Path:
     return Path(reports_dir) / day / (result.get("account") or "account") / name
 
 
+def cli_view(result: dict) -> dict:
+    """The analysis without the rule-removal scenario, which only the HTML report shows."""
+    view = {k: v for k, v in result.items() if k != "removing"}
+    view["resources"] = [{k: v for k, v in r.items() if k != "remove_rules"} for r in result["resources"]]
+    return view
+
+
 def run(args) -> int:
     if args.from_json:
         bundle = json.loads(Path(args.from_json).read_text(encoding="utf-8"))
@@ -92,11 +101,13 @@ def run(args) -> int:
             raise core.ValidationError("Pass a security group ID (or --from-json)")
         session = core.get_session(args.profile, args.region)
         bundle = core.collect(session, args.region or session.region_name, args.group)
+    if args.remove_rule and args.no_report:
+        raise core.ValidationError("--remove-rule results are only in the HTML report; drop --no-report")
     result = analyze.analyze(bundle, args.remove_rule, args.resource)
     if args.resource and not result["resources"]:
         log.warning("No resource using %s matches %s", bundle["target"], ", ".join(args.resource))
     if args.json:
-        print(json.dumps(result, indent=2, default=str))
+        print(json.dumps(cli_view(result), indent=2, default=str))
     else:
         sys.stdout.write(se_text.render(result))
     for w in result["warnings"]:
@@ -109,6 +120,12 @@ def run(args) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(render_html(result, bundle, args.title, args.theme), encoding="utf-8")
         log.info("Wrote HTML report %s", out)
+        if args.remove_rule:
+            note = f"Rule removal scenario ({', '.join(r['id'] for r in result['removing'])}): see {out}"
+            if args.json:
+                log.info("%s", note)          # keep stdout valid JSON
+            else:
+                print(f"\n{note}")
     return EXIT_LOSES_ACCESS if analyze.loses_access(result) else EXIT_OK
 
 

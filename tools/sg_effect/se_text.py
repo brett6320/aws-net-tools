@@ -39,6 +39,8 @@ def _scenario(lines: list[str], title: str, block: dict, names: dict[str, str]) 
 
 
 def render(result: dict) -> str:
+    """The terminal view. Rule-removal scenarios (--remove-rule) are left out: they're only
+    in the HTML report."""
     t = result["target"]
     names = {}
     for res in result["resources"]:
@@ -51,9 +53,6 @@ def render(result: dict) -> str:
     lines.append(f"  {len(t['rules'])} rules:")
     lines += [f"    {r['id']}  {r['text']}" + (f"   \"{r['description']}\"" if r.get("description") else "")
               for r in t["rules"]]
-    if result["removing"]:
-        lines += ["", "Scenario: remove " + ("this rule" if len(result["removing"]) == 1 else "these rules")]
-        lines += [f"    {r['id']}  {r['text']}" for r in result["removing"]]
 
     res_list = result["resources"]
     lines += ["", f"Resources using {t['id']}: {len(res_list)}" if res_list
@@ -77,8 +76,6 @@ def render(result: dict) -> str:
                     note = f"   (covered by {e['covered_by'][0]['text']})"
                 lines.append(f"   {'*' if e['from_target'] else ' '} {what:<{width}}  {_grants(e)}{note}")
         _scenario(lines, f"If {t['id']} is removed from it:", res["remove_sg"], names)
-        if "remove_rules" in res:
-            _scenario(lines, "If the selected rules are removed:", res["remove_rules"], names)
     if res_list:
         lines += ["", "   * = allowed by the target group"]
 
