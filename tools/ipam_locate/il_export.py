@@ -256,7 +256,9 @@ def render_hierarchy(b: dict, loc: dict, part: str) -> str:
     tree = []
     for arn, nodes in scope_nodes.items():
         s = scopes.get(arn) or {}
-        tree.append(_node("scope", f'<code>{_e(s.get("IpamScopeId") or arn)}</code>',
+        sid = s.get("IpamScopeId")
+        label = chip("scope", sid, home, None, part) if sid else f"<code>{_e(arn)}</code>"
+        tree.append(_node("scope", label,
                           _e(f'{s.get("IpamScopeType", "")} scope'), children=nodes))
     rest = [_cand_branch(c, query, part) for i, c in enumerate(loc["candidates"]) if i not in placed]
     if rest:
