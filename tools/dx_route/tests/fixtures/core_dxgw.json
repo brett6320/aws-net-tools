@@ -1,0 +1,542 @@
+{
+  "tool": "dx_route",
+  "generated": "2026-10-25T18:00:00+00:00",
+  "query": null,
+  "family": "ipv4",
+  "from_region": "us-east-1",
+  "regions": [
+    "us-east-1"
+  ],
+  "dx_gateway": null,
+  "directions": [
+    "accepted",
+    "advertised"
+  ],
+  "gateways": [
+    {
+      "id": "dxgw-0a1b2c3d4e5f60718",
+      "name": "core-dxgw",
+      "amazon_asn": 64512,
+      "owner": "111122223333",
+      "state": "available"
+    }
+  ],
+  "vifs": [
+    {
+      "id": "dxvif-fgnyc001",
+      "name": "nyc-primary",
+      "type": "transit",
+      "state": "available",
+      "owner": "111122223333",
+      "region": "us-east-1",
+      "location": "EqDC2",
+      "connection": "dxcon-nyc001",
+      "vlan": 100,
+      "asn": 65010,
+      "amazon_asn": 64512,
+      "dx_gateway": "dxgw-0a1b2c3d4e5f60718",
+      "vgw": null,
+      "peers": [
+        {
+          "family": "ipv4",
+          "asn": 65010,
+          "customer_address": "169.254.10.1/30",
+          "amazon_address": "169.254.10.2/30",
+          "state": "available",
+          "status": "up",
+          "device": "EqDC2-2k3hw7z1f9q4z"
+        },
+        {
+          "family": "ipv6",
+          "asn": 65010,
+          "customer_address": "2001:db8:ffff:10::1/125",
+          "amazon_address": "2001:db8:ffff:10::2/125",
+          "state": "available",
+          "status": "up",
+          "device": "EqDC2-2k3hw7z1f9q4z"
+        }
+      ]
+    },
+    {
+      "id": "dxvif-fgnyc002",
+      "name": "nyc-secondary",
+      "type": "transit",
+      "state": "available",
+      "owner": "111122223333",
+      "region": "us-east-1",
+      "location": "CSVA1",
+      "connection": "dxcon-nyc002",
+      "vlan": 100,
+      "asn": 65010,
+      "amazon_asn": 64512,
+      "dx_gateway": "dxgw-0a1b2c3d4e5f60718",
+      "vgw": null,
+      "peers": [
+        {
+          "family": "ipv4",
+          "asn": 65010,
+          "customer_address": "169.254.11.1/30",
+          "amazon_address": "169.254.11.2/30",
+          "state": "available",
+          "status": "up",
+          "device": "CSVA1-1a2b3c4d5e6f"
+        },
+        {
+          "family": "ipv6",
+          "asn": 65010,
+          "customer_address": "2001:db8:ffff:11::1/125",
+          "amazon_address": "2001:db8:ffff:11::2/125",
+          "state": "available",
+          "status": "up",
+          "device": "CSVA1-1a2b3c4d5e6f"
+        }
+      ]
+    },
+    {
+      "id": "dxvif-fgchi001",
+      "name": "chi-backup",
+      "type": "transit",
+      "state": "available",
+      "owner": "111122223333",
+      "region": "us-east-2",
+      "location": "EqCH2",
+      "connection": "dxcon-chi001",
+      "vlan": 100,
+      "asn": 65020,
+      "amazon_asn": 64512,
+      "dx_gateway": "dxgw-0a1b2c3d4e5f60718",
+      "vgw": null,
+      "peers": [
+        {
+          "family": "ipv4",
+          "asn": 65020,
+          "customer_address": "169.254.20.1/30",
+          "amazon_address": "169.254.20.2/30",
+          "state": "available",
+          "status": "up",
+          "device": "EqCH2-9z8y7x6w5v"
+        }
+      ]
+    },
+    {
+      "id": "dxvif-fglax001",
+      "name": "lax-dr",
+      "type": "transit",
+      "state": "available",
+      "owner": "111122223333",
+      "region": "us-west-1",
+      "location": "EqLA3",
+      "connection": "dxcon-lax001",
+      "vlan": 100,
+      "asn": 65030,
+      "amazon_asn": 64512,
+      "dx_gateway": "dxgw-0a1b2c3d4e5f60718",
+      "vgw": null,
+      "peers": [
+        {
+          "family": "ipv4",
+          "asn": 65030,
+          "customer_address": "169.254.30.1/30",
+          "amazon_address": "169.254.30.2/30",
+          "state": "available",
+          "status": "down",
+          "device": "EqLA3-4f5g6h7j8k"
+        }
+      ]
+    },
+    {
+      "id": "dxvif-fglgc001",
+      "name": "legacy-vpc",
+      "type": "private",
+      "state": "available",
+      "owner": "111122223333",
+      "region": "us-east-1",
+      "location": "EqDC2",
+      "connection": "dxcon-lgc001",
+      "vlan": 100,
+      "asn": 65040,
+      "amazon_asn": 64600,
+      "dx_gateway": null,
+      "vgw": "vgw-0f1e2d3c4b5a69788",
+      "peers": [
+        {
+          "family": "ipv4",
+          "asn": 65040,
+          "customer_address": "169.254.40.1/30",
+          "amazon_address": "169.254.40.2/30",
+          "state": "available",
+          "status": "up",
+          "device": "EqDC2-2k3hw7z1f9q4z"
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "vif": "dxvif-fgnyc001",
+      "cidr": "10.0.0.0/8",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7200"
+      ],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc002",
+      "cidr": "10.0.0.0/8",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7200"
+      ],
+      "device": null,
+      "installed": "2026-10-21T09:15:00+00:00"
+    },
+    {
+      "vif": "dxvif-fgchi001",
+      "cidr": "10.0.0.0/8",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65020,
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7100"
+      ],
+      "device": null,
+      "installed": "2026-09-30T08:00:00+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc001",
+      "cidr": "10.20.0.0/16",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7300"
+      ],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc002",
+      "cidr": "10.20.0.0/16",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7100"
+      ],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgchi001",
+      "cidr": "10.20.0.0/16",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65020
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-01T00:00:00+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc001",
+      "cidr": "10.20.30.0/24",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010,
+            65010,
+            65010
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-25T11:42:07+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc002",
+      "cidr": "10.20.30.0/24",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-25T11:42:09+00:00"
+    },
+    {
+      "vif": "dxvif-fgchi001",
+      "cidr": "10.20.30.0/24",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65020
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgchi001",
+      "cidr": "172.16.0.0/12",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65020
+          ]
+        },
+        {
+          "type": "set",
+          "path": [
+            65100,
+            65101
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-08-12T00:00:00+00:00"
+    },
+    {
+      "vif": "dxvif-fglax001",
+      "cidr": "0.0.0.0/0",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65030
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgchi001",
+      "cidr": "0.0.0.0/0",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65020,
+            65020
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-09-01T00:00:00+00:00"
+    },
+    {
+      "vif": "dxvif-fglax001",
+      "cidr": "192.168.50.0/24",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65030
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fglgc001",
+      "cidr": "10.20.0.0/16",
+      "direction": "accepted",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65040
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc001",
+      "cidr": "2001:db8:100::/40",
+      "direction": "accepted",
+      "family": "ipv6",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7200"
+      ],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc002",
+      "cidr": "2001:db8:100::/40",
+      "direction": "accepted",
+      "family": "ipv6",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            65010
+          ]
+        }
+      ],
+      "communities": [
+        "7224:7200"
+      ],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc001",
+      "cidr": "10.100.0.0/16",
+      "direction": "advertised",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            64512
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc001",
+      "cidr": "10.101.0.0/16",
+      "direction": "advertised",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            64512
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc002",
+      "cidr": "10.100.0.0/16",
+      "direction": "advertised",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            64512
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    },
+    {
+      "vif": "dxvif-fgnyc002",
+      "cidr": "10.101.0.0/16",
+      "direction": "advertised",
+      "family": "ipv4",
+      "as_path": [
+        {
+          "type": "seq",
+          "path": [
+            64512
+          ]
+        }
+      ],
+      "communities": [],
+      "device": null,
+      "installed": "2026-10-23T14:02:11+00:00"
+    }
+  ],
+  "warnings": []
+}

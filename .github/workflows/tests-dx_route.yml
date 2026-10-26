@@ -1,0 +1,32 @@
+name: dx_route tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/dx_route/**"
+      - ".github/workflows/tests-dx_route.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/dx_route/**"
+      - ".github/workflows/tests-dx_route.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: dx_route
+      path: tools/dx_route
+    permissions:
+      contents: write

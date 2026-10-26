@@ -2,18 +2,19 @@
 
 [![CodeQL](https://github.com/brett6320/aws-net-tools/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/codeql.yml) [![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ftotal-tests.json)](#tests-and-ci) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ftotal-coverage.json)](#tests-and-ci) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white) [![License: custom](https://img.shields.io/badge/license-custom-lightgrey)](LICENSE) ![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)
 
-Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, reviewing
-firewall policy, security groups, NACLs and prefix lists, and running centralized VPC endpoints. All but the
+Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, showing which
+Direct Connect path AWS prefers, reviewing firewall policy, security groups, NACLs and prefix lists, and running centralized VPC endpoints. All but the
 `vpce` tools write self-contained HTML reports you can share or attach to a ticket.
 
 ## Tools
 
-**Paths and addresses**
+**Paths, routes and addresses**
 
 | Tool | AWS service | What it does |
 |---|---|---|
 | [`reachability_trace`](tools/reachability_trace/) | VPC Reachability Analyzer | Create and run traces between any supported source and destination, including across accounts, with ports applied at the source. Reports show every hop and mark exactly where a blocked path breaks |
 | [`ipam_locate`](tools/ipam_locate/) | VPC IPAM | Find the account, Region, VPC, subnet and resource behind an IP or CIDR, or the most specific parent pool CIDR, with the full IPAM hierarchy |
+| [`dx_route`](tools/dx_route/) | Direct Connect | `show ip bgp` / `show ip route` in Cisco IOS syntax for any prefix: which VIF AWS uses toward on-premises, every active and inactive path with its AS path, communities and local preference, and why each path lost |
 
 **Firewall policy, security groups, NACLs and prefix lists**
 
@@ -31,6 +32,7 @@ firewall policy, security groups, NACLs and prefix lists, and running centralize
 The tools work well together. For example:
 - Use `ipam_locate` to find who owns an unknown address, then `reachability_trace` to check whether traffic
   can reach it.
+- Use `dx_route` to see which Direct Connect VIF AWS uses for an on-premises prefix, and why.
 - Use `firewall/prefix_list_audit` to find prefix lists near capacity, then `pl_review` to check whether one
   can grow.
 
@@ -55,6 +57,7 @@ pip install -r tools/vpce/requirements-dev.txt        # optional: pytest and mot
 
 python tools/ipam_locate/ipam_locate.py 10.1.1.25 --profile network-admin --region us-east-1
 python tools/reachability_trace/reachability.py types
+python tools/dx_route/dx_route.py show ip bgp summary --region us-east-1
 python tools/firewall/sg_quota_audit.py --help
 ```
 
@@ -66,7 +69,7 @@ covers usage, options, output, configuration and IAM permissions.
 | Area | Convention |
 |---|---|
 | **Safety** | Nothing changes AWS resources except `reachability_trace`'s `create`, `analyze` and `delete-*` commands. Those are dry-run by default: they log `[DRY-RUN]` with the exact request and need `--execute` or `--apply`. `phz_assoc` only prints the commands for you to review and run |
-| **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce` and `pl_review` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` are never picked automatically, and `pl_review` only uses profiles whose names start with `hcli-` |
+| **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce`, `pl_review` and `dx_route` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` are never picked automatically, and `pl_review` only uses profiles whose names start with `hcli-` |
 | **Configuration** | Each tool or suite reads a `.env` file (see its `.env.example`) from its own directory, or from the nearest parent directory that has one (such as the repository root). The directory you run a tool from doesn't matter. CLI flags override `.env`, which overrides defaults |
 | **TLS** | The OS certificate store is used through `truststore` (macOS, Windows, Linux), so corporate TLS inspection works without extra configuration |
 
@@ -76,6 +79,7 @@ Where each tool writes, and what it expects:
 |---|---|---|---|
 | `reachability_trace` | HTML in `reports/<date>/<account>/` | `RA_` | 0 ok, 1 error, 2 analysis failed |
 | `ipam_locate` | HTML in `reports/<date>/<account>/` | `IPAM_` | 0 ok, 1 error |
+| `dx_route` | stdout: Cisco-style output; HTML in `reports/<date>/<scope>/` | `DXR_` | 0 ok, 1 error, 2 no route |
 | `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal |
 | `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated |
 | `vpce/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
@@ -93,6 +97,7 @@ pull request and weekly, and Dependabot proposes dependency updates weekly.
 |---|---|---|---|
 | [`reachability_trace`](tools/reachability_trace/) | [![reachability_trace tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-reachability_trace.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-reachability_trace.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Freachability_trace-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Freachability_trace-coverage.json) |
 | [`ipam_locate`](tools/ipam_locate/) | [![ipam_locate tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-ipam_locate.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-ipam_locate.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fipam_locate-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fipam_locate-coverage.json) |
+| [`dx_route`](tools/dx_route/) | [![dx_route tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_route.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_route.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_route-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_route-coverage.json) |
 | [`firewall`](tools/firewall/) | [![firewall tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-coverage.json) |
 | [`pl_review`](tools/pl_review/) | [![pl_review tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-coverage.json) |
 | [`vpce`](tools/vpce/) | [![vpce tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-coverage.json) |
