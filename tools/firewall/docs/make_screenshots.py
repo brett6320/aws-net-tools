@@ -34,7 +34,8 @@ IMAGES = HERE / "images"
 WIDTH = 1600  # html_report max-width, so wide tables are not squeezed
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 SAMPLES = ["fmm_rule_parity", "fmm_nacl_audit", "fmm_compliance", "fmm_policy_snapshot", "nacl_shadow",
-           "sg_rule_inventory", "sg_migration_check", "sg_access_gap", "sg_quota_audit", "prefix_list_audit"]
+           "sg_rule_inventory", "sg_migration_check", "sg_access_gap", "sg_effect", "sg_quota_audit",
+           "prefix_list_audit"]
 SCHEME = {"dark": 0, "light": 1}
 
 

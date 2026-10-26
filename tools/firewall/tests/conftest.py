@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT))
 truststore.inject_into_ssl = lambda: None
 
 TOOLS = ["fmm_compliance", "fmm_nacl_audit", "fmm_policy_snapshot", "fmm_rule_parity", "nacl_shadow",
-         "prefix_list_audit", "sg_access_gap", "sg_migration_check", "sg_quota_audit", "sg_rule_inventory"]
+         "prefix_list_audit", "sg_access_gap", "sg_effect", "sg_migration_check", "sg_quota_audit",
+         "sg_rule_inventory"]
 
 # fmm_rule_parity.py nests same-quote f-strings (PEP 701), a SyntaxError before Python 3.12.
 PY312 = sys.version_info >= (3, 12)
