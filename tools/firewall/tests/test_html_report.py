@@ -77,3 +77,9 @@ def test_write(tmp_path):
     path = tmp_path / "r.html"
     html_report.write(path, "T", tables=[TABLE])
     assert path.read_text(encoding="utf-8") == html_report.render("T", tables=[TABLE])
+
+
+def test_collapsed_tables_fold_under_their_heading():
+    out = html_report.render("R", tables=[{**TABLE, "collapsed": True}])
+    assert json.loads(block(out, "data"))["tables"][0]["collapsed"] is True
+    assert 'details class="fold"' in out and 'P + "open"' in out

@@ -31,6 +31,8 @@ Table spec (dict):
   sort      initial sort, [[key, 1 | -1], ...]
   hide      {"key": k, "values": [...], "label": "show info"}: hidden until ticked
   by        {"key": k, "label": "By code", "badge": key shown as badge or None}
+  collapsed True: the table starts folded under its heading (click to open); the
+            open/closed state is kept in the URL fragment like the filters
 """
 from __future__ import annotations
 
@@ -73,6 +75,8 @@ td.nw { white-space:nowrap; } td.f { cursor:pointer; } td.f:hover { text-decorat
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
 .error { color:var(--error); background:var(--error-bg); } .warn { color:var(--warn); background:var(--warn-bg); }
 .info { color:var(--info); background:var(--info-bg); } .ok { color:var(--ok); background:var(--ok-bg); }
+details.fold > summary { cursor:pointer; margin:32px 0 6px; } details.fold > summary h2 { display:inline; margin:0; }
+details.fold > summary span { margin-left:8px; }
 </style></head><body>
 <div id="app"></div>
 <script id="data" type="application/json">__DATA__</script>
@@ -107,6 +111,8 @@ function makeTable(t) {
   filters.forEach(k => { if (H.get(P + k)) st.f[k] = H.get(P + k); });
   st.q = H.get(P + "q") || "";
   st.show = H.get(P + "show") === "1";
+  const folds = "collapsed" in t;
+  st.open = H.has(P + "open") ? H.get(P + "open") === "1" : !t.collapsed;
   if (H.get(P + "sort")) {
     const s = H.get(P + "sort").split(",").filter(x => LABEL[x.replace(/^-/, "")])
       .map(x => x.startsWith("-") ? [x.slice(1), -1] : [x, 1]);
@@ -119,7 +125,9 @@ function makeTable(t) {
     return Object.keys(c).sort((a, b) => rk ? rk.indexOf(a) - rk.indexOf(b)
       : a.localeCompare(b, undefined, {numeric: true})).map(v => [v, c[v]]);
   };
-  sec.innerHTML = `<h2>${esc(t.title)}</h2>` + (t.note ? `<div class="muted">${esc(t.note)}</div>` : "") +
+  sec.innerHTML = (folds ? `<details class="fold" data-r="fold"${st.open ? " open" : ""}><summary><h2>${esc(t.title)}</h2>` +
+      `<span class="muted">${t.rows.length} ${esc(t.row_label || "rows")}</span></summary>` : `<h2>${esc(t.title)}</h2>`) +
+    (t.note ? `<div class="muted">${esc(t.note)}</div>` : "") +
     `<div class="controls"><label>Search<input type="search" data-r="q" placeholder="any text"></label>` +
     filters.map(k => { const o = opts(k);
       return `<label>${esc(LABEL[k] || k)}<select data-k="${esc(k)}"><option value="">All (${o.length})</option>` +
@@ -129,7 +137,8 @@ function makeTable(t) {
     `<div class="muted" data-r="shown"></div><div class="cards" data-r="uniq"></div>` +
     (t.by ? `<h3>${esc(t.by.label)}</h3><div class="wrap"><table data-r="by"></table></div>` : "") +
     `<div class="muted">Click a header to sort (shift-click adds a secondary sort). ` +
-    `Click a cell in a filterable column to filter on it.</div><div class="wrap"><table data-r="tbl"></table></div>`;
+    `Click a cell in a filterable column to filter on it.</div><div class="wrap"><table data-r="tbl"></table></div>` +
+    (folds ? `</details>` : "");
   const $ = r => sec.querySelector(`[data-r="${r}"]`);
   const sync = () => {
     $("q").value = st.q;
@@ -216,8 +225,10 @@ function makeTable(t) {
     a.download = `${t.id}_filtered.csv`;
     a.click();
   });
+  if (folds) $("fold").addEventListener("toggle", e => { st.open = e.target.open; saveHash(); });
   sync();
   return {id: t.id, render, save: p => {
+    if (folds && st.open === !!t.collapsed) p.set(P + "open", st.open ? "1" : "0");
     Object.entries(st.f).forEach(([k, v]) => v && p.set(P + k, v));
     if (st.q) p.set(P + "q", st.q);
     if (st.show) p.set(P + "show", "1");

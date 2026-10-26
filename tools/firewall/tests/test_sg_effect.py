@@ -357,6 +357,10 @@ def test_html_report(bundle):
     assert [x["change"] for x in ok["tables"][1]["rows"]] == ["no change", "keeps"]
     plain = html_data(sge.render_html(sge.analyze(b)))
     assert [t["id"] for t in plain["tables"]][:2] == ["remove_group", "rules"]
+    folded = {t["id"]: t.get("collapsed") for t in d["tables"]}
+    assert folded["remove_group"] is True and folded["rules"] is True and not folded["remove_rules"]
+    folded = {t["id"]: t.get("collapsed") for t in plain["tables"]}
+    assert folded["remove_group"] is False and folded["rules"] is True
 
 
 def test_change_rows_csv(bundle):

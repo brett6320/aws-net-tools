@@ -227,6 +227,8 @@ Plus the [common output flags](../README.md#reports).
 - **HTML**: summary cards, then filterable tables: the changes if the group is removed (kept access hidden until
   ticked), the changes if the selected rules are removed, the target's rules and where each is the only rule
   allowing its traffic, every resource's effective access, the referencing groups, and any warnings.
+  The rules table starts collapsed, and so does the group-removal table when `--remove-rule` is given, so the
+  rule removal scenario comes first. Click a table's heading to open it.
 
 Exit codes: `0` ok, `1` the `--remove-rule` scenario takes access away from at least one resource (so a script
 can check that a clean-up is safe), `2` fatal error.

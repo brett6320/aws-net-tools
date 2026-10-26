@@ -716,9 +716,10 @@ def change_rows(result: dict, key: str = "remove_sg") -> list[dict]:
     return rows
 
 
-def _change_table(tid: str, title: str, note: str, rows: list[dict]) -> dict:
+def _change_table(tid: str, title: str, note: str, rows: list[dict], collapsed: bool = False) -> dict:
     """html_report table spec for a scenario's change rows."""
     return {
+        "collapsed": collapsed,
         "id": tid, "title": title, "note": note, "row_label": "changes",
         "columns": [["resource", "Resource"], ["also", "Other groups"], ["change", "Change"],
                     ["direction", "Direction"], ["access", "Access"], ["rule", "Rule"], ["note", "Note"]],
@@ -747,7 +748,8 @@ def render_html(result: dict) -> str:
             " · security groups only: network ACLs, route tables and the resources' own firewalls aren't considered"]
     tables = [_change_table("remove_group", f"If {group_label(t['id'], names)} is removed",
                             "What each resource would lose, after counting every other group on it. Partly loses: "
-                            "the rest is still allowed by another rule.", rows_sg)]
+                            "the rest is still allowed by another rule.", rows_sg,
+                            collapsed=bool(result["removing"]))]   # a rule scenario leads when given
     if result["removing"]:
         rows_r = change_rows(result, "remove_rules")
         lose = len({r["resource"] for r in rows_r if r["change"] not in ("keeps", "no change")})
@@ -756,7 +758,7 @@ def render_html(result: dict) -> str:
         tables.append(_change_table("remove_rules", "If the selected rules are removed",
                                     "Kept access names the rule that still allows it.", rows_r))
     tables.append({
-        "id": "rules", "title": f"Rules of {t['id']}", "row_label": "rules",
+        "id": "rules", "title": f"Rules of {t['id']}", "row_label": "rules", "collapsed": True,
         "columns": [["rule", "Rule"], ["text", "Allows"], ["description", "Description"], ["verdict", "Where it matters"],
                     ["unique_on", "Only rule allowing it on"]],
         "rows": [{"rule": x["rule"], "text": x["text"], "description": x.get("description") or "",
