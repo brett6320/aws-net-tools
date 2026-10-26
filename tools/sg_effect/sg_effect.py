@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "(repeatable). An sgr- ID, or "
                         "DIRECTION:PROTOCOL:PORTS:PEER such as in:tcp:443:0.0.0.0/0, out:-1:all:0.0.0.0/0, "
                         "in:tcp:5432:sg-0123... or in:tcp:22:pl-0123...")
+    p.add_argument("--full", action="store_true",
+                   help="Also list every rule, each resource's effective access, kept access and referencing groups")
     p.add_argument("--resource", action="append", default=[], metavar="ID",
                    help="Only show this resource (instance ID, load balancer or function name, ENI ID; repeatable)")
     p.add_argument("--profile", default=os.getenv("AWS_PROFILE"), help="AWS profile (not included in reports)")
@@ -109,7 +111,7 @@ def run(args) -> int:
     if args.json:
         print(json.dumps(cli_view(result), indent=2, default=str))
     else:
-        sys.stdout.write(se_text.render(result))
+        sys.stdout.write(se_text.render(result, full=args.full))
     for w in result["warnings"]:
         log.warning("%s", w)
     if args.json_out:

@@ -74,9 +74,11 @@ def rules_card(result: dict) -> str:
                    _badge(f"only rule on {len(u)} of {n}", "warn") if n else '<span class="nm">—</span>')
         rows.append([_code(s["rule"]), _e(s["text"]), _e(s.get("description")), verdict,
                      "<br>".join(_e(x) for x in u) or '<span class="nm">—</span>'])
-    return ('<div class="card"><h3>Rules of the target group</h3>'
+    safe = sum(1 for x in result["rule_summary"] if n and not x["unique_on"])
+    return (f'<div class="card"><details class="access"><summary>Rules of the target group: '
+            f'{len(rows)} rule{"s" if len(rows) != 1 else ""}, {safe} redundant everywhere</summary>'
             + _table(["Rule", "Allows", "Description", "Where it matters", "Only rule allowing it on"], rows,
-                     "The group has no rules") + "</div>")
+                     "The group has no rules") + "</details></div>")
 
 
 def _access_table(entries: list[dict], target: str, names: dict[str, str]) -> str:
@@ -122,11 +124,13 @@ def resource_card(res: dict, result: dict, names: dict[str, str]) -> str:
     body = [f"<h3>{_e(resource_label(res))}</h3>",
             f'<table class="kv"><tr><th>Network interfaces</th><td>{enis}</td></tr>'
             f"<tr><th>Security groups</th><td>{groups}</td></tr></table>",
-            f"<h4>Inbound</h4>{_access_table(res['effective'][IN], t, names)}",
-            f"<h4>Outbound</h4>{_access_table(res['effective'][OUT], t, names)}",
             f"<h4>If {_e(t)} is removed from it</h4>{_scenario(res['remove_sg'], names)}"]
     if "remove_rules" in res:
         body.append(f"<h4>If the selected rules are removed</h4>{_scenario(res['remove_rules'], names)}")
+    n_in, n_out = len(res["effective"][IN]), len(res["effective"][OUT])
+    body.append(f'<details class="access"><summary>Effective access: {n_in} inbound, {n_out} outbound</summary>'
+                f"<h4>Inbound</h4>{_access_table(res['effective'][IN], t, names)}"
+                f"<h4>Outbound</h4>{_access_table(res['effective'][OUT], t, names)}</details>")
     return f'<div class="card">{"".join(body)}</div>'
 
 
@@ -158,7 +162,8 @@ def render_html(result: dict, bundle: dict, title: str | None = None, theme: str
 <html lang="en" data-theme="{theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_e(page_title)}</title><style>{CSS}
 h4{{font-size:13px;margin:16px 0 6px;color:var(--muted)}}
-ul.plain li{{margin:4px 0}}</style></head>
+ul.plain li{{margin:4px 0}}
+details.access{{margin-top:14px}}details.access summary{{cursor:pointer;color:var(--muted);font-weight:600}}</style></head>
 <body><main>
 <div class="top"><div><h1>{_e(page_title)}</h1>
 <div class="muted">Security group effect · collected {_e(generated)}</div></div>
