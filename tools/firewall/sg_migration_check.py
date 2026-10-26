@@ -47,13 +47,18 @@ sg_rule_inventory.py: --profile for its own account, other accounts named by
 ARNs through their local profiles (never -priv / -cpar), bare ids in the
 --profile account, else the single ARN account, else AWS_PROFILE / default.
 
-Resources whose change is identical (status, access lost / gained, rules
-responsible) are listed together as one group in the text and HTML reports;
-the CSV / JSON keep one row per resource with its group id.
+By default the text report distills this to the differences once migrated
+(new group attached, old removed): each access lost or gained once, with the
+rules it comes from and the resources it applies to; then the resources
+whose access stays the same, those still missing the new group, and the
+unmirrored references. --show-changes prints the full detail: resources
+whose change is identical (status, access lost / gained, rules responsible)
+as one group, with removal now vs once migrated and every rule responsible.
 
-Reports: text summary on screen (--show-changes lists the access changes),
-plus auto-saved HTML (interactive: filter by status, resource type, VPC ...),
-CSV (one row per resource) and JSON under reports/sg_migration_check/DATE/.
+Reports: text on screen, plus auto-saved HTML (the differences once
+migrated first; the detail per group of resources folded, filterable by
+status, resource type, VPC ...), CSV (one row per resource, with its group
+id and net change) and JSON under reports/sg_migration_check/DATE/.
 
 Usage:
 
@@ -73,6 +78,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -97,6 +103,7 @@ from lib.security_groups import (SG, SgRule, load_groups, parse_account_targets,
 log = logging.getLogger("sg_migration_check")
 TOOL = "sg_migration_check"
 MAX_CIDRS_SHOWN = 8
+MAX_RESOURCES_SHOWN = 5
 BROAD_PREFIX = {4: 16, 6: 48}      # ranges wider than this are named by their block, not enumerated
 Access = dict[str, list[Box]]          # address space -> disjoint boxes
 
@@ -171,6 +178,25 @@ def fmt_access(acc: Access, egress: bool, rename: dict[str, str] | None = None) 
                   for sp, ivs in by_sp.items() for a in fmt_ranges(sp, ivs)]
              for pp, by_sp in ranges.items()}
     return [f"{fmt_proto_ports(pr, ports)} {prep} {', '.join(a)}" for (pr, ports), a in sorted(by_pp.items())]
+
+
+def net_lines(acc: Access, egress: bool, rename: dict[str, str], gids: list[str],
+              rules: dict[str, list[SgRule]]) -> list[str]:
+    """fmt_access lines, each followed by the descriptions (else ids) of the rules of `gids` it
+    comes from: '[egress] tcp 9092-9094 to 10.40.0.0/16 (Kafka brokers)'. Address lists are cut
+    at MAX_CIDRS_SHOWN (the full change is in the lost / projected fields)."""
+    by_pp = defaultdict(lambda: defaultdict(list))
+    for sp, boxes in acc.items():
+        for b in boxes:
+            by_pp[b[:2]][sp].append(b)
+    out = []
+    for _, sub in sorted(by_pp.items()):
+        why = dict.fromkeys(r.description or r.rule_id for gid in gids for r in rules.get(gid, [])
+                            if r.egress == egress and any(intersects(b, x) for sp, b in r.boxes
+                                                          for x in sub.get(rename.get(sp, sp), [])))
+        line = cut(fmt_access(sub, egress, rename))[0]
+        out.append(f"[{'egress' if egress else 'ingress'}] {line}" + (f" ({', '.join(why)})" if why else ""))
+    return out
 
 
 def responsible(acc: Access, gids: list[str], rules: dict[str, list[SgRule]], egress: bool,
@@ -261,6 +287,8 @@ class ResourceRow:
     detail: str = ""
     managed_by: str = ""             # requester of a requester-managed interface
     change_group: str = ""           # resources with identical access changes share a group (G1, G2 ...)
+    net_lost: list[str] = field(default_factory=list)     # once migrated (new attached, old removed),
+    net_gained: list[str] = field(default_factory=list)   # with the rules each line comes from
 
 
 CSV_COLUMNS = list(ResourceRow.__dataclass_fields__)
@@ -275,10 +303,13 @@ def review(n: dict, account: str, region: str, olds: list[str], news: list[str],
     after = [g for g in cur if g not in old_here]
     projected = after + [g for g in new_missing if g not in after]
     rtype, label = resource_of(n)
-    lost, lost_rules, plost, pgained = [], [], [], []
+    lost, lost_rules, plost, pgained, net_lost, net_gained = [], [], [], [], [], []
     for egress in (False, True):
         before_acc = access_of(cur, rules, egress, rename)
         gone = minus(before_acc, access_of(after, rules, egress, rename))
+        final = access_of(projected, rules, egress, rename)
+        net_lost += net_lines(minus(before_acc, final), egress, rename, old_here, rules)
+        net_gained += net_lines(minus(final, before_acc), egress, rename, new_missing, rules)
         lost += [f"[{'egress' if egress else 'ingress'}] {x}" for x in fmt_access(gone, egress, rename)]
         lost_rules += responsible(gone, old_here, rules, egress, rename)
         if new_missing:
@@ -303,7 +334,8 @@ def review(n: dict, account: str, region: str, olds: list[str], news: list[str],
                                                         "nothing: other groups attached already grant its access")
     return ResourceRow(sev, status, rtype, label, n["NetworkInterfaceId"], account, region, vpc, cur, old_here,
                        new_here, new_missing, lost, lost_rules, plost, pgained, detail,
-                       n.get("RequesterId", "?") if n.get("RequesterManaged") else "")
+                       n.get("RequesterId", "?") if n.get("RequesterManaged") else "",
+                       net_lost=net_lost, net_gained=net_gained)
 
 
 def change_groups(rows: list[ResourceRow]) -> list[dict]:
@@ -368,9 +400,81 @@ def cut(lines: list[str]) -> list[str]:
     return out
 
 
+def short_label(r: ResourceRow) -> str:
+    """'lambda orders-sync'; an EFS mount target by its id."""
+    m = re.search(r"\((fsmt-[0-9a-f]+)\)", r.resource) if r.resource_type == "efs" else None
+    return f"{r.resource_type} {m.group(1) if m else r.resource}"
+
+
+def names(rs: list[ResourceRow]) -> str:
+    """Resource labels, cut at MAX_RESOURCES_SHOWN."""
+    out = [short_label(r) for r in rs[:MAX_RESOURCES_SHOWN]]
+    return ", ".join(out + ([f"... {len(rs) - MAX_RESOURCES_SHOWN} more"] if len(rs) > MAX_RESOURCES_SHOWN else []))
+
+
+def net_differences(rows: list[ResourceRow]) -> list[dict]:
+    """Each access lost or gained once migrated, with the resources it applies to."""
+    out = []
+    for change, attr in (("lost", "net_lost"), ("gained", "net_gained")):
+        who: dict[str, list[ResourceRow]] = {}
+        for r in sorted(rows, key=lambda r: (r.resource_type, short_label(r), r.eni_id)):
+            for x in getattr(r, attr):
+                who.setdefault(x, []).append(r)
+        for x, rs in who.items():
+            direction, _, access = x.partition("] ")
+            out.append({"change": change, "direction": direction[1:], "access": access, "count": len(rs),
+                        "resources": [short_label(r) for r in rs], "enis": [r.eni_id for r in rs]})
+    return out
+
+
+def print_concise(payload: dict, rows: list[ResourceRow], refs: list[dict]) -> None:
+    """The differences once migrated (new attached, old removed): each access lost or gained once,
+    with the resources it applies to (changes applying to the same resources together); then
+    the resources left unchanged, those still missing the new group, and unmirrored references."""
+    print()
+    name = {g["group_id"]: g["name"] for g in payload.get("groups", [])}
+    label = lambda gid: f"{name[gid]} ({gid})" if name.get(gid) else gid  # noqa: E731
+    accts = ", ".join(f"{a['account']} ({('profile ' + a['profile']) if a['profile'] else 'default credentials'})"
+                      for a in payload["accounts"])
+    print(f"{', '.join(map(label, payload['old']))} -> {', '.join(map(label, payload['new']))}   account {accts}")
+    for w in payload["warnings"]:
+        print(f"[WARN ] {w}")
+    if not rows:
+        print("\nThe old group is attached to nothing.")
+    rows = sorted(rows, key=lambda r: (r.resource_type, short_label(r), r.eni_id))
+    if any(r.net_lost or r.net_gained for r in rows):
+        print("\nOnce migrated (new group attached, old removed):")
+    together: dict[tuple, list[str]] = {}            # changes applying to the same resources
+    for d in net_differences(rows):
+        together.setdefault((d["change"], tuple(d["enis"])), []).append(f"[{d['direction']}] {d['access']}")
+    for (change, enis), xs in sorted(together.items(), key=lambda kv: (kv[0][0] != "lost", -len(kv[0][1]))):
+        rs = [r for r in rows if r.eni_id in enis]
+        print(f"\n{'-' if change == 'lost' else '+'} {change} by {len(rs)} resource(s): {names(rs)}")
+        for x in xs:
+            print(f"    {x}")
+    same = [r for r in rows if not r.net_lost and not r.net_gained]
+    if same:
+        print(f"\n= {len(same)} resource(s) keep the same access: {names(same)}")
+    attach = [r for r in rows if r.new_missing]
+    if attach:
+        print(f"\n{len(attach)} resource(s) still need the new group attached before the old is removed: {names(attach)}")
+    other = [r for r in rows if r.status == "NEW_IN_OTHER_VPC"]
+    if other:
+        print(f"{len(other)} of them are in another VPC than the new group: {names(other)}")
+    nm = [x for x in refs if x["status"] == "REFERENCE_NOT_MIRRORED"]
+    if nm:
+        print(f"\nRules in other groups referencing the old group with no match for the new ({len(nm)}):")
+        for x in nm:
+            print(f"  {x['group_id']} {x['rule']}" + (f' "{x["description"]}"' if x["description"] else ""))
+    print("\n(--show-changes: status per resource, removal now vs once migrated, and every rule responsible)")
+
+
 def print_report(payload: dict, rows: list[ResourceRow], cgroups: list[dict], refs: list[dict], show: bool) -> None:
-    """Summary per group of resources with identical access changes; the changes and responsible
-    rules only with `show`."""
+    """Concise net changes (print_concise); with `show`, the summary per group of resources with
+    identical access changes, every change and the rules responsible."""
+    if not show:
+        print_concise(payload, rows, refs)
+        return
     print()
     for a in payload["accounts"]:
         print(f"account {a['account']} via {('profile ' + a['profile']) if a['profile'] else 'default credentials'} "
@@ -394,29 +498,37 @@ def print_report(payload: dict, rows: list[ResourceRow], cgroups: list[dict], re
         print(f"  [{g['severity'].upper():<5}] {g['status']:<17} {g['change_group']}: {g['count']} resource(s){extra}")
         for x in g["resources"]:
             print(f"      {x}")
-        if show:
-            print(f"      {g['detail']}")
-            for title, xs in (("lost if old removed", g["lost"]), ("old rules responsible", g["lost_rules"]),
-                              ("if new attached, lost", g["projected_lost"]),
-                              ("if new attached, gained", g["projected_gained"])):
-                for x in (cut(xs) if "rules" not in title else xs):
-                    print(f"      {title}: {x}")
+        print(f"      {g['detail']}")
+        for title, xs in (("lost if old removed", g["lost"]), ("old rules responsible", g["lost_rules"]),
+                          ("if new attached, lost", g["projected_lost"]),
+                          ("if new attached, gained", g["projected_gained"])):
+            for x in (cut(xs) if "rules" not in title else xs):
+                print(f"      {title}: {x}")
     if refs:
         nm = sum(x["status"] == "REFERENCE_NOT_MIRRORED" for x in refs)
         print(f"\n{len(refs)} rule(s) in other groups reference an old group; {nm} without a matching rule for the new")
-        for x in refs if show else [x for x in refs if x["status"] == "REFERENCE_NOT_MIRRORED"]:
+        for x in refs:
             print(f"  [{x['severity'].upper():<5}] {x['status']:<22} {x['group_id']} {x['rule_id']} {x['rule']}")
-    if not show:
-        print("(--show-changes lists the access lost / gained per resource and the rules responsible)")
 
 
 def render_html(payload: dict, rows: list[ResourceRow], cgroups: list[dict], refs: list[dict]) -> str:
     """Interactive HTML: one row per group of resources with identical access changes (filter by
     status, type, VPC ...) and the references."""
+    diffs = net_differences(rows)
     status_badge = {"READY": "ok", "ACCESS_LOST": "error", "NEW_NOT_ATTACHED": "error", "NEW_IN_OTHER_VPC": "error",
                     "OLD_REDUNDANT": "warn", "REFERENCE_NOT_MIRRORED": "warn", "REFERENCE_MIRRORED": "ok"}
     tables = [{
-        "id": "r", "title": "Resources with an old group attached", "row_label": "distinct changes",
+        "id": "d", "title": "Differences once migrated", "row_label": "differences",
+        "note": "Access each resource loses or gains once the new group is attached and the old removed, with the "
+                "rules it comes from (lost: old group rules; gained: new group rules). References to an old group "
+                "count as references to its new group" + ("." if payload["rename"] else " (off).")
+                + (" No resource's access changes." if not diffs else ""),
+        "columns": [["change", "Change"], ["direction", "Direction"], ["access", "Access"], ["count", "Resources"],
+                    ["resources", "Resources"]],
+        "rows": diffs, "filters": ["change", "direction"], "wrap": ["access", "resources"], "lines": ["resources"],
+        "badges": {"change": {"lost": "error", "gained": "warn"}},
+        "order": {"change": ["lost", "gained"]}, "sort": [["change", 1], ["count", -1]]}, {
+        "id": "r", "title": "Resources with an old group attached", "row_label": "distinct changes", "collapsed": True,
         "note": "Resources with identical access changes share a row. Lost = access lost when the old group is "
                 "removed from the groups attached today. Projected = if the missing new group were attached and "
                 "the old removed. References to an old group count as references to its new group"
@@ -448,7 +560,8 @@ def render_html(payload: dict, rows: list[ResourceRow], cgroups: list[dict], ref
     for r in rows:
         counts[r.status] += 1
     cards = [(len(rows), "interfaces"), (len({r.resource for r in rows}), "resources"),
-             (len(cgroups), "distinct changes")] + [(v, k) for k, v in sorted(counts.items())] + \
+             (sum(d["change"] == "lost" for d in diffs), "access lost"),
+             (sum(d["change"] == "gained" for d in diffs), "access gained")] + [(v, k) for k, v in sorted(counts.items())] + \
         ([(sum(x["status"] == "REFERENCE_NOT_MIRRORED" for x in refs), "references not mirrored")] if refs else [])
     meta = ["Accounts: " + "; ".join(f"{a['account']} via {a['profile'] or 'default credentials'}" for a in payload["accounts"]),
             f"Old: {', '.join(payload['old'])} · New: {', '.join(payload['new'])} · generated {payload['generated']} · "
@@ -486,8 +599,9 @@ def main() -> int:
     p.add_argument("--no-equate-references", action="store_true",
                    help="Do not treat references to an old group as references to its new group")
     p.add_argument("--show-changes", action="store_true",
-                   help="Text report: list the access lost / gained per resource and the rules responsible "
-                        "(the HTML / CSV / JSON reports always include them)")
+                   help="Text report: the full detail (status per resource, access lost if the old is removed "
+                        "now and once migrated, every rule responsible) instead of only the differences once "
+                        "migrated (the HTML / CSV / JSON reports always include it)")
     add_profile_args(p)
     add_output_args(p)
     args = p.parse_args()

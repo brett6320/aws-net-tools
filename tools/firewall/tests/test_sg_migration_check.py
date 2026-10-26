@@ -185,6 +185,71 @@ def test_cut():
         "tcp 1 from " + ", ".join(f"10.0.0.{i}/32" for i in range(8)) + ", ... 2 more", "tcp 2 to a"]
 
 
+def test_review_net_change_once_migrated():
+    old = [rule("sg-old", "10.0.0.0/8", desc="app"), rule("sg-old", "10.9.0.0/16", 22, 22)]
+    rules = rules_with(old, [rule("sg-new", "10.0.0.0/8"), rule("sg-new", "10.20.0.0/16", 8443, 8443, desc="health")])
+    attached = smc.review(eni(["sg-old", "sg-new"]), "1", "r", ["sg-old"], ["sg-new"], GROUPS, rules, {})
+    missing = smc.review(eni(["sg-old"], id="eni-2"), "1", "r", ["sg-old"], ["sg-new"], GROUPS, rules, {})
+    # lost: old rule ids stand in for missing descriptions; gained: only the new group's rules
+    assert attached.net_lost == missing.net_lost == [f"[ingress] tcp 22 from 10.9.0.0/16 ({old[1].rule_id})"]
+    assert attached.net_gained == []
+    assert missing.net_gained == ["[ingress] tcp 8443 from 10.20.0.0/16 (health)"]
+
+
+def sample_rows():
+    rules = rules_with([rule("sg-old", "10.0.0.0/8", desc="app"), rule("sg-old", "10.9.0.0/16", 22, 22, desc="ssh")],
+                       [rule("sg-new", "10.0.0.0/8"), rule("sg-new", "10.20.0.0/16", 8443, 8443, desc="health")])
+    enis = [eni(["sg-old", "sg-new"], id="eni-1", Attachment={"InstanceId": "i-1"}),
+            eni(["sg-old"], id="eni-2", Attachment={"InstanceId": "i-2"}),
+            eni(["sg-old", "sg-new"], id="eni-3", InterfaceType="interface", RequesterManaged=True,
+                Description="EFS mount target for fs-1 (fsmt-0abc)")]
+    rules["sg-old"].append(rule("sg-old", "10.30.0.0/16", 6379, 6379))
+    rules["sg-new"].append(rule("sg-new", "10.30.0.0/16", 6379, 6379))
+    return [smc.review(n, "1", "r", ["sg-old"], ["sg-new"], GROUPS, rules, {}) for n in enis]
+
+
+def test_net_differences():
+    diffs = smc.net_differences(sample_rows())
+    assert [(d["change"], d["access"], d["resources"]) for d in diffs] == [
+        ("lost", "tcp 22 from 10.9.0.0/16 (ssh)", ["ec2-instance i-1", "ec2-instance i-2", "efs fsmt-0abc"]),
+        ("gained", "tcp 8443 from 10.20.0.0/16 (health)", ["ec2-instance i-2"])]
+
+
+def test_print_concise(capsys):
+    rows = sample_rows()
+    refs = [{"severity": "warn", "status": "REFERENCE_NOT_MIRRORED", "group_id": "sg-x", "rule_id": "sgr-x",
+             "rule": "tcp 5432 from sg-old", "description": "db"},
+            {"severity": "info", "status": "REFERENCE_MIRRORED", "group_id": "sg-y", "rule_id": "sgr-y",
+             "rule": "tcp 80 from sg-old", "description": ""}]
+    payload = {"accounts": [{"account": "1", "profile": "p", "profile_source": "--profile"}], "old": ["sg-old"],
+               "new": ["sg-new"], "warnings": [], "rename": {}, "groups": [{"group_id": "sg-old", "name": "legacy"}]}
+    smc.print_report(payload, rows, smc.change_groups(rows), refs, False)
+    out = capsys.readouterr().out
+    assert "legacy (sg-old) -> sg-new   account 1 (profile p)" in out
+    assert ("- lost by 3 resource(s): ec2-instance i-1, ec2-instance i-2, efs fsmt-0abc\n"
+            "    [ingress] tcp 22 from 10.9.0.0/16 (ssh)") in out
+    assert "+ gained by 1 resource(s): ec2-instance i-2\n    [ingress] tcp 8443 from 10.20.0.0/16 (health)" in out
+    assert "1 resource(s) still need the new group attached before the old is removed: ec2-instance i-2" in out
+    assert 'sg-x tcp 5432 from sg-old "db"' in out and "sg-y" not in out
+    assert "keep the same access" not in out and "NEW_NOT_ATTACHED" not in out and "6379" not in out
+    smc.print_report(payload, [], [], [], False)
+    assert "attached to nothing" in capsys.readouterr().out
+    smc.print_report(payload, rows, smc.change_groups(rows), refs, True)
+    out = capsys.readouterr().out
+    assert "NEW_NOT_ATTACHED" in out and "old rules responsible" in out and "REFERENCE_MIRRORED" in out
+
+
+def test_render_html_leads_with_differences():
+    rows = sample_rows()
+    payload = {"accounts": [], "old": ["sg-old"], "new": ["sg-new"], "rename": {}, "warnings": [], "generated": "x"}
+    html = smc.render_html(payload, rows, smc.change_groups(rows), [])
+    data = json.loads(html.split('<script id="data" type="application/json">')[1].split("</script>")[0]
+                      .replace("\\u003c", "<"))
+    tables = data["tables"]
+    assert [t["id"] for t in tables] == ["d", "r"] and tables[1]["collapsed"] is True and "collapsed" not in tables[0]
+    assert [(d["change"], d["count"]) for d in tables[0]["rows"]] == [("lost", 3), ("gained", 1)]
+
+
 # --------------------------------------------------------------------------- #
 # moto end to end
 # --------------------------------------------------------------------------- #
