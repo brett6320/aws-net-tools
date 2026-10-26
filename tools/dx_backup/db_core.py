@@ -9,7 +9,7 @@ customer router (ListVirtualInterfaceRoutes). The result is a *snapshot*:
 
     {"manifest": {...}, "objects": {"<kind>/<id>": record, ...}}
 
-Secrets are never stored. A BGP MD5 auth key is replaced by a salted SHA-256
+Secrets are never stored. A BGP MD5 auth key is replaced by a salted scrypt
 fingerprint, so a diff can still say the key changed, and the sample router
 configuration (customerRouterConfig, which embeds the key) is dropped.
 
@@ -40,9 +40,11 @@ WORKERS = 8
 KINDS = ("connection", "lag", "vif", "dx-gateway", "routes")
 DIRS = {"connection": "connections", "lag": "lags", "vif": "vifs", "dx-gateway": "dx-gateways", "routes": "routes"}
 ADVERTISED, ACCEPTED = "advertised", "accepted"
-REDACTIONS = ["authKey: replaced by a salted SHA-256 fingerprint",
+REDACTIONS = ["authKey: replaced by a salted scrypt fingerprint",
               "customerRouterConfig: removed (the sample router config embeds the auth key)"]
 STAMP = "%Y%m%dT%H%M%SZ"
+FINGERPRINT_PREFIX = "scrypt:"
+SCRYPT_N = 2 ** 15
 
 
 class ValidationError(ValueError):
@@ -104,13 +106,16 @@ def tag_name(item: dict) -> str | None:
 # ---------- secrets ----------
 
 def fingerprint(salt: str, secret: str) -> str:
-    """Salted with the object ID so equal keys on different VIFs don't share a fingerprint
-    and a precomputed table can't be used; stable across backups of the same VIF."""
-    return "sha256:" + hashlib.sha256(f"{salt}\0{secret}".encode()).hexdigest()
+    """scrypt (a deliberately slow, memory-hard KDF) so a stolen backup doesn't make short
+    keys cheap to brute-force. Salted with the object ID so equal keys on different VIFs
+    don't share a fingerprint; stable across backups of the same VIF."""
+    digest = hashlib.scrypt(secret.encode(), salt=f"dx_backup:{salt}".encode(), n=SCRYPT_N, r=8, p=1, dklen=32,
+                            maxmem=256 * SCRYPT_N * 8 + 2 ** 20)
+    return FINGERPRINT_PREFIX + digest.hex()
 
 
 def is_fingerprint(value: Any) -> bool:
-    return isinstance(value, str) and value.startswith("sha256:")
+    return isinstance(value, str) and value.startswith(FINGERPRINT_PREFIX)
 
 
 def redact_vif(item: dict) -> dict:

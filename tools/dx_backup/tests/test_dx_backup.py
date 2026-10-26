@@ -26,6 +26,12 @@ VIF_PRIV, VIF_TRANSIT, VIF_PUB = "dxvif-exnyc001", "dxvif-exnyc002", "dxvif-expu
 SECRET = "s3cr3t-md5-key"
 
 
+@pytest.fixture(autouse=True)
+def fast_scrypt(monkeypatch):
+    """The real cost factor takes ~0.1 s per key; the tests hash hundreds."""
+    monkeypatch.setattr(core, "SCRYPT_N", 2 ** 4)
+
+
 def denied(op):
     return ClientError({"Error": {"Code": "AccessDeniedException", "Message": "no"}}, op)
 
@@ -177,9 +183,14 @@ def snapshot(fake, data=None, generated=None, **kw):
 
 # ---------- secrets ----------
 
+def test_fingerprint_real_cost_factor(monkeypatch):
+    monkeypatch.setattr(core, "SCRYPT_N", 2 ** 15)
+    assert len(core.fingerprint(VIF_PRIV, SECRET)) == len("scrypt:") + 64
+
+
 def test_fingerprint_is_salted_and_stable():
     a = core.fingerprint(VIF_PRIV, SECRET)
-    assert a == core.fingerprint(VIF_PRIV, SECRET) and a.startswith("sha256:")
+    assert a == core.fingerprint(VIF_PRIV, SECRET) and a.startswith("scrypt:")
     assert a != core.fingerprint(VIF_TRANSIT, SECRET)
     assert core.is_fingerprint(a) and not core.is_fingerprint(SECRET) and not core.is_fingerprint(None)
 

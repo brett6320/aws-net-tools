@@ -151,7 +151,7 @@ def show(value: Any) -> str:
     if value is None:
         return "(none)"
     if core.is_fingerprint(value):
-        return "auth key " + value[7:19] + "…"
+        return "auth key " + value.split(":", 1)[1][:12] + "…"
     if isinstance(value, dict) and "cidr" in value and "as_path" in value:     # a route
         comm = value.get("communities") or []
         return f"AS path {value['as_path']}" + (f", communities {' '.join(comm)}" if comm else "")

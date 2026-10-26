@@ -55,7 +55,7 @@ New: backups/111122223333/20261026T060000Z (account 111122223333, us-east-1, 202
     ~ minimumLinks: 1 -> 2
 
 ~ VIF dxvif-exnyc001 (nyc-primary), us-east-1
-    - bgpPeers[ipv6 2001:db8:10::1/125]: {asn: 65010, authKey: auth key 45f48a2bfd3f…, addressFamily: ipv6, ...}
+    - bgpPeers[ipv6 2001:db8:10::1/125]: {asn: 65010, authKey: auth key b790826efc51…, addressFamily: ipv6, ...}
     ~ mtu: 9001 -> 1500
     ~ tags[env]: prod -> dev
 
@@ -132,16 +132,17 @@ The plan starts with `set -euo pipefail` and stops unless `I_REVIEWED_THIS_PLAN`
 `DescribeVirtualInterfaces` returns each VIF's BGP MD5 key, and its sample router configuration
 (`customerRouterConfig`) embeds it too. A backup never stores either one:
 
-- Each key is replaced by `sha256:` plus a SHA-256 of the VIF ID and the key. The fingerprint is the same in
-  every backup of that VIF, so a diff can still say "auth key changed". Salting with the VIF ID means equal
-  keys on different VIFs don't share a fingerprint, and a precomputed table won't work.
+- Each key is replaced by `scrypt:` plus an scrypt hash of the key, salted with the VIF ID. scrypt is
+  deliberately slow and memory-hard, so guessing keys from a copied backup is expensive. The fingerprint is
+  the same in every backup of that VIF, so a diff can still say "auth key changed". Equal keys on different
+  VIFs don't share a fingerprint, and a precomputed table won't work.
 - `customerRouterConfig` is dropped.
 - The diff and the HTML report show a key only as "auth key", "auth key set" or "auth key (changed)".
 - The restore plan asks for each key it needs as an environment variable (`BGP_AUTH_KEY_<VIF>_<FAMILY>`) and
   stops if one isn't set.
 
-A short or guessable key can still be brute-forced against its fingerprint, so keep backups where you would
-keep other network configuration.
+A short or guessable key can still be guessed against its fingerprint, only slowly, so keep backups where
+you would keep other network configuration.
 
 ## Backup layout
 

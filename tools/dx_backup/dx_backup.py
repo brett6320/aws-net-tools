@@ -15,7 +15,7 @@ restore-plan  writes the AWS CLI commands that would bring the current configura
               back to a backup. It never runs them.
 
 A backup can be named by its directory, or as "latest" / "previous". BGP auth keys are
-stored only as salted SHA-256 fingerprints. Read-only against AWS.
+stored only as salted scrypt fingerprints. Read-only against AWS.
 Logs go to stderr; results go to stdout.
 """
 from __future__ import annotations
