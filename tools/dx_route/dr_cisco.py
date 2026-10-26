@@ -283,7 +283,7 @@ def neighbor_routes(bundle: dict, key: str, which: str, neighbor: str | None, fa
                   *[f"  {d}" for d in vif_details(v)],
                   f"BGP table version is 1, local router ID is {key.split(':', 1)[-1]}", STATUS_LEGEND, TABLE_HEAD]
         nh = core.addr(peer.get("customer_address") if direction == core.ACCEPTED else peer.get("amazon_address"))
-        for r in sorted(routes, key=lambda r: (core.net(r["cidr"]).network_address, core.net(r["cidr"]).prefixlen)):
+        for r in sorted(routes, key=lambda r: (-core.net(r["cidr"]).prefixlen, core.net(r["cidr"]).network_address)):
             lines += _row("*", r["cidr"], nh, None, core.as_path_text(r["as_path"]))
         if direction == core.ADVERTISED and core.ADVERTISED not in (bundle.get("directions") or []):
             lines.append("% Advertised routes were not collected for this bundle")

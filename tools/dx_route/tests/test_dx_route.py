@@ -190,8 +190,8 @@ def test_matching_helpers(bundle):
     assert core.covering(table, q) == ["10.20.30.0/24", "10.20.0.0/16", "10.0.0.0/8", "0.0.0.0/0"]
     assert core.longest_match(table, q) == "10.20.30.0/24"
     assert core.longest_match(table, ipaddress.ip_network("192.168.50.9/32")) == "0.0.0.0/0"
-    assert core.longer_prefixes(table, ipaddress.ip_network("10.0.0.0/8")) == ["10.0.0.0/8", "10.20.0.0/16",
-                                                                               "10.20.30.0/24"]
+    assert core.longer_prefixes(table, ipaddress.ip_network("10.0.0.0/8")) == ["10.20.30.0/24", "10.20.0.0/16",
+                                                                               "10.0.0.0/8"]
     assert core.longest_match(table, ipaddress.ip_network("2001:db8:100::/48")) == "2001:db8:100::/40"
 
 
@@ -220,6 +220,12 @@ def test_parse_command(text, expect):
 def test_parse_command_prefix_values():
     assert str(cmd("show ip bgp 10.0.0.0 255.0.0.0 longer-prefixes")["prefix"]) == "10.0.0.0/8"
     assert str(cmd("show ip route 10.20.30.7")["prefix"]) == "10.20.30.7/32"
+
+
+def test_sort_prefixes_most_specific_first():
+    assert core.sort_prefixes(["10.0.0.0/8", "0.0.0.0/0", "10.20.0.0/16", "10.9.0.0/16", "2001:db8::/32",
+                               "10.20.30.0/24"]) == ["10.20.30.0/24", "10.9.0.0/16", "10.20.0.0/16", "10.0.0.0/8",
+                                                     "0.0.0.0/0", "2001:db8::/32"]
 
 
 @pytest.mark.parametrize("text", ["show ip", "show interfaces", "show ip bgp neighbors 1.1.1.1",
@@ -674,7 +680,7 @@ def test_cli_json_and_report_path(bundle, tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert dx_route.main(["--from-json", str(f), "--json", "show", "ip", "bgp", "10.20.30.7"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert list(data["tables"][DXGW]) == ["0.0.0.0/0", "10.0.0.0/8", "10.20.0.0/16", "10.20.30.0/24"]
+    assert list(data["tables"][DXGW]) == ["10.20.30.0/24", "10.20.0.0/16", "10.0.0.0/8", "0.0.0.0/0"]
     assert data["tables"][DXGW]["10.20.30.0/24"]["best"]["vif"] == NYC2
     report = tmp_path / "reports" / "2026-10-25" / "us-east-1" / "dx-route_show-ip-bgp-10.20.30.7.html"
     assert report.exists()

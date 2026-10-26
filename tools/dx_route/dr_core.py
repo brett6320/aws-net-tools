@@ -574,7 +574,8 @@ def select(bundle: dict, direction: str = ACCEPTED) -> dict:
 
 
 def sort_prefixes(prefixes: Iterable[str]) -> list[str]:
-    return sorted(prefixes, key=lambda c: (net(c).version, net(c).network_address, net(c).prefixlen))
+    """Most specific first: longest prefix length, then network address."""
+    return sorted(prefixes, key=lambda c: (net(c).version, -net(c).prefixlen, net(c).network_address))
 
 
 def covering(table: dict[str, dict], query: Network) -> list[str]:
