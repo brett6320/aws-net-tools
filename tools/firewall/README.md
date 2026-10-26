@@ -142,6 +142,7 @@ assets, light/dark aware), safe to attach or email. Most are interactive:
 - unique counts (accounts, regions, policies, VPCs, NACLs ...) for the current filter, plus a summary table
 - multi-column sort (shift-click a header) and "Download filtered CSV"
 - info-level rows hidden until ticked
+- secondary tables can start collapsed under their heading (click to open)
 - the current view kept in the URL fragment, so it can be bookmarked
 
 The `sg_access_gap` report is a static page laid out per direction. The
