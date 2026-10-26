@@ -45,6 +45,23 @@ def test_access_of_unions_and_renames():
     assert smc.fmt_access(smc.access_of(["sg-a"], rules, True, {}), True) == ["tcp 443 to 0.0.0.0/0"]
 
 
+def test_fmt_access_summarizes_broad_ranges():
+    acc = smc.minus(smc.access_of(["a"], {"a": [rule("a", "10.0.0.0/8"), rule("a", "192.168.0.0/16")]}, False, {}),
+                    smc.access_of(["b"], {"b": [rule("b", "10.1.2.0/24"), rule("b", "10.0.0.0/30"),
+                                                rule("b", "192.168.4.0/24")]}, False, {}))
+    # the /8 is named, not enumerated (its piece below 10.1.2.0 is not listed again); a /16 is enumerated
+    assert smc.fmt_access(acc, False) == [
+        "tcp 443 from part of 10.0.0.0/8, 192.168.0.0/22, 192.168.5.0/24, 192.168.6.0/23, 192.168.8.0/21, "
+        "192.168.16.0/20, 192.168.32.0/19, 192.168.64.0/18, 192.168.128.0/17"]
+    # a single broad CIDR, or two ranges each a CIDR, are shown as they are
+    assert smc.fmt_ranges("ipv4", [(167772160, 176160767)]) == ["10.0.0.0/9"]
+    assert smc.fmt_ranges("ipv4", [(167772160, 167772415), (184549120, 184549375)]) == ["10.0.0.0/24", "10.255.255.0/24"]
+    # IPv6 is summarized above a /48
+    v6 = smc.fmt_ranges("ipv6", [(0x20010db8 << 96, (0x20010db8 << 96) + (1 << 80) * 3 - 1)])
+    assert v6 == ["part of 2001:db8::/46"]
+    assert smc.fmt_ranges("sg:sg-1", [(0, 0)]) == ["sg-1"]
+
+
 def test_minus():
     a = smc.access_of(["g"], {"g": [rule("g", "10.0.0.0/8", 80, 90), rule("g", "sg-x")]}, False, {})
     b = smc.access_of(["g"], {"g": [rule("g", "10.0.0.0/9", 80, 90)]}, False, {})

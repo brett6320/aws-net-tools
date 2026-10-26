@@ -24,6 +24,9 @@ What it does:
          attached today, and the old rules responsible
        * when a new group is not attached yet, the projected change if it
          were attached and the old removed: access lost and access gained
+     A changed range wider than a /16 (IPv6: /48) that is not a single CIDR,
+     e.g. 10.0.0.0/8 less a few blocks other groups still allow, reads
+     "part of 10.0.0.0/8" instead of listing every remaining piece.
      Status per resource:
        * READY             new attached, removing old loses nothing
        * ACCESS_LOST       new attached, but removing old loses access
@@ -85,7 +88,7 @@ from botocore.exceptions import BotoCoreError, ClientError  # noqa: E402
 from lib import html_report  # noqa: E402
 from lib.accounts import add_profile_args, check_profile_args  # noqa: E402
 from lib.aws_common import _g, err_text, get_client  # noqa: E402
-from lib.boxes import Box, fmt_addrs, fmt_proto_ports, intersects, merge, remainder  # noqa: E402
+from lib.boxes import Box, Interval, fmt_addrs, fmt_proto_ports, intersects, merge, remainder  # noqa: E402
 from lib.output import (SEVERITY_BADGES, SEVERITY_ORDER, add_output_args, print_saved, report_paths,  # noqa: E402
                         setup_logging, write_csv, write_json, write_text)
 from lib.security_groups import (SG, SgRule, load_groups, parse_account_targets,  # noqa: E402
@@ -94,6 +97,7 @@ from lib.security_groups import (SG, SgRule, load_groups, parse_account_targets,
 log = logging.getLogger("sg_migration_check")
 TOOL = "sg_migration_check"
 MAX_CIDRS_SHOWN = 8
+BROAD_PREFIX = {4: 16, 6: 48}      # ranges wider than this are named by their block, not enumerated
 Access = dict[str, list[Box]]          # address space -> disjoint boxes
 
 
@@ -124,17 +128,48 @@ def minus(a: Access, b: Access) -> Access:
     return out
 
 
+def fmt_ranges(space: str, ivs: list[Interval]) -> list[str]:
+    """Address ranges as CIDRs, except that a range spanning more than a /16 (IPv6: /48) that is
+    not a single CIDR is named by the smallest block holding it, 'part of 10.0.0.0/8', instead of
+    enumerating its pieces; ranges inside such a block are not listed again."""
+    if space not in ("ipv4", "ipv6"):
+        return fmt_addrs(space, ivs[0])
+    bits, broad = (32, BROAD_PREFIX[4]) if space == "ipv4" else (128, BROAD_PREFIX[6])
+    joined: list[list[int]] = []
+    for lo, hi in sorted(ivs):
+        if joined and lo <= joined[-1][1] + 1:
+            joined[-1][1] = max(joined[-1][1], hi)
+        else:
+            joined.append([lo, hi])
+    blocks, exact = [], []
+    for lo, hi in joined:
+        cidrs = fmt_addrs(space, (lo, hi))
+        plen = bits - (lo ^ hi).bit_length()           # smallest block holding the range
+        if len(cidrs) > 1 and plen < broad:
+            first = lo >> (bits - plen) << (bits - plen)
+            blocks.append((first, first + (1 << (bits - plen)) - 1))
+        else:
+            exact.append(((lo, hi), cidrs))
+    blocks = [b for b in blocks if not any(o != b and o[0] <= b[0] and b[1] <= o[1] for o in blocks)]
+    out = [(b, [f"part of {fmt_addrs(space, b)[0]}"]) for b in dict.fromkeys(blocks)]
+    out += [(iv, c) for iv, c in exact if not any(b[0] <= iv[0] and iv[1] <= b[1] for b in blocks)]
+    return [a for _, c in sorted(out) for a in c]
+
+
 def fmt_access(acc: Access, egress: bool, rename: dict[str, str] | None = None) -> list[str]:
-    """'tcp 443 from 10.0.0.0/8, ...' lines, one per protocol / ports. A reference that stands
-    for an old group and its new group reads 'sg-new / sg-old'."""
+    """'tcp 443 from 10.0.0.0/8, ...' lines, one per protocol / ports (broad ranges summarized,
+    fmt_ranges). A reference that stands for an old group and its new group reads 'sg-new / sg-old'."""
     prep = "to" if egress else "from"
     was = defaultdict(list)
     for old, new in (rename or {}).items():
         was[new].append(old[3:])
-    by_pp = defaultdict(list)
+    ranges = defaultdict(lambda: defaultdict(list))
     for sp, boxes in sorted(acc.items()):
         for pr, ports, addr in boxes:
-            by_pp[(pr, ports)].extend(f"{a} / {' / '.join(was[sp])}" if sp in was else a for a in fmt_addrs(sp, addr))
+            ranges[(pr, ports)][sp].append(addr)
+    by_pp = {pp: [f"{a} / {' / '.join(was[sp])}" if sp in was else a
+                  for sp, ivs in by_sp.items() for a in fmt_ranges(sp, ivs)]
+             for pp, by_sp in ranges.items()}
     return [f"{fmt_proto_ports(pr, ports)} {prep} {', '.join(a)}" for (pr, ports), a in sorted(by_pp.items())]
 
 
