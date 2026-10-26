@@ -57,6 +57,8 @@ Groups are ids or ARNs. Accounts and profiles work as in
    - **Lost if old removed**: access the resource loses when the old group is removed from the groups attached today, with the old group's rules responsible;
    - **If new attached**: when a new group is not attached yet, the projected change if it were attached and the old group removed, as access lost and access gained.
 
+   Broad changes are summarized. A changed range wider than a /16 (IPv6: /48) that isn't a single CIDR is named by the smallest block that holds it. For example, removing `10.0.0.0/8` when other groups still allow `10.1.2.0/24` reads `tcp 443 from part of 10.0.0.0/8`, not a list of every remaining piece. A range that is exactly one CIDR is shown as it is, however large. Smaller ranges are listed in full.
+
 3. **References.** Rules in other groups, in the same account and region, that reference the old group (for example `tcp 5432 from sg-old`). A rule is mirrored when the same group has the same rule (direction, protocol, ports) referencing the new group. If it is not, resources moved to the new group lose that access.
 
 **Equated references.** References to an old group are treated as references to its new group:
