@@ -30,7 +30,7 @@
       "owner": "111122223333",
       "region": "us-east-1",
       "location": "EqDC2",
-      "connection": "dxcon-nyc001",
+      "connection": "dxcon-ex000001",
       "vlan": 100,
       "asn": 65010,
       "amazon_asn": 64512,
@@ -55,7 +55,21 @@
           "status": "up",
           "device": "EqDC2-2k3hw7z1f9q4z"
         }
-      ]
+      ],
+      "location_name": "Equinix DC2/DC11, Ashburn, VA",
+      "connection_detail": {
+        "id": "dxcon-ex000001",
+        "name": "nyc-xc-a",
+        "type": "dedicated",
+        "bandwidth": "10Gbps",
+        "state": "available",
+        "partner": null,
+        "provider": null,
+        "lag": null,
+        "owner": "111122223333",
+        "location": "EqDC2",
+        "visible": true
+      }
     },
     {
       "id": "dxvif-exnyc002",
@@ -65,7 +79,7 @@
       "owner": "111122223333",
       "region": "us-east-1",
       "location": "CSVA1",
-      "connection": "dxcon-nyc002",
+      "connection": "dxlag-ex000002",
       "vlan": 100,
       "asn": 65010,
       "amazon_asn": 64512,
@@ -90,7 +104,21 @@
           "status": "up",
           "device": "CSVA1-1a2b3c4d5e6f"
         }
-      ]
+      ],
+      "location_name": "CoreSite VA1, Reston, VA",
+      "connection_detail": {
+        "id": "dxlag-ex000002",
+        "name": "nyc-lag-b",
+        "type": "LAG",
+        "bandwidth": "2 x 10Gbps",
+        "state": "available",
+        "partner": null,
+        "provider": null,
+        "lag": "dxlag-ex000002",
+        "owner": "111122223333",
+        "location": "CSVA1",
+        "visible": true
+      }
     },
     {
       "id": "dxvif-exchi001",
@@ -100,7 +128,7 @@
       "owner": "111122223333",
       "region": "us-east-2",
       "location": "EqCH2",
-      "connection": "dxcon-chi001",
+      "connection": "dxcon-ex000003",
       "vlan": 100,
       "asn": 65020,
       "amazon_asn": 64512,
@@ -116,7 +144,21 @@
           "status": "up",
           "device": "EqCH2-9z8y7x6w5v"
         }
-      ]
+      ],
+      "location_name": "Equinix CH2, Chicago, IL",
+      "connection_detail": {
+        "id": "dxcon-ex000003",
+        "name": "chi-hosted",
+        "type": "hosted",
+        "bandwidth": "1Gbps",
+        "state": "available",
+        "partner": "ExampleNet",
+        "provider": "ExampleNet",
+        "lag": null,
+        "owner": "111122223333",
+        "location": "EqCH2",
+        "visible": true
+      }
     },
     {
       "id": "dxvif-exlax001",
@@ -126,7 +168,7 @@
       "owner": "111122223333",
       "region": "us-west-1",
       "location": "EqLA3",
-      "connection": "dxcon-lax001",
+      "connection": "dxcon-ex000004",
       "vlan": 100,
       "asn": 65030,
       "amazon_asn": 64512,
@@ -142,7 +184,13 @@
           "status": "down",
           "device": "EqLA3-4f5g6h7j8k"
         }
-      ]
+      ],
+      "location_name": "Equinix LA3, El Segundo, CA",
+      "connection_detail": {
+        "id": "dxcon-ex000004",
+        "visible": false,
+        "note": "owned by another account (hosted VIF)"
+      }
     },
     {
       "id": "dxvif-exlgc001",
@@ -152,7 +200,7 @@
       "owner": "111122223333",
       "region": "us-east-1",
       "location": "EqDC2",
-      "connection": "dxcon-lgc001",
+      "connection": "dxcon-ex000005",
       "vlan": 100,
       "asn": 65040,
       "amazon_asn": 64600,
@@ -168,7 +216,21 @@
           "status": "up",
           "device": "EqDC2-2k3hw7z1f9q4z"
         }
-      ]
+      ],
+      "location_name": "Equinix DC2/DC11, Ashburn, VA",
+      "connection_detail": {
+        "id": "dxcon-ex000005",
+        "name": "legacy-xc",
+        "type": "dedicated",
+        "bandwidth": "1Gbps",
+        "state": "available",
+        "partner": null,
+        "provider": null,
+        "lag": null,
+        "owner": "111122223333",
+        "location": "EqDC2",
+        "visible": true
+      }
     }
   ],
   "routes": [

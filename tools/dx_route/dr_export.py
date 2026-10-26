@@ -45,8 +45,11 @@ def _state(p: dict) -> str:
 
 
 def _vif_cell(p: dict) -> str:
-    bits = [b for b in (p.get("vif_name"), p.get("location"), p.get("region")) if b]
-    return f"{_code(p['vif'])}<div class='td muted'>{_e(' · '.join(bits))}</div>"
+    v = {"location": p.get("location"), "location_name": p.get("location_name")}
+    bits = [b for b in (p.get("vif_name"), core.location_text(v), p.get("region")) if b]
+    conn = core.connection_text(p.get("connection"))
+    return (f"{_code(p['vif'])}<div class='td muted'>{_e(' · '.join(bits))}</div>"
+            + (f"<div class='td muted'>{_e(conn)}</div>" if conn else ""))
 
 
 def selection_card(bundle: dict, tables: dict, key: str, query) -> str:
@@ -102,12 +105,25 @@ def vifs_card(bundle: dict) -> str:
     for v in bundle.get("vifs") or []:
         peers = "<br>".join(_e(f"{p.get('family')}: {core.addr(p.get('customer_address')) or '?'} AS {p.get('asn') or '?'}"
                                f" · {p.get('status') or p.get('state') or '?'}") for p in v.get("peers") or [])
-        rows.append([_code(v["id"]), _e(v.get("name")), _e(v.get("type")), _e(v.get("state")),
-                     _e(v.get("location")), _e(v.get("region")), _code(core.gateway_key(v).split(":", 1)[-1]),
+        c = v.get("connection_detail") or {}
+        if c and not c.get("visible", True):
+            conn, bw, ctype = _code(c["id"]) + f"<div class='td muted'>{_e(c.get('note'))}</div>", "—", "—"
+        elif c:
+            conn = _code(c["id"]) + (f"<div class='td muted'>{_e(c['name'])}</div>" if c.get("name") else "")
+            bw = _e(c.get("bandwidth") or "—")
+            ctype = _e(f"hosted by {c['partner']}" if c.get("type") == "hosted" and c.get("partner") else c.get("type"))
+            if c.get("type") == "dedicated" and c.get("lag"):
+                ctype += f"<div class='td muted'>member of {_e(c['lag'])}</div>"
+        else:
+            conn = bw = ctype = '<span class="nm">—</span>'
+        loc = (f"{_e(v['location_name'])}<div class='td muted'>{_e(v.get('location'))}</div>"
+               if v.get("location_name") else _e(v.get("location")))
+        rows.append([_code(v["id"]), _e(v.get("name")), _e(v.get("type")), _e(v.get("state")), loc,
+                     _e(v.get("region")), conn, bw, ctype, _code(core.gateway_key(v).split(":", 1)[-1]),
                      _e(v.get("owner")), peers or '<span class="nm">—</span>'])
     return ('<div class="card"><h3>Virtual interfaces</h3>'
-            + _table(["VIF", "Name", "Type", "State", "Location", "Region", "Table", "Owner", "BGP peers"], rows,
-                     "No VIFs in scope") + "</div>")
+            + _table(["VIF", "Name", "Type", "State", "Location", "Region", "Connection", "Bandwidth",
+                      "Connection type", "Table", "Owner", "BGP peers"], rows, "No VIFs in scope") + "</div>")
 
 
 NOTES = """<ul class="plain">

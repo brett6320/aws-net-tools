@@ -326,6 +326,60 @@ def _discover_vifs(sessions: Sessions, *, regions: list[str], dx_gateway: str | 
     return list(vifs.values()), gateways
 
 
+def connection_record(c: dict) -> dict:
+    """A DescribeConnections item: dedicated, hosted (from a partner) or a LAG member."""
+    kind = "hosted" if c.get("partnerName") else "dedicated"
+    return {"id": c.get("connectionId"), "name": c.get("connectionName"), "type": kind,
+            "bandwidth": c.get("bandwidth"), "state": c.get("connectionState"), "partner": c.get("partnerName"),
+            "provider": c.get("providerName"), "lag": c.get("lagId"), "owner": c.get("ownerAccount"),
+            "location": c.get("location"), "visible": True}
+
+
+def lag_record(lag: dict) -> dict:
+    """A DescribeLags item. Bandwidth is the member count times the member bandwidth."""
+    n, each = lag.get("numberOfConnections"), lag.get("connectionsBandwidth")
+    return {"id": lag.get("lagId"), "name": lag.get("lagName"), "type": "LAG",
+            "bandwidth": f"{n} x {each}" if n and each else each, "state": lag.get("lagState"), "partner": None,
+            "provider": lag.get("providerName"), "lag": lag.get("lagId"), "owner": lag.get("ownerAccount"),
+            "location": lag.get("location"), "visible": True}
+
+
+def _collect_connections(sessions: Sessions, vifs: list[dict], warnings: list[str]) -> None:
+    """Add the full location name and the connection (or LAG) details to each VIF record.
+    A hosted VIF's connection belongs to the partner's account, so it isn't visible."""
+    location_names: dict[str, dict[str, str]] = {}
+    for region in sorted({v.get("region") for v in vifs if v.get("region") and not v.get("unreadable")}):
+        try:
+            dx = get_client("directconnect", sessions.base, region)
+            location_names[region] = {loc["locationCode"]: loc.get("locationName")
+                                      for loc in dx.describe_locations().get("locations") or []}
+        except ClientError as e:
+            warnings.append(f"DescribeLocations failed in {region}: {_code(e)}; showing location codes only")
+
+    def fetch(v):
+        cid = v.get("connection")
+        if not cid:
+            return None
+        try:
+            dx = get_client("directconnect", sessions.for_account(v.get("owner")), v.get("region"))
+            if cid.startswith("dxlag-"):
+                items = dx.describe_lags(lagId=cid).get("lags") or []
+                return lag_record(items[0]) if items else None
+            items = dx.describe_connections(connectionId=cid).get("connections") or []
+            return connection_record(items[0]) if items else None
+        except ClientError as e:
+            if _code(e) not in ("DirectConnectClientException",):
+                warnings.append(f"{cid}: describing the connection failed: {_code(e)}")
+            return None
+
+    readable = [v for v in vifs if not v.get("unreadable")]
+    for v, conn in zip(readable, _parallel(fetch, readable)):
+        names = location_names.get(v.get("region")) or {}
+        v["location_name"] = names.get(v.get("location"))
+        v["connection_detail"] = conn or ({"id": v["connection"], "visible": False,
+                                           "note": "owned by another account (hosted VIF)"} if v.get("connection") else None)
+
+
 def collect(sessions: Sessions, query: Network | None, *, regions: list[str], from_region: str,
             dx_gateway: str | None = None, vif_ids: list[str] | None = None,
             directions: tuple[str, ...] = (ACCEPTED,), fam: str | None = None) -> dict:
@@ -349,6 +403,7 @@ def collect(sessions: Sessions, query: Network | None, *, regions: list[str], fr
 
     jobs = [(v, d) for v in readable for d in directions]
     routes = [r for batch in _parallel(fetch, jobs) for r in batch]
+    _collect_connections(sessions, vifs, warnings)
 
     gw_ids = {v.get("dx_gateway") for v in vifs if v.get("dx_gateway")} - {g["directConnectGatewayId"] for g in gateways}
     for gid in sorted(gw_ids):
@@ -401,6 +456,28 @@ def local_pref(route: dict, vif: dict, from_region: str) -> tuple[int, str]:
     if vif.get("region") == from_region:
         return LP_MEDIUM, f"default: location associated with {from_region}"
     return LP_REMOTE_DEFAULT, f"default: location associated with {vif.get('region') or 'another Region'}"
+
+
+def location_text(v: dict) -> str | None:
+    """'Equinix DC2, Ashburn, VA (EqDC2)', or just the code when the name isn't known."""
+    code, name = v.get("location"), v.get("location_name")
+    return f"{name} ({code})" if name and code else name or code
+
+
+def connection_text(c: dict | None) -> str | None:
+    """'dxcon-1 (name): dedicated, 10Gbps', 'dxlag-1: LAG, 2 x 10Gbps', 'dxcon-1: hosted by Partner, 1Gbps'."""
+    if not c:
+        return None
+    head = c["id"] + (f" ({c['name']})" if c.get("name") else "")
+    if not c.get("visible", True):
+        return f"{head}: {c.get('note') or 'not visible'}"
+    kind = f"hosted by {c['partner']}" if c.get("type") == "hosted" and c.get("partner") else c.get("type") or "?"
+    if c.get("type") == "dedicated" and c.get("lag"):
+        kind += f", member of {c['lag']}"
+    bits = [kind, c.get("bandwidth")]
+    if c.get("state") and c["state"] != "available":
+        bits.append(c["state"])
+    return f"{head}: " + ", ".join(b for b in bits if b)
 
 
 def addr(value: str | None) -> str | None:
@@ -470,6 +547,7 @@ def select(bundle: dict, direction: str = ACCEPTED) -> dict:
         peer = peer_for(vif, r.get("family"))
         path = {
             "vif": vif["id"], "vif_name": vif.get("name"), "region": vif.get("region"), "location": vif.get("location"),
+            "location_name": vif.get("location_name"), "connection": vif.get("connection_detail"),
             "type": vif.get("type"), "owner": vif.get("owner"),
             "next_hop": addr(peer.get("customer_address")), "amazon_address": addr(peer.get("amazon_address")),
             "peer_asn": peer.get("asn") or vif.get("asn"),
