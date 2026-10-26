@@ -121,26 +121,26 @@ Less specific prefixes that also cover 10.20.30.0/24:
   0.0.0.0/0          best via 169.254.20.1 (dxvif-exchi001)
 ```
 
-The BGP table for the same gateway (the status-code legend is left out here):
+The BGP table for the same gateway, most specific prefix first (the status-code legend is left out here):
 
 ```text
 Routing Table: dxgw-0a1b2c3d4e5f60718 (core-dxgw), Amazon ASN 64512
 BGP table version is 1, local router ID is dxgw-0a1b2c3d4e5f60718
 
      Network          Next Hop            Metric LocPrf Weight Path
- *>  10.0.0.0/8       169.254.10.1                  200      0 65010
- *m                   169.254.11.1                  200      0 65010
- *                    169.254.20.1                  100      0 65020 65010
- *>  10.20.0.0/16     169.254.10.1                  300      0 65010
- *                    169.254.20.1                  150      0 65020
- *                    169.254.11.1                  100      0 65010
  *>  10.20.30.0/24    169.254.11.1                  200      0 65010
  *                    169.254.10.1                  200      0 65010 65010 65010
  *                    169.254.20.1                  150      0 65020
+ *>  10.20.0.0/16     169.254.10.1                  300      0 65010
+ *                    169.254.20.1                  150      0 65020
+ *                    169.254.11.1                  100      0 65010
+ *>  10.0.0.0/8       169.254.10.1                  200      0 65010
+ *m                   169.254.11.1                  200      0 65010
+ *                    169.254.20.1                  100      0 65020 65010
 
 Next hops:
-  169.254.10.1  dxvif-exnyc001 (nyc-primary), us-east-1
   169.254.11.1  dxvif-exnyc002 (nyc-secondary), us-east-1
+  169.254.10.1  dxvif-exnyc001 (nyc-primary), us-east-1
   169.254.20.1  dxvif-exchi001 (chi-backup), us-east-2
 ```
 
