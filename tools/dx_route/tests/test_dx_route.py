@@ -20,7 +20,7 @@ from dr_export import render_html  # noqa: E402
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "core_dxgw.json"
 DXGW = "dxgw-0a1b2c3d4e5f60718"
 VGW = "vgw-0f1e2d3c4b5a69788"
-NYC1, NYC2, CHI, LAX = "dxvif-fgnyc001", "dxvif-fgnyc002", "dxvif-fgchi001", "dxvif-fglax001"
+NYC1, NYC2, CHI, LAX = "dxvif-exnyc001", "dxvif-exnyc002", "dxvif-exchi001", "dxvif-exlax001"
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def test_invalid_path_never_best(bundle):
 def test_gateways_do_not_compete(bundle):
     tables = core.select(bundle)
     assert set(tables) == {DXGW, VGW}
-    assert [p["vif"] for p in tables[VGW]["10.20.0.0/16"]["paths"]] == ["dxvif-fglgc001"]
+    assert [p["vif"] for p in tables[VGW]["10.20.0.0/16"]["paths"]] == ["dxvif-exlgc001"]
 
 
 def test_public_vifs_use_as_path_then_home_region():
@@ -244,7 +244,7 @@ def test_bgp_table_layout(bundle):
     assert re.match(r" \*\s+169\.254\.20\.1\s+100\s+0 65020 65010$", lines[i + 2])
     assert re.search(r"^     192\.168\.50\.0/24\s+169\.254\.30\.1", out, re.M)   # no valid path: no '*'
     assert "65020 {65100,65101}" in out
-    assert "  169.254.10.1  dxvif-fgnyc001 (nyc-primary, EqDC2, us-east-1)" in out
+    assert "  169.254.10.1  dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1)" in out
 
 
 def test_long_network_wraps_like_ios():
@@ -257,13 +257,13 @@ def test_bgp_entry_explains_each_path(bundle):
     out = cisco.render(bundle, cmd("show ip bgp 10.20.30.0/24"))
     assert "BGP routing table entry for 10.20.30.0/24, version 1" in out
     assert "Paths: (3 available, best #1, table dxgw-0a1b2c3d4e5f60718)" in out
-    assert "169.254.11.1 (dxvif-fgnyc002) from 169.254.11.1 (dxvif-fgnyc002)" in out
+    assert "169.254.11.1 (dxvif-exnyc002) from 169.254.11.1 (dxvif-exnyc002)" in out
     assert "localpref 200, valid, external, best" in out          # single best: no 'multipath'
     assert out.count("Best Path Evaluation: Longer AS path") == 1
     assert "Best Path Evaluation: Lower local preference" in out
     assert "Updated 06:17:51 ago" in out
     assert "Less specific prefixes that also cover 10.20.30.0/24:" in out
-    assert "  0.0.0.0/0          best via 169.254.20.1 (dxvif-fgchi001)" in out
+    assert "  0.0.0.0/0          best via 169.254.20.1 (dxvif-exchi001)" in out
 
 
 def test_bgp_entry_longest_match_and_multipath(bundle):
@@ -285,7 +285,7 @@ def test_route_entry_and_fallback(bundle):
     out = cisco.render(bundle, cmd("show ip route 10.20.30.7"))
     assert "Routing entry for 10.20.30.0/24 (longest match for 10.20.30.7/32)" in out
     assert 'Known via "bgp 64512", distance 20, metric 0' in out
-    assert "  * 169.254.11.1, from 169.254.11.1, 06:17:51 ago, via dxvif-fgnyc002" in out
+    assert "  * 169.254.11.1, from 169.254.11.1, 06:17:51 ago, via dxvif-exnyc002" in out
     assert "Routing entry for 10.20.0.0/16 (longest match for 10.20.30.7/32)" in out    # the VGW table
     fb = cisco.render(bundle, cmd("show ip route vrf dxgw-0a1b2c3d4e5f60718 192.168.50.1"))
     assert "192.168.50.0/24 is in the BGP table but has no valid path (BGP down)" in fb
@@ -302,8 +302,8 @@ def test_route_table(bundle):
     out = cisco.render(bundle, cmd("show ip route"))
     assert "Gateway of last resort is 169.254.20.1 to network 0.0.0.0/0" in out
     assert "Gateway of last resort is not set" in out
-    assert "B        10.0.0.0/8 [20/0] via 169.254.10.1, 2d03h, dxvif-fgnyc001" in out
-    assert "[20/0] via 169.254.11.1, 4d08h, dxvif-fgnyc002" in out       # ECMP continuation line
+    assert "B        10.0.0.0/8 [20/0] via 169.254.10.1, 2d03h, dxvif-exnyc001" in out
+    assert "[20/0] via 169.254.11.1, 4d08h, dxvif-exnyc002" in out       # ECMP continuation line
     assert "192.168.50.0" not in out                                      # no valid path, not in the RIB
     longer = cisco.render(bundle, cmd("show ip route 10.20.0.0 255.255.0.0 longer-prefixes"))
     assert "10.20.30.0/24" in longer and "10.0.0.0/8" not in longer
@@ -327,7 +327,7 @@ def test_summary_states():
 
 def test_neighbor_routes(bundle):
     out = cisco.render(bundle, cmd("show ip bgp neighbors 169.254.10.1 advertised-routes"))
-    assert "Neighbor 169.254.10.1, dxvif-fgnyc001 (nyc-primary, EqDC2, us-east-1), advertised-routes:" in out
+    assert "Neighbor 169.254.10.1, dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1), advertised-routes:" in out
     assert re.search(r"^ \*   10\.100\.0\.0/16\s+169\.254\.10\.2\s+0 64512$", out, re.M)   # next hop: Amazon side
     assert "Total number of prefixes 2" in out
     assert "vgw-" not in out
@@ -338,7 +338,7 @@ def test_neighbor_routes(bundle):
 
 def test_neighbor_routes_without_advertised_collection(bundle):
     bundle["directions"] = ["accepted"]
-    out = cisco.render(bundle, cmd("show ip bgp neighbors dxvif-fgnyc001 advertised-routes"))
+    out = cisco.render(bundle, cmd("show ip bgp neighbors dxvif-exnyc001 advertised-routes"))
     assert "% Advertised routes were not collected for this bundle" in out
 
 
@@ -367,7 +367,7 @@ def test_html_report(bundle):
     page = render_html(bundle, c, cisco.render(bundle, c))
     assert "Router# show ip bgp 10.20.30.0/24" in page
     assert "Path selection" in page and "Longer AS path" in page
-    assert "core-dxgw: 10.20.30.0/24 via dxvif-fgnyc002" in page
+    assert "core-dxgw: 10.20.30.0/24 via dxvif-exnyc002" in page
     assert "Virtual interfaces" in page
     no = render_html(bundle, cmd("show ipv6 bgp 2001:db8:999::/48"), "")
     assert "No route to 2001:db8:999::/48" in no
@@ -622,7 +622,7 @@ def test_cli_from_region_override(bundle, tmp_path, capsys):
                    "10.20.30.0/24"])
     out = capsys.readouterr().out
     # from us-east-2, chi-backup's untagged route gets medium and the NYC routes drop to 150
-    assert "169.254.20.1 (dxvif-fgchi001) from 169.254.20.1 (dxvif-fgchi001)\n" \
+    assert "169.254.20.1 (dxvif-exchi001) from 169.254.20.1 (dxvif-exchi001)\n" \
            "      Origin not reported, metric not reported, localpref 200, valid, external, best" in out
 
 

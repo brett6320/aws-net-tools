@@ -23,7 +23,7 @@
   ],
   "vifs": [
     {
-      "id": "dxvif-fgnyc001",
+      "id": "dxvif-exnyc001",
       "name": "nyc-primary",
       "type": "transit",
       "state": "available",
@@ -58,7 +58,7 @@
       ]
     },
     {
-      "id": "dxvif-fgnyc002",
+      "id": "dxvif-exnyc002",
       "name": "nyc-secondary",
       "type": "transit",
       "state": "available",
@@ -93,7 +93,7 @@
       ]
     },
     {
-      "id": "dxvif-fgchi001",
+      "id": "dxvif-exchi001",
       "name": "chi-backup",
       "type": "transit",
       "state": "available",
@@ -119,7 +119,7 @@
       ]
     },
     {
-      "id": "dxvif-fglax001",
+      "id": "dxvif-exlax001",
       "name": "lax-dr",
       "type": "transit",
       "state": "available",
@@ -145,7 +145,7 @@
       ]
     },
     {
-      "id": "dxvif-fglgc001",
+      "id": "dxvif-exlgc001",
       "name": "legacy-vpc",
       "type": "private",
       "state": "available",
@@ -173,7 +173,7 @@
   ],
   "routes": [
     {
-      "vif": "dxvif-fgnyc001",
+      "vif": "dxvif-exnyc001",
       "cidr": "10.0.0.0/8",
       "direction": "accepted",
       "family": "ipv4",
@@ -192,7 +192,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc002",
+      "vif": "dxvif-exnyc002",
       "cidr": "10.0.0.0/8",
       "direction": "accepted",
       "family": "ipv4",
@@ -211,7 +211,7 @@
       "installed": "2026-10-21T09:15:00+00:00"
     },
     {
-      "vif": "dxvif-fgchi001",
+      "vif": "dxvif-exchi001",
       "cidr": "10.0.0.0/8",
       "direction": "accepted",
       "family": "ipv4",
@@ -231,7 +231,7 @@
       "installed": "2026-09-30T08:00:00+00:00"
     },
     {
-      "vif": "dxvif-fgnyc001",
+      "vif": "dxvif-exnyc001",
       "cidr": "10.20.0.0/16",
       "direction": "accepted",
       "family": "ipv4",
@@ -250,7 +250,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc002",
+      "vif": "dxvif-exnyc002",
       "cidr": "10.20.0.0/16",
       "direction": "accepted",
       "family": "ipv4",
@@ -269,7 +269,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgchi001",
+      "vif": "dxvif-exchi001",
       "cidr": "10.20.0.0/16",
       "direction": "accepted",
       "family": "ipv4",
@@ -286,7 +286,7 @@
       "installed": "2026-10-01T00:00:00+00:00"
     },
     {
-      "vif": "dxvif-fgnyc001",
+      "vif": "dxvif-exnyc001",
       "cidr": "10.20.30.0/24",
       "direction": "accepted",
       "family": "ipv4",
@@ -305,7 +305,7 @@
       "installed": "2026-10-25T11:42:07+00:00"
     },
     {
-      "vif": "dxvif-fgnyc002",
+      "vif": "dxvif-exnyc002",
       "cidr": "10.20.30.0/24",
       "direction": "accepted",
       "family": "ipv4",
@@ -322,7 +322,7 @@
       "installed": "2026-10-25T11:42:09+00:00"
     },
     {
-      "vif": "dxvif-fgchi001",
+      "vif": "dxvif-exchi001",
       "cidr": "10.20.30.0/24",
       "direction": "accepted",
       "family": "ipv4",
@@ -339,7 +339,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgchi001",
+      "vif": "dxvif-exchi001",
       "cidr": "172.16.0.0/12",
       "direction": "accepted",
       "family": "ipv4",
@@ -363,7 +363,7 @@
       "installed": "2026-08-12T00:00:00+00:00"
     },
     {
-      "vif": "dxvif-fglax001",
+      "vif": "dxvif-exlax001",
       "cidr": "0.0.0.0/0",
       "direction": "accepted",
       "family": "ipv4",
@@ -380,7 +380,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgchi001",
+      "vif": "dxvif-exchi001",
       "cidr": "0.0.0.0/0",
       "direction": "accepted",
       "family": "ipv4",
@@ -398,7 +398,7 @@
       "installed": "2026-09-01T00:00:00+00:00"
     },
     {
-      "vif": "dxvif-fglax001",
+      "vif": "dxvif-exlax001",
       "cidr": "192.168.50.0/24",
       "direction": "accepted",
       "family": "ipv4",
@@ -415,7 +415,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fglgc001",
+      "vif": "dxvif-exlgc001",
       "cidr": "10.20.0.0/16",
       "direction": "accepted",
       "family": "ipv4",
@@ -432,7 +432,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc001",
+      "vif": "dxvif-exnyc001",
       "cidr": "2001:db8:100::/40",
       "direction": "accepted",
       "family": "ipv6",
@@ -451,7 +451,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc002",
+      "vif": "dxvif-exnyc002",
       "cidr": "2001:db8:100::/40",
       "direction": "accepted",
       "family": "ipv6",
@@ -470,7 +470,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc001",
+      "vif": "dxvif-exnyc001",
       "cidr": "10.100.0.0/16",
       "direction": "advertised",
       "family": "ipv4",
@@ -487,7 +487,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc001",
+      "vif": "dxvif-exnyc001",
       "cidr": "10.101.0.0/16",
       "direction": "advertised",
       "family": "ipv4",
@@ -504,7 +504,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc002",
+      "vif": "dxvif-exnyc002",
       "cidr": "10.100.0.0/16",
       "direction": "advertised",
       "family": "ipv4",
@@ -521,7 +521,7 @@
       "installed": "2026-10-23T14:02:11+00:00"
     },
     {
-      "vif": "dxvif-fgnyc002",
+      "vif": "dxvif-exnyc002",
       "cidr": "10.101.0.0/16",
       "direction": "advertised",
       "family": "ipv4",

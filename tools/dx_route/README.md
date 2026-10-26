@@ -49,7 +49,7 @@ python dx_route.py show ip bgp summary
 
 # What one VIF received from your router, or what AWS advertises to it
 python dx_route.py show ip bgp neighbors 169.254.10.1 received-routes
-python dx_route.py show ip bgp neighbors dxvif-fgnyc001 advertised-routes
+python dx_route.py show ip bgp neighbors dxvif-exnyc001 advertised-routes
 
 # IPv6, one routing table only, and traffic leaving from another Region
 python dx_route.py show ipv6 route 2001:db8:100:5::/64
@@ -88,31 +88,31 @@ Paths: (3 available, best #1, table dxgw-0a1b2c3d4e5f60718)
   Not advertised to any peer
   Refresh Epoch 1
   65010
-    169.254.11.1 (dxvif-fgnyc002) from 169.254.11.1 (dxvif-fgnyc002)
+    169.254.11.1 (dxvif-exnyc002) from 169.254.11.1 (dxvif-exnyc002)
       Origin not reported, metric not reported, localpref 200, valid, external, best
       Local preference: 200 (medium), default: location associated with us-east-1
-      AS path length 1; VIF dxvif-fgnyc002 (nyc-secondary, CSVA1, us-east-1)
+      AS path length 1; VIF dxvif-exnyc002 (nyc-secondary, CSVA1, us-east-1)
       Updated 06:17:51 ago
       Best Path Evaluation: Overall best path
   65010 65010 65010
-    169.254.10.1 (dxvif-fgnyc001) from 169.254.10.1 (dxvif-fgnyc001)
+    169.254.10.1 (dxvif-exnyc001) from 169.254.10.1 (dxvif-exnyc001)
       Origin not reported, metric not reported, localpref 200, valid, external
       Local preference: 200 (medium), default: location associated with us-east-1
-      AS path length 3; VIF dxvif-fgnyc001 (nyc-primary, EqDC2, us-east-1)
+      AS path length 3; VIF dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1)
       Updated 06:17:53 ago
       Best Path Evaluation: Longer AS path
   65020
-    169.254.20.1 (dxvif-fgchi001) from 169.254.20.1 (dxvif-fgchi001)
+    169.254.20.1 (dxvif-exchi001) from 169.254.20.1 (dxvif-exchi001)
       Origin not reported, metric not reported, localpref 150, valid, external
       Local preference: 150 (remote-Region default), default: location associated with us-east-2
-      AS path length 1; VIF dxvif-fgchi001 (chi-backup, EqCH2, us-east-2)
+      AS path length 1; VIF dxvif-exchi001 (chi-backup, EqCH2, us-east-2)
       Updated 2d03h ago
       Best Path Evaluation: Lower local preference
 
 Less specific prefixes that also cover 10.20.30.0/24:
-  10.20.0.0/16       best via 169.254.10.1 (dxvif-fgnyc001)
-  10.0.0.0/8         best via 169.254.10.1 (dxvif-fgnyc001)
-  0.0.0.0/0          best via 169.254.20.1 (dxvif-fgchi001)
+  10.20.0.0/16       best via 169.254.10.1 (dxvif-exnyc001)
+  10.0.0.0/8         best via 169.254.10.1 (dxvif-exnyc001)
+  0.0.0.0/0          best via 169.254.20.1 (dxvif-exchi001)
 ```
 
 The BGP table for the same gateway (the status-code legend is left out here):
@@ -133,9 +133,9 @@ BGP table version is 1, local router ID is dxgw-0a1b2c3d4e5f60718
  *                    169.254.20.1                  150      0 65020
 
 Next hops:
-  169.254.10.1  dxvif-fgnyc001 (nyc-primary, EqDC2, us-east-1)
-  169.254.11.1  dxvif-fgnyc002 (nyc-secondary, CSVA1, us-east-1)
-  169.254.20.1  dxvif-fgchi001 (chi-backup, EqCH2, us-east-2)
+  169.254.10.1  dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1)
+  169.254.11.1  dxvif-exnyc002 (nyc-secondary, CSVA1, us-east-1)
+  169.254.20.1  dxvif-exchi001 (chi-backup, EqCH2, us-east-2)
 ```
 
 And the routing entry for one address inside it:
@@ -147,7 +147,7 @@ Routing entry for 10.20.30.0/24 (longest match for 10.20.30.7/32)
   Tag 65010, type external
   Last update from 169.254.11.1 06:17:51 ago
   Routing Descriptor Blocks:
-  * 169.254.11.1, from 169.254.11.1, 06:17:51 ago, via dxvif-fgnyc002
+  * 169.254.11.1, from 169.254.11.1, 06:17:51 ago, via dxvif-exnyc002
       Route metric is 0, traffic share count is 1
       AS Hops 1
       Route tag 65010
