@@ -20,7 +20,7 @@ CSS = """
 @media print{:root,:root[data-theme]{LIGHT}.themebtn{display:none}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-main{max-width:1280px;margin:0 auto;padding:24px 16px 64px}
+main{max-width:none;margin:0 auto;padding:24px 24px 64px}
 h1{font-size:22px;margin:0 0 4px}h2{font-size:19px;margin:0}h3{font-size:15px;margin:0 0 12px}
 h5{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:12px 0 6px}
 code{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);padding:1px 5px;border-radius:4px;word-break:break-all}
@@ -62,4 +62,5 @@ details.raw pre{max-height:480px;overflow:auto;background:var(--code);padding:12
 footer{color:var(--muted);font-size:12px;margin-top:24px}
 pre.term{margin:0;overflow:auto;background:var(--code);padding:12px 14px;border-radius:6px;font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}
 table.grid code{white-space:nowrap;word-break:normal}
+table.grid code.wrap{white-space:normal}
 """.replace("LIGHT", _LIGHT)
