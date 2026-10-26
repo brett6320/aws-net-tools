@@ -492,8 +492,9 @@ def console_url(kind: str, rid: str | None, region: str | None, partition: str =
         "eni": f"{base}/ec2/home{q}#NetworkInterface:networkInterfaceId={rid}",
         "instance": f"{base}/ec2/home{q}#InstanceDetails:instanceId={rid}",
         "eip": f"{base}/ec2/home{q}#ElasticIpDetails:AllocationId={rid}",
-        "pool": f"{base}/ipam/home{q}#PoolDetails:poolId={rid}",
-        "ipam": f"{base}/ipam/home{q}#IpamDetails:ipamId={rid}",
+        "pool": f"{base}/ipam/home{q}#PoolDetails:PoolId={rid}",
+        "ipam": f"{base}/ipam/home{q}#IPAMDetails:IPAMId={rid}",
+        "scope": f"{base}/ipam/home{q}#ScopeDetails:ScopeId={rid}",
     }.get(kind)
 
 

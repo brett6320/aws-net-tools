@@ -55,7 +55,7 @@ IPAM   ipam-0aaa  home us-east-1  owner 111111111111  advanced tier
 Result resource found
   1. account 222222222222 · us-east-1 · vpc-0app · subnet-0appa · eni-0app1 · i-0app1  [10.1.1.25/32]
 Most specific parent  10.1.1.25/32  (from resource)
-Most specific pool    ipam-pool-0prod  10.1.0.0/17  https://us-east-1.console.aws.amazon.com/ipam/home?region=us-east-1#PoolDetails:poolId=ipam-pool-0prod
+Most specific pool    ipam-pool-0prod  10.1.0.0/17  https://us-east-1.console.aws.amazon.com/ipam/home?region=us-east-1#PoolDetails:PoolId=ipam-pool-0prod
 Pool allocation       10.1.0.0/20 -> vpc vpc-0app account 222222222222 us-east-1
 ```
 
@@ -144,10 +144,10 @@ Light theme:
 ### Console links
 
 IDs in the report link to the AWS console: VPCs, subnets, ENIs, instances and EIPs in that resource's
-Region, and IPAM pools in the IPAM home Region. A link opens in whichever account your browser session is
-signed in to, so a resource in another account needs a session in that account. The IPAM deep-link
-formats (`#PoolDetails:poolId=…`, `#IpamDetails:ipamId=…`) follow the console's URL pattern but aren't
-documented by AWS. If one doesn't open the right page, use the ID shown next to it.
+Region, and the IPAM, its scopes and pools in the IPAM home Region. A link opens in whichever account your
+browser session is signed in to, so a resource in another account needs a session in that account. AWS
+doesn't document the IPAM console's deep links; the formats used (`#IPAMDetails:IPAMId=…`,
+`#ScopeDetails:ScopeId=…`, `#PoolDetails:PoolId=…`) are the ones the console itself shows in the address bar.
 
 ### Reports folder
 

@@ -180,6 +180,17 @@ def test_console_urls():
     assert core.console_url("vpc", None, "us-east-1") is None
 
 
+def test_ipam_console_urls_use_the_consoles_key_names():
+    # The IPAM console only reads capitalized keys; a lowercase poolId opens the page with an
+    # empty ID and fails with InvalidIpamPoolId.Malformed.
+    assert core.console_url("ipam", "ipam-0example", "us-east-1") == \
+        "https://us-east-1.console.aws.amazon.com/ipam/home?region=us-east-1#IPAMDetails:IPAMId=ipam-0example"
+    assert core.console_url("pool", "ipam-pool-0example", "us-east-1") == \
+        "https://us-east-1.console.aws.amazon.com/ipam/home?region=us-east-1#PoolDetails:PoolId=ipam-pool-0example"
+    assert core.console_url("scope", "ipam-scope-0example", "us-east-1") == \
+        "https://us-east-1.console.aws.amazon.com/ipam/home?region=us-east-1#ScopeDetails:ScopeId=ipam-scope-0example"
+
+
 def test_report_path_uses_owner_account(tmp_path):
     b = bundle_for("10.1.1.25")
     p = core.report_path(b, tmp_path)
@@ -195,18 +206,18 @@ def test_html_report_has_hierarchy_and_links():
     html = render_html([bundle_for("10.1.1.25")])
     assert "<script src" not in html and "<link" not in html and "http://" not in html
     for s in ("Resource found", "Hierarchy", "ipam-pool-0top", "ipam-pool-0prod", "vpc-0app", "subnet-0appa",
-              "eni-0app1", "i-0app1", "#InstanceDetails:instanceId=i-0app1", "#PoolDetails:poolId=ipam-pool-0prod"):
+              "eni-0app1", "i-0app1", "#InstanceDetails:instanceId=i-0app1", "#PoolDetails:PoolId=ipam-pool-0prod"):
         assert s in html, s
     # Tree order: top pool, then prod pool, then VPC, then instance, then the query marker.
     tree = html[html.index("<h3>Hierarchy"):]
-    order = [tree.index(s) for s in ('poolId=ipam-pool-0top"', 'poolId=ipam-pool-0prod"', "VpcId=vpc-0app",
+    order = [tree.index(s) for s in ('PoolId=ipam-pool-0top"', 'PoolId=ipam-pool-0prod"', "VpcId=vpc-0app",
                                      "instanceId=i-0app1", 'class="tn hit"')]
     assert order == sorted(order)
 
 
 def test_html_pool_only_links_to_pool():
     html = render_html([bundle_for("10.9.5.5")])
-    assert "Pool only" in html and "#PoolDetails:poolId=ipam-pool-0rsv" in html and "10.9.0.0/16" in html
+    assert "Pool only" in html and "#PoolDetails:PoolId=ipam-pool-0rsv" in html and "10.9.0.0/16" in html
 
 
 def test_html_escapes_values():
@@ -249,7 +260,7 @@ def test_cli_pool_only_summary(monkeypatch, capsys):
     monkeypatch.setattr(ipam_locate, "_ec2", lambda args: FakeEC2())
     assert ipam_locate.main(["10.9.5.5", "--no-report"]) == 0
     out = capsys.readouterr().out
-    assert "pool only" in out and "ipam-pool-0rsv  10.9.0.0/16" in out and "#PoolDetails:poolId=ipam-pool-0rsv" in out
+    assert "pool only" in out and "ipam-pool-0rsv  10.9.0.0/16" in out and "#PoolDetails:PoolId=ipam-pool-0rsv" in out
 
 
 def test_cli_bad_query_exits_1(caplog):
