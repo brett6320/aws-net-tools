@@ -244,7 +244,9 @@ def test_bgp_table_layout(bundle):
     assert re.match(r" \*\s+169\.254\.20\.1\s+100\s+0 65020 65010$", lines[i + 2])
     assert re.search(r"^     192\.168\.50\.0/24\s+169\.254\.30\.1", out, re.M)   # no valid path: no '*'
     assert "65020 {65100,65101}" in out
-    assert "  169.254.10.1  dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1)" in out
+    assert "  169.254.10.1  dxvif-exnyc001 (nyc-primary), us-east-1\n" \
+           "                  Location Equinix DC2/DC11, Ashburn, VA (EqDC2)\n" \
+           "                  Connection dxcon-ex000001 (nyc-xc-a): dedicated, 10Gbps" in out
 
 
 def test_long_network_wraps_like_ios():
@@ -327,7 +329,8 @@ def test_summary_states():
 
 def test_neighbor_routes(bundle):
     out = cisco.render(bundle, cmd("show ip bgp neighbors 169.254.10.1 advertised-routes"))
-    assert "Neighbor 169.254.10.1, dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1), advertised-routes:" in out
+    assert "Neighbor 169.254.10.1, dxvif-exnyc001 (nyc-primary), us-east-1, advertised-routes:" in out
+    assert "  Connection dxcon-ex000001 (nyc-xc-a): dedicated, 10Gbps" in out
     assert re.search(r"^ \*   10\.100\.0\.0/16\s+169\.254\.10\.2\s+0 64512$", out, re.M)   # next hop: Amazon side
     assert "Total number of prefixes 2" in out
     assert "vgw-" not in out
@@ -390,9 +393,27 @@ def test_html_escapes_aws_values(bundle):
 class FakeDX:
     """The Direct Connect calls collect() makes, with nextToken paging on routes."""
 
-    def __init__(self, vifs, routes, attachments=(), gateways=(), page=2, fail=()):
+    def __init__(self, vifs, routes, attachments=(), gateways=(), page=2, fail=(), connections=(), lags=(),
+                 locations=None, fail_locations=False):
         self.vifs, self.routes, self.attachments, self.gateways = vifs, routes, list(attachments), list(gateways)
         self.page, self.fail, self.calls = page, set(fail), []
+        self.connections, self.lags = list(connections), list(lags)
+        self.locations = [{"locationCode": "EqDC2", "locationName": "Equinix DC2/DC11, Ashburn, VA", "region": "us-east-1"}] \
+            if locations is None else locations
+        self.fail_locations = fail_locations
+
+    def describe_locations(self):
+        if self.fail_locations:
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "no"}}, "DescribeLocations")
+        return {"locations": self.locations}
+
+    def describe_connections(self, connectionId):
+        if connectionId == "dxcon-denied":
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "no"}}, "DescribeConnections")
+        return {"connections": [c for c in self.connections if c["connectionId"] == connectionId]}
+
+    def describe_lags(self, lagId):
+        return {"lags": [x for x in self.lags if x["lagId"] == lagId]}
 
     def describe_virtual_interfaces(self, virtualInterfaceId=None, nextToken=None):
         self.calls.append(("describe_virtual_interfaces", virtualInterfaceId))
@@ -540,6 +561,50 @@ def test_collect_advertised_direction(patch_client):
     b = core.collect(s, None, regions=["us-east-1"], from_region="us-east-1",
                      directions=(core.ACCEPTED, core.ADVERTISED), fam="ipv4")
     assert {r["direction"] for r in b["routes"]} == {"accepted", "advertised"}
+
+
+def test_collect_connections_and_locations(patch_client):
+    vifs = [api_vif("dxvif-ded"), api_vif("dxvif-lag"), api_vif("dxvif-hc"), api_vif("dxvif-hv"), api_vif("dxvif-den")]
+    vifs[0]["connectionId"], vifs[1]["connectionId"], vifs[2]["connectionId"] = "dxcon-1", "dxlag-1", "dxcon-2"
+    vifs[3]["connectionId"], vifs[4]["connectionId"] = "dxcon-partner", "dxcon-denied"
+    vifs[2]["location"] = "XyZ1"
+    dx = FakeDX(vifs, {}, connections=[
+        {"connectionId": "dxcon-1", "connectionName": "xc-a", "bandwidth": "10Gbps", "connectionState": "available",
+         "location": "EqDC2", "ownerAccount": "111122223333"},
+        {"connectionId": "dxcon-2", "connectionName": "hc", "bandwidth": "500Mbps", "connectionState": "down",
+         "partnerName": "ExampleNet", "location": "XyZ1"}],
+        lags=[{"lagId": "dxlag-1", "lagName": "lag-b", "numberOfConnections": 4, "connectionsBandwidth": "100Gbps",
+               "lagState": "available"}])
+    s = FakeSessions({"111122223333": dx})
+    patch_client(s)
+    b = core.collect(s, None, regions=["us-east-1"], from_region="us-east-1")
+    v = {x["id"]: x for x in b["vifs"]}
+    assert v["dxvif-ded"]["location_name"] == "Equinix DC2/DC11, Ashburn, VA"
+    assert v["dxvif-hc"]["location_name"] is None                       # unknown code: just the code is shown
+    assert core.location_text(v["dxvif-hc"]) == "XyZ1"
+    assert core.connection_text(v["dxvif-ded"]["connection_detail"]) == "dxcon-1 (xc-a): dedicated, 10Gbps"
+    assert core.connection_text(v["dxvif-lag"]["connection_detail"]) == "dxlag-1 (lag-b): LAG, 4 x 100Gbps"
+    assert core.connection_text(v["dxvif-hc"]["connection_detail"]) == "dxcon-2 (hc): hosted by ExampleNet, 500Mbps, down"
+    assert core.connection_text(v["dxvif-hv"]["connection_detail"]) == \
+        "dxcon-partner: owned by another account (hosted VIF)"
+    assert any("dxcon-denied: describing the connection failed: AccessDeniedException" in w for w in b["warnings"])
+    page = render_html(b, cmd("show ip bgp summary"), "")
+    assert "4 x 100Gbps" in page and "hosted by ExampleNet" in page and "Equinix DC2/DC11, Ashburn, VA" in page
+
+
+def test_collect_locations_failure_falls_back_to_codes(patch_client):
+    dx = FakeDX([api_vif("dxvif-a")], {}, fail_locations=True)
+    s = FakeSessions({"111122223333": dx})
+    patch_client(s)
+    b = core.collect(s, None, regions=["us-east-1"], from_region="us-east-1")
+    assert b["vifs"][0]["location_name"] is None
+    assert any("DescribeLocations failed in us-east-1" in w for w in b["warnings"])
+
+
+def test_connection_text_lag_member():
+    c = {"id": "dxcon-9", "type": "dedicated", "lag": "dxlag-9", "bandwidth": "10Gbps", "state": "available"}
+    assert core.connection_text(c) == "dxcon-9: dedicated, member of dxlag-9, 10Gbps"
+    assert core.connection_text(None) is None
 
 
 # ---------- profiles ----------

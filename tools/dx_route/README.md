@@ -91,21 +91,27 @@ Paths: (3 available, best #1, table dxgw-0a1b2c3d4e5f60718)
     169.254.11.1 (dxvif-exnyc002) from 169.254.11.1 (dxvif-exnyc002)
       Origin not reported, metric not reported, localpref 200, valid, external, best
       Local preference: 200 (medium), default: location associated with us-east-1
-      AS path length 1; VIF dxvif-exnyc002 (nyc-secondary, CSVA1, us-east-1)
+      AS path length 1; VIF dxvif-exnyc002 (nyc-secondary), us-east-1
+      Location CoreSite VA1, Reston, VA (CSVA1)
+      Connection dxlag-ex000002 (nyc-lag-b): LAG, 2 x 10Gbps
       Updated 06:17:51 ago
       Best Path Evaluation: Overall best path
   65010 65010 65010
     169.254.10.1 (dxvif-exnyc001) from 169.254.10.1 (dxvif-exnyc001)
       Origin not reported, metric not reported, localpref 200, valid, external
       Local preference: 200 (medium), default: location associated with us-east-1
-      AS path length 3; VIF dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1)
+      AS path length 3; VIF dxvif-exnyc001 (nyc-primary), us-east-1
+      Location Equinix DC2/DC11, Ashburn, VA (EqDC2)
+      Connection dxcon-ex000001 (nyc-xc-a): dedicated, 10Gbps
       Updated 06:17:53 ago
       Best Path Evaluation: Longer AS path
   65020
     169.254.20.1 (dxvif-exchi001) from 169.254.20.1 (dxvif-exchi001)
       Origin not reported, metric not reported, localpref 150, valid, external
       Local preference: 150 (remote-Region default), default: location associated with us-east-2
-      AS path length 1; VIF dxvif-exchi001 (chi-backup, EqCH2, us-east-2)
+      AS path length 1; VIF dxvif-exchi001 (chi-backup), us-east-2
+      Location Equinix CH2, Chicago, IL (EqCH2)
+      Connection dxcon-ex000003 (chi-hosted): hosted by ExampleNet, 1Gbps
       Updated 2d03h ago
       Best Path Evaluation: Lower local preference
 
@@ -133,9 +139,9 @@ BGP table version is 1, local router ID is dxgw-0a1b2c3d4e5f60718
  *                    169.254.20.1                  150      0 65020
 
 Next hops:
-  169.254.10.1  dxvif-exnyc001 (nyc-primary, EqDC2, us-east-1)
-  169.254.11.1  dxvif-exnyc002 (nyc-secondary, CSVA1, us-east-1)
-  169.254.20.1  dxvif-exchi001 (chi-backup, EqCH2, us-east-2)
+  169.254.10.1  dxvif-exnyc001 (nyc-primary), us-east-1
+  169.254.11.1  dxvif-exnyc002 (nyc-secondary), us-east-1
+  169.254.20.1  dxvif-exchi001 (chi-backup), us-east-2
 ```
 
 And the routing entry for one address inside it:
@@ -152,6 +158,21 @@ Routing entry for 10.20.30.0/24 (longest match for 10.20.30.7/32)
       AS Hops 1
       Route tag 65010
 ```
+
+### Locations and connections
+
+Each VIF is shown with the full name of its Direct Connect location (for example
+`Equinix DC2/DC11, Ashburn, VA (EqDC2)`) and its connection: the ID and name, the type and the bandwidth.
+
+| Type | Meaning | Bandwidth |
+|---|---|---|
+| `dedicated` | A dedicated connection (`member of dxlag-…` when it's part of a LAG) | The port speed |
+| `LAG` | A link aggregation group | Members x member speed, for example `2 x 10Gbps` |
+| `hosted by <partner>` | A hosted connection from a Direct Connect partner | The hosted capacity |
+| `owned by another account (hosted VIF)` | A hosted VIF: the connection belongs to the partner's account, so its details aren't visible | — |
+
+A connection that isn't `available` also shows its state. If `DescribeLocations` is denied, the location
+code is shown on its own.
 
 ### What AWS doesn't report
 
@@ -252,6 +273,9 @@ All read-only, in each account that owns VIFs (plus `sts:GetCallerIdentity`):
         "directconnect:DescribeDirectConnectGateways",
         "directconnect:DescribeDirectConnectGatewayAttachments",
         "directconnect:ListVirtualInterfaceRoutes",
+        "directconnect:DescribeConnections",
+        "directconnect:DescribeLags",
+        "directconnect:DescribeLocations",
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"

@@ -100,8 +100,21 @@ def gateway_of(vif: dict) -> str:
 
 
 def vif_label(v: dict) -> str:
-    bits = [b for b in (v.get("name"), v.get("location"), v.get("region")) if b]
-    return f"{v['id']} ({', '.join(bits)})" if bits else v["id"]
+    """'dxvif-1 (name), us-east-1'. The location and connection have their own lines."""
+    head = v["id"] + (f" ({v['name']})" if v.get("name") else "")
+    return f"{head}, {v['region']}" if v.get("region") else head
+
+
+def vif_details(v: dict) -> list[str]:
+    """'Location ...' and 'Connection ...' lines for a VIF, when known."""
+    out = []
+    loc = core.location_text(v)
+    if loc:
+        out.append(f"Location {loc}")
+    conn = core.connection_text(v.get("connection_detail"))
+    if conn:
+        out.append(f"Connection {conn}")
+    return out
 
 
 def _status(p: dict) -> str:
@@ -121,15 +134,21 @@ def _row(status: str, network: str, next_hop: str | None, lp, path: str) -> list
 
 
 def next_hop_legend(paths: list[dict]) -> list[str]:
-    seen: dict[str, str] = {}
+    """Next hop -> VIF, with the VIF's location and connection on the lines below."""
+    seen: dict[str, dict] = {}
     for p in paths:
         if p.get("next_hop") and p["next_hop"] not in seen:
-            bits = [b for b in (p.get("vif_name"), p.get("location"), p.get("region")) if b]
-            seen[p["next_hop"]] = f"{p['vif']} ({', '.join(bits)})" if bits else p["vif"]
+            seen[p["next_hop"]] = {"id": p["vif"], "name": p.get("vif_name"), "region": p.get("region"),
+                                   "location": p.get("location"), "location_name": p.get("location_name"),
+                                   "connection_detail": p.get("connection")}
     if not seen:
         return []
     width = max(len(k) for k in seen)
-    return ["", "Next hops:"] + [f"  {k:<{width}}  {v}" for k, v in seen.items()]
+    out = ["", "Next hops:"]
+    for k, v in seen.items():
+        out.append(f"  {k:<{width}}  {vif_label(v)}")
+        out += [f"  {'':<{width}}    {d}" for d in vif_details(v)]
+    return out
 
 
 # ---------- show ip bgp ----------
@@ -190,7 +209,9 @@ def bgp_entry(bundle: dict, tables: dict[str, dict], key: str, query: ipaddress.
         if p["type"] != core.PUBLIC:
             lines.append(f"      Local preference: {p['local_pref']} ({core.LP_NAMES.get(p['local_pref'], '?')}), "
                          f"{p['local_pref_source']}")
-        lines.append(f"      AS path length {p['as_path_len']}; VIF {vif_label(_vif(bundle, p['vif']))}")
+        vif = _vif(bundle, p["vif"])
+        lines.append(f"      AS path length {p['as_path_len']}; VIF {vif_label(vif)}")
+        lines += [f"      {d}" for d in vif_details(vif)]
         if p.get("installed"):
             lines.append(f"      Updated {uptime(p['installed'], now)} ago")
         lines.append(f"      Best Path Evaluation: {p['evaluation']}")
@@ -236,7 +257,8 @@ def bgp_summary(bundle: dict, tables: dict[str, dict], key: str, fam: str | None
             lines.append(f"{nb:<15} 4 {str(p.get('asn') or v.get('asn') or '?'):>12} {'-':>7} {'-':>7} {'1':>8} "
                          f"{'0':>4} {'0':>4} {'never':<8} {state}")
             shown.append({"next_hop": core.addr(p.get("customer_address")), "vif": v["id"], "vif_name": v.get("name"),
-                          "location": v.get("location"), "region": v.get("region")})
+                          "location": v.get("location"), "location_name": v.get("location_name"),
+                          "region": v.get("region"), "connection": v.get("connection_detail")})
     if not vifs:
         lines.append("% No BGP neighbors in this table")
     return lines + next_hop_legend(shown)
@@ -258,6 +280,7 @@ def neighbor_routes(bundle: dict, key: str, which: str, neighbor: str | None, fa
         routes = [r for r in bundle.get("routes") or []
                   if r["vif"] == v["id"] and r.get("direction") == direction and (not fam or r.get("family") == fam)]
         lines += ["", f"Neighbor {core.addr(peer.get('customer_address')) or v['id']}, {vif_label(v)}, {which}:",
+                  *[f"  {d}" for d in vif_details(v)],
                   f"BGP table version is 1, local router ID is {key.split(':', 1)[-1]}", STATUS_LEGEND, TABLE_HEAD]
         nh = core.addr(peer.get("customer_address") if direction == core.ACCEPTED else peer.get("amazon_address"))
         for r in sorted(routes, key=lambda r: (core.net(r["cidr"]).network_address, core.net(r["cidr"]).prefixlen)):
