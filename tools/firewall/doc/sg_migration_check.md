@@ -100,21 +100,49 @@ in `change_group`; the JSON also has `change_groups`.
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
 | `--exclude-profile-suffix LIST` | Profile suffixes never chosen (default `-priv,-cpar`) |
 | `--no-equate-references` | Do not treat references to an old group as references to its new group |
-| `--show-changes` | Text report: list the access lost / gained per resource and the rules responsible |
+| `--show-changes` | Text report: the full detail per group of resources (status, access lost if the old is removed now and once migrated, every rule responsible) instead of only the differences once migrated |
 
 Plus the common output flags, described under [Reports](../README.md#reports).
 
 ## Output
 
-- **Text**:
-  - accounts, old and new groups, and how references are equated;
-  - one entry per group of resources with identical changes: status, number of resources, and how many access changes; then each resource (type, label, interface, VPC, requester for managed interfaces);
-  - rules referencing the old group that are not mirrored;
-  - with `--show-changes`, every access change and the rules responsible.
-- **CSV**: one row per resource (interface), with its `change_group`. List cells are `; `-separated.
+- **Text**, by default only the differences once migrated (new group attached, old removed):
+  - each access lost (`-`) or gained (`+`) once, with the rules it comes from (description, else rule id) and the resources it applies to; changes that apply to the same resources are listed together;
+  - the resources whose access stays the same (`=`), and those that still need the new group attached;
+  - rules referencing the old group that are not mirrored.
+
+  Resource lists stop after 5 and address lists after 8; the HTML report has them all. For the sample in the screenshot:
+
+  ```text
+  legacy-orders-app (sg-0a3f9c2e71b4d5068) -> orders-app-v2 (sg-0b7e1d4a9c3f20581)   account 111122223333 (profile orders-prod-ro)
+
+  Once migrated (new group attached, old removed):
+
+  - lost by 3 resource(s): ec2-instance i-0123456789abcdef0, efs fsmt-0123456789abcdef0, lambda orders-sync
+      [ingress] tcp 9100 from 10.50.0.0/24 (node exporter)
+      [egress] tcp 9092-9094 to 10.40.0.0/16 (Kafka brokers)
+
+  + gained by 3 resource(s): efs fsmt-0123456789abcdef0, lambda orders-sync, rds RDSNetworkInterface
+      [ingress] all traffic from sg-0b7e1d4a9c3f20581 / sg-0a3f9c2e71b4d5068 (cluster peers)
+      [ingress] tcp 8443 from 10.20.0.0/16 (mTLS health checks)
+
+  = 3 resource(s) keep the same access: ec2-instance i-0abc123def4567890, ec2-instance i-0def456abc7890123, load-balancer app/orders-internal/0123456789abcdef
+
+  3 resource(s) still need the new group attached before the old is removed: efs fsmt-0123456789abcdef0, lambda orders-sync, rds RDSNetworkInterface
+
+  Rules in other groups referencing the old group with no match for the new (2):
+    sg-0e8f4c1a7d2b59360 tcp 6379 from sg-0a3f9c2e71b4d5068 "orders app session cache"
+    sg-0fedcba9876543210 tcp 8081 to sg-0a3f9c2e71b4d5068 "admin port"
+
+  (--show-changes: status per resource, removal now vs once migrated, and every rule responsible)
+  ```
+
+  With `--show-changes`: accounts and how references are equated; one entry per group of resources with identical changes (status, resources with interface, VPC and requester); access lost if the old group is removed now and once migrated; every old rule responsible; all references.
+- **CSV**: one row per resource (interface), with its `change_group` and its net change once migrated (`net_lost`, `net_gained`). List cells are `; `-separated.
 - **JSON**: `{generated, accounts, old, new, rename, groups, warnings, resources, change_groups, references}`.
 - **HTML**:
-  - one row per group of identical changes, with its resources, filterable by severity, status, type, account, VPC and missing new group, plus a summary by status;
+  - first, the differences once migrated: one row per access lost or gained, with the resources it applies to;
+  - folded under its heading (click to open), one row per group of identical changes, with its resources, filterable by severity, status, type, account, VPC and missing new group, plus a summary by status;
   - the references.
   - Full window width.
 
