@@ -1,8 +1,4 @@
-"""End-to-end tests against moto (single account 123456789012).
-
-moto does not implement Route 53 VPC association authorizations, so cross-account
-behaviour is covered by the planner tests instead.
-"""
+"""End-to-end tests against moto (single account 123456789012)."""
 import json
 
 import boto3
@@ -12,8 +8,6 @@ from moto import mock_aws
 from conftest import load_tool
 
 vl = load_tool("vpce_list")
-pr = load_tool("phz_review")
-pa = load_tool("phz_assoc")
 
 ACCT = "123456789012"
 
@@ -71,53 +65,3 @@ def test_vpce_list_service_and_vpc_arn(env, capsys):
 def test_vpce_list_with_phz(env, capsys):
     rows = run_json(vl, ["--service", "ssm", "--with-phz"], capsys)
     assert rows[0]["phz"] and rows[0]["phz"][0].startswith(env["zone"])
-
-
-def test_phz_review_zones_and_tags(env, capsys):
-    rows = run_json(pr, ["zones", "--zone-tag", "Purpose=vpce"], capsys)
-    assert [(r["zone_id"], r["vpc_count"]) for r in rows] == [(env["zone"], 1)]
-    assert run_json(pr, ["zones", "--zone-tag", "Purpose=other"], capsys) == []
-
-
-def test_phz_review_by_vpc_and_by_zone(env, capsys):
-    rows = run_json(pr, ["by-vpc", "--vpc", env["hub"]], capsys)
-    assert [(r["zone_id"], r["zone_owner"], r["cross_account"]) for r in rows] == [(env["zone"], ACCT, False)]
-    rows = run_json(pr, ["by-zone", "--zone-name", "ssm.*", "--no-authorizations", "--resolve-owners"], capsys)
-    assert [(r["vpc_id"], r["status"], r["vpc_owner"]) for r in rows] == [(env["hub"], "associated", ACCT)]
-
-
-def test_phz_assoc_generate_only(env, capsys):
-    arn = f"arn:aws:ec2:us-east-1:{ACCT}:vpc/{env['spoke']}"
-    assert pa.main(["associate", "--zone", env["zone"], "--vpc", arn, "-q"]) == 0
-    out = capsys.readouterr().out
-    assert "associate-vpc-with-hosted-zone" in out and "authorization" not in out.split("set -euo")[1]
-    # generating must not change anything
-    assert len(env["r53"].get_hosted_zone(Id=env["zone"])["VPCs"]) == 1
-
-    env["r53"].associate_vpc_with_hosted_zone(HostedZoneId=env["zone"], VPC={"VPCRegion": "us-east-1", "VPCId": env["spoke"]})
-    assert pa.main(["associate", "--zone-tag", "Purpose=vpce", "--vpc", env["spoke"], "-q"]) == 0
-    assert "SKIP associate-vpc-with-hosted-zone" in capsys.readouterr().out
-
-    assert pa.main(["disassociate", "--zone", env["zone"], "--vpc", env["spoke"], "-q"]) == 0
-    out = capsys.readouterr().out
-    assert "\naws route53 disassociate-vpc-from-hosted-zone" in out
-    assert len(env["r53"].get_hosted_zone(Id=env["zone"])["VPCs"]) == 2
-
-
-def test_phz_assoc_has_no_execute_flag(env, capsys):
-    with pytest.raises(SystemExit):
-        pa.main(["associate", "--zone", env["zone"], "--vpc", env["spoke"], "--execute"])
-
-
-def test_phz_assoc_unknown_vpc_fails_closed(env, capsys):
-    assert pa.main(["associate", "--zone", env["zone"], "--vpc", "vpc-0bbbbbbbbbbbbbbb0", "-q"]) == 2
-
-
-def test_wrong_account_fails_closed(env, capsys):
-    assert pa.main(["associate", "--zone", env["zone"], "--vpc", env["spoke"], "--vpc-account", "999999999999", "-q"]) == 2
-
-
-def test_phz_assoc_name_selection_sees_existing_associations(env, capsys):
-    # Selecting by name must load current VPCs; otherwise the hub VPC looks "not associated".
-    assert pa.main(["disassociate", "--zone-name", "ssm.*", "--vpc", env["hub"], "-q"]) == 0
-    assert "last VPC" in capsys.readouterr().out

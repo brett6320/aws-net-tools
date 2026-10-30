@@ -1,4 +1,4 @@
-"""Shared helpers for the vpce suite.
+"""Shared helpers for the vpce and phz suites.
 
 Covers: PKI truststore setup, logging, multi-account session handling,
 VPC ID/ARN parsing, hosted-zone ID normalisation, tag filters and output

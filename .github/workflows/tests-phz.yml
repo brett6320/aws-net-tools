@@ -1,0 +1,32 @@
+name: phz tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/phz/**"
+      - ".github/workflows/tests-phz.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/phz/**"
+      - ".github/workflows/tests-phz.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: phz
+      path: tools/phz
+    permissions:
+      contents: write
