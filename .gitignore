@@ -20,3 +20,5 @@ coverage.xml
 htmlcov/
 junit.xml
 stats.json
+# phz_review local VPC owner map (kept in ~/.cache by default)
+vpc-owners*.json

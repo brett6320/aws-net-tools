@@ -1,5 +1,6 @@
 """VPC owner lookup: IPAM bulk pull first, then the PHZ account, then a batched search of other accounts."""
 import argparse
+from pathlib import Path
 
 import pytest
 from botocore.exceptions import ClientError
@@ -41,6 +42,10 @@ class FakeEc2:
         return {"Ipams": [{"IpamId": "ipam-1", "PrivateDefaultScopeId": "scope-1"}]}
 
 
+def ipam_row(vpc, owner, region="us-east-1"):
+    return {"ResourceId": vpc, "ResourceOwnerId": owner, "ResourceRegion": region}
+
+
 def pairs(*vpcs, region="us-east-1"):
     return {(region, v) for v in vpcs}
 
@@ -75,16 +80,16 @@ def test_find_owners_skips_accounts_it_cannot_reach(caplog):
 
 def test_ipam_vpc_owners_is_one_bulk_pull():
     calls = []
-    rows = [{"ResourceId": "vpc-1", "ResourceOwnerId": A}, {"ResourceId": "vpc-1", "ResourceOwnerId": A},
-            {"ResourceId": "vpc-2", "ResourceOwnerId": B}]
+    rows = [ipam_row("vpc-1", A), ipam_row("vpc-1", A), ipam_row("vpc-2", B)]
     owners = pr.ipam_vpc_owners(FakeEc2(ipam_rows=rows, calls=calls))
-    assert owners == {"vpc-1": A, "vpc-2": B}
+    assert owners == {("us-east-1", "vpc-1"): A, ("us-east-1", "vpc-2"): B}
     assert calls == [("describe_ipams", {}), ("get_ipam_resource_cidrs",
                      {"IpamScopeId": "scope-1", "ResourceType": "vpc", "PaginationConfig": {"PageSize": 1000}})]
 
 
 def args(**kw):
-    base = dict(ipam_profile=None, ipam_region=None, ipam_id=None, no_owner_search=False, owner_accounts=None)
+    base = dict(ipam_profile=None, ipam_region=None, ipam_id=None, no_owner_search=False, owner_accounts=None,
+                owner_cache=None, no_owner_cache=True, refresh_owner_cache=False)
     return argparse.Namespace(**{**base, **kw})
 
 
@@ -112,7 +117,7 @@ class FakeCtx:
 
 def test_resolve_uses_ipam_first_and_skips_per_account_calls(monkeypatch):
     calls = []
-    ipam = FakeEc2(ipam_rows=[{"ResourceId": "vpc-1", "ResourceOwnerId": A}, {"ResourceId": "vpc-2", "ResourceOwnerId": B}])
+    ipam = FakeEc2(ipam_rows=[ipam_row("vpc-1", A), ipam_row("vpc-2", B)])
     monkeypatch.setattr(pr, "AccountSessions", lambda *a, **k: FakeSessions({PHZ: ipam}))
     ctx = FakeCtx({PHZ: FakeEc2(calls=calls), A: FakeEc2(calls=calls)})
     owners = pr.resolve_vpc_owners(args(ipam_profile="ipam", owner_accounts=A), ctx, pairs("vpc-1", "vpc-2"))
@@ -137,3 +142,72 @@ def test_search_accounts_default_to_local_profiles(monkeypatch):
     assert pr.owner_search_accounts(args(), FakeCtx({})) == [A, B]
     with pytest.raises(ValueError):
         pr.owner_search_accounts(args(owner_accounts="12345"), FakeCtx({}))
+
+
+# --------------------------------------------------------------------------- local VPC owner map
+
+from lib.vpc_owner_cache import VpcOwnerCache, default_path  # noqa: E402
+
+
+def test_map_answers_first_and_only_misses_are_looked_up(tmp_path):
+    path = tmp_path / "owners.json"
+    seed = VpcOwnerCache(path)
+    seed.put("us-east-1", "vpc-1", A, "ipam")
+    seed.save()
+    calls = []
+    ctx = FakeCtx({PHZ: FakeEc2({"vpc-2": PHZ}, calls=calls)})
+    cache = VpcOwnerCache(path)
+    owners = pr.resolve_vpc_owners(args(no_owner_search=True), ctx, pairs("vpc-1", "vpc-2"), cache)
+    assert owners == {"vpc-1": A, "vpc-2": PHZ}
+    assert [c[1]["Filters"][0]["Values"] for c in calls] == [["vpc-2"]]  # vpc-1 came from the map
+    assert VpcOwnerCache(path).get("us-east-1", "vpc-2") == PHZ  # the miss was saved
+
+    calls.clear()
+    pr.resolve_vpc_owners(args(no_owner_search=True), ctx, pairs("vpc-1", "vpc-2"), VpcOwnerCache(path))
+    assert calls == []  # everything known now: no API calls at all
+
+
+def test_ipam_pull_fills_the_whole_map_once(tmp_path, monkeypatch):
+    path = tmp_path / "owners.json"
+    ipam_calls = []
+    ipam = FakeEc2(ipam_rows=[ipam_row("vpc-1", A), ipam_row("vpc-7", B), ipam_row("vpc-8", B, "eu-west-1")], calls=ipam_calls)
+    monkeypatch.setattr(pr, "AccountSessions", lambda *a, **k: FakeSessions({PHZ: ipam}))
+    ctx = FakeCtx({PHZ: FakeEc2()})
+    pr.resolve_vpc_owners(args(ipam_profile="ipam"), ctx, pairs("vpc-1"), VpcOwnerCache(path))
+    assert len(VpcOwnerCache(path)) == 3  # every VPC IPAM returned, not just the one asked about
+    ipam_calls.clear()
+    owners = pr.resolve_vpc_owners(args(ipam_profile="ipam"), ctx, pairs("vpc-7"), VpcOwnerCache(path))
+    assert owners == {"vpc-7": B} and ipam_calls == []  # served from the map, IPAM not called again
+
+
+def test_refresh_ignores_the_map(tmp_path):
+    path = tmp_path / "owners.json"
+    seed = VpcOwnerCache(path)
+    seed.put("us-east-1", "vpc-1", A, "old")
+    seed.save()
+    ctx = FakeCtx({PHZ: FakeEc2({"vpc-1": B})})
+    owners = pr.resolve_vpc_owners(args(no_owner_search=True, refresh_owner_cache=True), ctx, pairs("vpc-1"), VpcOwnerCache(path))
+    assert owners == {"vpc-1": B} and VpcOwnerCache(path).get("us-east-1", "vpc-1") == B
+
+
+def test_map_file_is_private_and_outside_the_repo(tmp_path):
+    path = tmp_path / "sub" / "owners.json"
+    c = VpcOwnerCache(path)
+    c.put("us-east-1", "vpc-1", A, "ipam")
+    c.save()
+    assert path.stat().st_mode & 0o777 == 0o600
+    repo = Path(__file__).resolve().parents[3]
+    assert not default_path().resolve().is_relative_to(repo)
+
+
+def test_unreadable_map_is_ignored(tmp_path):
+    path = tmp_path / "owners.json"
+    path.write_text("{not json")
+    assert len(VpcOwnerCache(path)) == 0
+
+
+def test_no_owner_cache_keeps_it_in_memory(tmp_path):
+    a = args(no_owner_cache=True, owner_cache=str(tmp_path / "x.json"))
+    assert pr.owner_cache(a).path is None
+    a = args(no_owner_cache=False, owner_cache=str(tmp_path / "x.json"))
+    assert pr.owner_cache(a).path == tmp_path / "x.json"

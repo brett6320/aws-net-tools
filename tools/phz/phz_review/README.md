@@ -35,6 +35,8 @@ python phz_review.py <subcommand> ... -o html [--out FILE | --reports-dir DIR]
 | `--ipam-profile` / `--ipam-region` / `--ipam-id` | `zones`, `by-zone`: read VPC owners from IPAM first: one bulk pull covering every account and Region the IPAM monitors (env `VPCE_IPAM_PROFILE`, `VPCE_IPAM_REGION`, `VPCE_IPAM_ID`) |
 | `--owner-accounts ACCT[,ACCT]\|org` | `zones`, `by-zone`: accounts to search for VPCs that IPAM and the PHZ account can't see. Default: every account in your local AWS config; `org` lists the AWS Organization's accounts (env `VPCE_OWNER_ACCOUNTS`) |
 | `--no-owner-search` | `zones`, `by-zone`: don't search other accounts (IPAM and the PHZ account are still used) |
+| `--owner-cache FILE` | Local VPC → owner map (default `~/.cache/aws-net-tools/vpc-owners.json`, `%LOCALAPPDATA%\aws-net-tools\` on Windows; env `VPCE_OWNER_CACHE`) |
+| `--no-owner-cache` / `--refresh-owner-cache` | Don't read or write the map / look every VPC up again and update it |
 | `--wide` | `zones`: add VPC list, VPC owner accounts, comment, tags |
 | `-o table\|json\|csv\|html`, `--json` | Output format |
 | `--out FILE` | `html`: write the report here |
@@ -45,9 +47,13 @@ Account columns: `zones` has `account` (the PHZ owner) and, in `--wide`/JSON, `v
 
 ### VPC owner lookup
 
-`zones` and `by-zone` see the PHZ side only, so they look up who owns each VPC. Each source is only asked about the VPCs that are still unknown, and the lookup stops once all are found:
+`zones` and `by-zone` see the PHZ side only, so they look up who owns each VPC.
 
-1. **IPAM** (with `--ipam-profile`): one paginated `GetIpamResourceCidrs` pull (`ResourceType=vpc`, 1,000 per page) from the IPAM owner or delegated admin account, kept in memory for the run. This is the cheapest option for many accounts.
+A VPC never changes owner, so every owner found is saved to a **local map** (`~/.cache/aws-net-tools/vpc-owners.json`, owner-only permissions) and reused on later runs. Only VPCs missing from the map are looked up. The map is kept outside the repository, and `.gitignore` excludes `vpc-owners*.json` in case `--owner-cache` points inside it.
+
+Missing VPCs are looked up from each source in turn, each asked only about the VPCs still unknown, stopping once all are found:
+
+1. **IPAM** (with `--ipam-profile`): one paginated `GetIpamResourceCidrs` pull (`ResourceType=vpc`, 1,000 per page) from the IPAM owner or delegated admin account. Every VPC it returns goes into the map, so IPAM is only asked again when a VPC turns up that it didn't list. This is the cheapest option for many accounts.
 2. **The PHZ account**: `DescribeVpcs` finds its own VPCs and VPCs shared to it through RAM.
 3. **Other accounts**: one `DescribeVpcs` per account and Region, filtered to the remaining VPC IDs. Accounts come from `--owner-accounts`, or by default from the profiles in your local AWS config (the same `-priv` / `-cpar` exclusions apply). Credentials work as for the VPC side: `--role-name`, or the profile derived from the account. Accounts you can't get into are skipped with a warning.
 
