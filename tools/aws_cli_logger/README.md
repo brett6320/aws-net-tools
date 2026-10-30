@@ -96,12 +96,20 @@ grep '\[3fa91c0e\]' ~/.aws/logs/aws-cli_2026-10-30_0800.log
 
 ## Configuration
 
-All settings are optional environment variables.
+All settings are optional environment variables. Set them with `export` in your shell profile (the wrapper runs as a separate process, so plain assignments aren't visible to it):
+
+```zsh
+export AWS_LOG_COMPRESS_DAYS=3     # gzip logs older than 3 days
+export AWS_LOG_KEEP_DAYS=90        # delete logs older than 90 days
+```
+
+Ages are whole days. Compression and retention changes take effect at the next 08:00 or 20:00 rollover, and apply to all existing files.
 
 | Variable | Default | Description |
 |---|---|---|
 | `AWS_LOG_DIR` | `~/.aws/logs` | Directory for log files |
-| `AWS_LOG_KEEP_DAYS` | `30` | Delete logs older than this many days; `0` keeps everything |
+| `AWS_LOG_KEEP_DAYS` | `30` | Delete logs (compressed or not) older than this many days; `0` keeps everything |
+| `AWS_LOG_COMPRESS_DAYS` | `7` | Gzip logs older than this many days; `0` disables compression |
 | `AWS_REAL_BIN` | auto-detected | Path to the real `aws` binary, if auto-detection picks the wrong one |
 
 ## Log files
@@ -111,12 +119,24 @@ Files are named after the start of their 12-hour window:
 ```
 ~/.aws/logs/
 ├── aws-cli.log -> aws-cli_2026-10-30_0800.log   # symlink to the current file
+├── aws-cli_2026-10-21_0800.log.gz                # older than 7 days: compressed
 ├── aws-cli_2026-10-29_2000.log                   # 20:00 Oct 29 – 07:59 Oct 30
 ├── aws-cli_2026-10-30_0800.log                   # 08:00 – 19:59 Oct 30
 └── .env-state/                                   # per-shell environment state
 ```
 
-Rotation happens on demand: the first command after 08:00 or 20:00 creates the new file, moves the `aws-cli.log` symlink, and prunes files past the retention limit. A command that is still running when a window ends stays in the file it started in.
+Rotation happens on demand: the first command after 08:00 or 20:00 creates the new file, moves the `aws-cli.log` symlink, and starts the compression and retention job. A command that is still running when a window ends stays in the file it started in.
+
+### Compression and retention
+
+At each rotation, a background job compresses logs older than `AWS_LOG_COMPRESS_DAYS` (7 by default) with `gzip -9`, then deletes logs older than `AWS_LOG_KEEP_DAYS` (30 by default), whether compressed or not. Ages are measured exactly from each file's last-modified time, and `gzip` keeps that time, so a compressed file is still deleted on schedule. The job never delays the command that triggered it, and a lock stops two shells from running it at once.
+
+Search compressed logs directly with the `z` tools:
+
+```bash
+zgrep '\[3fa91c0e\]' ~/.aws/logs/aws-cli_*.log.gz
+zcat ~/.aws/logs/aws-cli_2026-10-21_0800.log.gz | less
+```
 
 Log files are created with mode `600` and the directory with mode `700`.
 
@@ -148,7 +168,7 @@ Variables whose names contain `SECRET`, `TOKEN` or `PASSWORD` (such as `AWS_SECR
 
 Changes are noticed when the next `aws` command runs, not at the moment of the `export`. Read an `ENV` timestamp as "changed at or before this point."
 
-The wrapper's own settings (`AWS_LOG_DIR`, `AWS_LOG_KEEP_DAYS`, `AWS_REAL_BIN`) are excluded from tracking.
+The wrapper's own settings (`AWS_LOG_*`, `AWS_REAL_BIN`) and internal markers (`AWS_WRAPPER_*`) are excluded from tracking.
 
 ## Interactive commands
 

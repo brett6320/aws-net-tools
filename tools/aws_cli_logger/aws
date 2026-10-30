@@ -76,9 +76,10 @@
 # at 08:00 and 20:00 local time.
 #
 # Env overrides:
-#   AWS_LOG_DIR        log directory                 (default ~/.aws/logs)
-#   AWS_LOG_KEEP_DAYS  prune logs older than N days  (default 30, 0 = keep all)
-#   AWS_REAL_BIN       path to the real aws          (default: next aws on PATH)
+#   AWS_LOG_DIR            log directory                   (default ~/.aws/logs)
+#   AWS_LOG_KEEP_DAYS      delete logs older than N days   (default 30, 0 = keep all)
+#   AWS_LOG_COMPRESS_DAYS  gzip logs older than N days     (default 7, 0 = never)
+#   AWS_REAL_BIN           path to the real aws            (default: next aws on PATH)
 #
 # Log line format:
 #   [2026-10-30T09:14:02.113-0400] [3fa91c0e] START ... cmd: aws s3 ls
@@ -161,6 +162,25 @@ stream() {  # stream LABEL STATEFILE — pass one stream through and log it
   [[ -n $last ]] && printf '%s\n' "$last" > "$state"
 }
 
+maintain_logs() {  # gzip logs older than COMPRESS_DAYS, delete older than KEEP_DAYS
+  # Ages are exact (minutes), not find's rounded -mtime days. A lock directory
+  # stops two shells that rotate at the same moment from racing each other.
+  local lock="$LOG_DIR/.maint.lock"
+  find "$lock" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null   # stale lock
+  mkdir "$lock" 2>/dev/null || return 0
+  trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+  if (( COMPRESS_DAYS > 0 )) && command -v gzip >/dev/null; then
+    find "$LOG_DIR" -maxdepth 1 -type f -name 'aws-cli_*.log' \
+      -mmin +$(( COMPRESS_DAYS * 1440 )) -exec gzip -q -9 {} + 2>/dev/null
+  fi
+  if (( KEEP_DAYS > 0 )); then
+    find "$LOG_DIR" -maxdepth 1 -type f \( -name 'aws-cli_*.log' -o -name 'aws-cli_*.log.gz' \) \
+      -mmin +$(( KEEP_DAYS * 1440 )) -delete 2>/dev/null
+    find "$LOG_DIR/.env-state" -type f -mmin +$(( KEEP_DAYS * 1440 )) -delete 2>/dev/null
+  fi
+}
+
 # --- pick the log file for the current 08:00/20:00 window -------------------
 t0=$EPOCHREALTIME
 now=${t0%%[.,]*}
@@ -172,6 +192,7 @@ fi
 
 LOG_DIR=${AWS_LOG_DIR:-$HOME/.aws/logs}
 KEEP_DAYS=${AWS_LOG_KEEP_DAYS:-30}
+COMPRESS_DAYS=${AWS_LOG_COMPRESS_DAYS:-7}
 LOG="$LOG_DIR/aws-cli_${period}.log"
 
 umask 077   # logs can contain secrets
@@ -180,10 +201,7 @@ mkdir -p -- "$LOG_DIR" 2>/dev/null || exec "$REAL_AWS" "$@"
 if [[ ! -e $LOG ]]; then   # first command of a new window = rotation
   : >> "$LOG"
   ln -sfn -- "${LOG##*/}" "$LOG_DIR/aws-cli.log"   # stable name for tail -F
-  if (( KEEP_DAYS > 0 )); then
-    find "$LOG_DIR" -maxdepth 1 -name 'aws-cli_*.log' -mtime +"$KEEP_DAYS" -delete 2>/dev/null &
-    find "$LOG_DIR/.env-state" -type f -mtime +"$KEEP_DAYS" -delete 2>/dev/null &
-  fi
+  maintain_logs </dev/null >/dev/null 2>&1 &   # compress/prune in the background; never delays aws
 fi
 { exec 7>>"$LOG"; } 2>/dev/null || exec "$REAL_AWS" "$@"   # never block aws on logging
 
@@ -215,7 +233,7 @@ esac
 declare -A cur=() old=()
 for n in $(compgen -e); do
   [[ $n == AWS_* ]] || continue
-  case $n in AWS_LOG_DIR|AWS_LOG_KEEP_DAYS|AWS_REAL_BIN|AWS_WRAPPER_*) continue ;; esac
+  case $n in AWS_LOG_*|AWS_REAL_BIN|AWS_WRAPPER_*) continue ;; esac
   v=${!n}
   case $n in
     *SECRET*|*TOKEN*|*PASSWORD*)
