@@ -1,0 +1,268 @@
+ #!/usr/bin/env bash
+#
+# AWS Network Tools License
+#
+# Copyright (c) 2026 brett6320 (https://github.com/brett6320)
+#
+# 1. Grant
+#
+# Subject to the conditions below, the copyright holder ("Author") grants you a
+# worldwide, royalty-free, non-exclusive, irrevocable (except as stated in
+# section 5) license to use, copy, modify, merge, publish, distribute, and create
+# derivative works of this software and its documentation (the "Software"), for
+# any purpose, except as limited by section 3.
+#
+# 2. Attribution
+#
+# Every copy of the Software, and every derivative work based on it (including
+# modified versions, forks, ports, translations, and works that incorporate any
+# substantial portion of the Software), in source or binary form, whether or not
+# it is distributed, must:
+#
+#   a. keep the copyright notice above and this license text; and
+#   b. credit the Author, for example "Based on aws-net-tools by
+#      brett6320 (https://github.com/brett6320/aws-net-tools)",
+#      in its documentation, notices, or other place where third-party
+#      attributions normally appear.
+#
+# Derivative works must also state that they were changed from the original.
+#
+# 3. Client-Services Restriction
+#
+# You may not use the Software, or any derivative work, for commercial purposes
+# in the course of supporting clients unless you have a separate, supplemental
+# written license agreement signed by the Author.
+#
+# "Supporting clients" means providing services to a third party for
+# compensation or other commercial benefit, including consulting, contracting,
+# professional services, managed services, outsourced operations, audits, or
+# assessments, where the Software is used to perform, deliver, or support those
+# services, or its output (such as reports) is delivered to that third party.
+#
+# This restriction does not limit:
+#
+#   a. personal, educational, research, or non-profit use;
+#   b. internal use by an organization on its own systems and accounts, including
+#      by its employees, when not supporting clients as defined above; or
+#   c. evaluation of the Software.
+#
+# To request a supplemental license, contact the Author through
+# https://github.com/brett6320.
+#
+# 4. No Warranty
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHOR OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+# 5. Termination
+#
+# If you breach sections 2 or 3, your rights under this license end
+# automatically. They are reinstated if you cure the breach within 30 days of
+# becoming aware of it, unless the Author has notified you in writing that this
+# license is terminated for that breach.
+#
+# ----------------------------------------------------------------------------
+#
+# aws — logging wrapper for the AWS CLI
+#
+# Install as an executable named "aws" in a directory that comes before the
+# real aws on PATH (e.g. ~/bin). Every invocation, its stdout/stderr (each line
+# timestamped on arrival) and timing are appended to a log file that rolls over
+# at 08:00 and 20:00 local time.
+#
+# Env overrides:
+#   AWS_LOG_DIR        log directory                 (default ~/.aws/logs)
+#   AWS_LOG_KEEP_DAYS  prune logs older than N days  (default 30, 0 = keep all)
+#   AWS_REAL_BIN       path to the real aws          (default: next aws on PATH)
+#
+# Log line format:
+#   [2026-10-30T09:14:02.113-0400] [3fa91c0e] START ... cmd: aws s3 ls
+#   [2026-10-30T09:14:02.871-0400] [3fa91c0e] OUT 2026-01-04 12:00:00 my-bucket
+#   [2026-10-30T09:14:02.902-0400] [3fa91c0e] END exit=0 duration_ms=789 last_output=2026-10-30T09:14:02.871-0400
+# ENV lines (snapshot/set/changed/unset) record AWS_* changes in the calling
+# shell, detected when its next aws command runs.
+# The bracketed ID ties lines together when several shells log concurrently.
+
+# --- locate the real aws ----------------------------------------------------
+self=$(readlink -f -- "${BASH_SOURCE[0]}")
+REAL_AWS=${AWS_REAL_BIN:-}
+if [[ -z $REAL_AWS ]]; then
+  while IFS= read -r c; do
+    [[ $(readlink -f -- "$c") != "$self" ]] && { REAL_AWS=$c; break; }
+  done < <(type -ap aws)
+fi
+if [[ ! -x $REAL_AWS ]]; then
+  echo "aws-wrapper: cannot find the real aws binary (set AWS_REAL_BIN)" >&2
+  exit 127
+fi
+
+# Needs bash 5+ (EPOCHREALTIME). On older bash, get out of the way.
+[[ -n ${EPOCHREALTIME:-} ]] || exec "$REAL_AWS" "$@"
+
+# --- helpers ----------------------------------------------------------------
+fmt_ts() {  # fmt_ts VAR EPOCH  -> 2026-10-30T09:14:02.113-0400
+  local s=${2%%[.,]*} f=${2#*[.,]}
+  printf -v "$1" '%(%Y-%m-%dT%H:%M:%S)T.%s%(%z)T' "$s" "${f:0:3}" "$s"
+}
+to_us() {   # to_us VAR EPOCH  -> integer microseconds
+  local s=${2%%[.,]*} f=${2#*[.,]}
+  printf -v "$1" '%d' $(( s * 1000000 + 10#$f ))
+}
+logline() { # logline EPOCH MESSAGE
+  local ts; fmt_ts ts "$1"
+  printf '[%s] [%s] %s\n' "$ts" "$ID" "$2" >&7
+}
+stream() {  # stream LABEL STATEFILE — pass one stream through and log it
+  local label=$1 state=$2 line nl t ts last=
+  while :; do
+    if IFS= read -r line; then nl=$'\n'
+    elif [[ -n $line ]]; then nl=          # final line with no newline
+    else break; fi
+    t=$EPOCHREALTIME
+    printf '%s%s' "$line" "$nl"
+    fmt_ts ts "$t"
+    printf '[%s] [%s] %s %s\n' "$ts" "$ID" "$label" "${line%$'\r'}" >&7
+    last=$t
+    [[ -n $nl ]] || break
+  done
+  [[ -n $last ]] && printf '%s\n' "$last" > "$state"
+}
+
+# --- pick the log file for the current 08:00/20:00 window -------------------
+t0=$EPOCHREALTIME
+now=${t0%%[.,]*}
+printf -v hour '%(%H)T' "$now"; hour=$((10#$hour))
+if   (( hour >= 20 )); then printf -v period '%(%Y-%m-%d)T_2000' "$now"
+elif (( hour >= 8  )); then printf -v period '%(%Y-%m-%d)T_0800' "$now"
+else                        printf -v period '%(%Y-%m-%d)T_2000' $(( now - 43200 ))  # yesterday 20:00
+fi
+
+LOG_DIR=${AWS_LOG_DIR:-$HOME/.aws/logs}
+KEEP_DAYS=${AWS_LOG_KEEP_DAYS:-30}
+LOG="$LOG_DIR/aws-cli_${period}.log"
+
+umask 077   # logs can contain secrets
+mkdir -p -- "$LOG_DIR" 2>/dev/null || exec "$REAL_AWS" "$@"
+
+if [[ ! -e $LOG ]]; then   # first command of a new window = rotation
+  : >> "$LOG"
+  ln -sfn -- "${LOG##*/}" "$LOG_DIR/aws-cli.log"   # stable name for tail -F
+  if (( KEEP_DAYS > 0 )); then
+    find "$LOG_DIR" -maxdepth 1 -name 'aws-cli_*.log' -mtime +"$KEEP_DAYS" -delete 2>/dev/null &
+    find "$LOG_DIR/.env-state" -type f -mtime +"$KEEP_DAYS" -delete 2>/dev/null &
+  fi
+fi
+{ exec 7>>"$LOG"; } 2>/dev/null || exec "$REAL_AWS" "$@"   # never block aws on logging
+
+printf -v ID '%04x%04x' "$RANDOM" "$RANDOM"
+printf -v cmdline ' %q' "$@"
+
+# --- commands that need a real terminal: log start/end only -----------------
+interactive=0
+words=() skip=0
+for a in "$@"; do
+  if (( skip )); then skip=0; continue; fi
+  case $a in
+    --profile|--region|--output|--endpoint-url|--query|--ca-bundle|--color|\
+    --cli-read-timeout|--cli-connect-timeout|--cli-binary-format) skip=1 ;;
+    -*) ;;
+    *) words+=("$a"); (( ${#words[@]} == 2 )) && break ;;
+  esac
+done
+case "${words[0]-} ${words[1]-}" in
+  "configure "|"configure sso"*|"ssm start-session"|"ecs execute-command") interactive=1 ;;
+esac
+[[ " $* " == *" --cli-auto-prompt "* || ${AWS_CLI_AUTO_PROMPT:-} == on* ]] && interactive=1
+[[ ${!#} == help ]] && interactive=1
+
+# --- AWS_* environment tracking (per calling shell) ---------------------------
+# Snapshot exported AWS_* vars, diff against what this shell had at its last
+# aws command, log the differences. Secrets are logged as a short hash so you
+# can see that they changed without the value landing in the log.
+declare -A cur=() old=()
+for n in $(compgen -e); do
+  [[ $n == AWS_* ]] || continue
+  case $n in AWS_LOG_DIR|AWS_LOG_KEEP_DAYS|AWS_REAL_BIN) continue ;; esac
+  v=${!n}
+  case $n in
+    *SECRET*|*TOKEN*|*PASSWORD*)
+      h=$(printf '%s' "$v" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)
+      v="<redacted sha256:$h len:${#v}>" ;;
+    *) printf -v v '%q' "$v" ;;
+  esac
+  cur[$n]=$v
+done
+
+# Key the state on the parent shell's PID + start time (guards against PID reuse)
+pstart=$(ps -o lstart= -p "$PPID" 2>/dev/null); pstart=${pstart//[^0-9A-Za-z]/}
+STATE_DIR="$LOG_DIR/.env-state"
+mkdir -p -- "$STATE_DIR" 2>/dev/null
+state="$STATE_DIR/${PPID}_${pstart:-unknown}"
+
+oldperiod=
+if [[ -r $state ]]; then
+  { IFS= read -r oldperiod
+    while IFS= read -r l; do old[${l%%=*}]=${l#*=}; done; } < "$state"
+fi
+
+env_lines=()
+mapfile -t names < <(printf '%s\n' "${!cur[@]}" "${!old[@]}" | grep . | sort -u)
+if [[ $oldperiod != "$period" ]]; then
+  # New shell, or first command of this shell in a new log file: full snapshot
+  snap=
+  for n in "${names[@]}"; do [[ -n ${cur[$n]+x} ]] && snap+=" $n=${cur[$n]}"; done
+  env_lines+=("ENV snapshot shell=$PPID${snap:- (no AWS_* vars)}")
+else
+  for n in "${names[@]}"; do
+    if   [[ -z ${old[$n]+x} ]]; then env_lines+=("ENV set $n=${cur[$n]}")
+    elif [[ -z ${cur[$n]+x} ]]; then env_lines+=("ENV unset $n (was ${old[$n]})")
+    elif [[ ${old[$n]} != "${cur[$n]}" ]]; then env_lines+=("ENV changed $n: ${old[$n]} -> ${cur[$n]}")
+    fi
+  done
+fi
+
+{ printf '%s\n' "$period"
+  for n in "${!cur[@]}"; do printf '%s=%s\n' "$n" "${cur[$n]}"; done
+} > "$state.$$" 2>/dev/null && mv -f -- "$state.$$" "$state" 2>/dev/null
+
+logline "$t0" "START shell=$PPID user=${USER:-$(id -un)} host=${HOSTNAME} cwd=${PWD} profile=${AWS_PROFILE:--} region=${AWS_REGION:-${AWS_DEFAULT_REGION:--}}$( ((interactive)) && echo ' mode=interactive(output-not-captured)') cmd: aws${cmdline}"
+for l in "${env_lines[@]}"; do logline "$t0" "$l"; done
+
+trap ':' INT   # let aws handle Ctrl-C; we still write END
+
+if (( interactive )); then
+  "$REAL_AWS" "$@" 7>&-
+  rc=$?
+  t1=$EPOCHREALTIME
+  last_ts=n/a
+else
+  tmp=$(mktemp -d) || exit 1
+  trap 'rm -rf -- "$tmp"' EXIT
+  export AWS_PAGER=""   # output is piped; never invoke less
+
+  {
+    "$REAL_AWS" "$@" 2>&1 >&3 3>&- 7>&- | stream ERR "$tmp/err" >&2 3>&-
+    printf '%s\n' "${PIPESTATUS[0]}" > "$tmp/rc"
+  } 3>&1 | stream OUT "$tmp/out"
+
+  t1=$EPOCHREALTIME
+  if [[ -s $tmp/rc ]]; then read -r rc < "$tmp/rc"; else rc=130; fi
+
+  # last output = later of the last stdout line and the last stderr line
+  last= ; last_us=0
+  for f in "$tmp/out" "$tmp/err"; do
+    [[ -s $f ]] || continue
+    read -r t < "$f"; to_us u "$t"
+    (( u > last_us )) && { last=$t; last_us=$u; }
+  done
+  if [[ -n $last ]]; then fmt_ts last_ts "$last"; else last_ts=none; fi
+fi
+
+to_us a "$t0"; to_us b "$t1"
+logline "$t1" "END exit=$rc duration_ms=$(( (b - a) / 1000 )) last_output=$last_ts"
+exit "$rc"
