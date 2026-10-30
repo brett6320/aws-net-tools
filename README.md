@@ -4,7 +4,7 @@
 
 Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, showing which
 Direct Connect path AWS prefers, backing up Direct Connect configuration, reviewing firewall policy, security groups, NACLs and prefix lists, and running centralized VPC endpoints. All but the
-`vpce` tools write self-contained HTML reports you can share or attach to a ticket.
+`vpce` and `phz` tools write self-contained HTML reports you can share or attach to a ticket.
 
 ## Tools
 
@@ -24,11 +24,12 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 | [`firewall`](tools/firewall/) (suite of 11) | Firewall Manager, EC2 | Read-only reviews of Firewall Manager policies (rule parity, NACL policy vs live NACLs, compliance, policy snapshots and drift), NACL shadowed rules, security group inventory, access gaps, migration checks, quotas and per-resource removal effects (`sg_effect`), and prefix list capacity and drift |
 | [`pl_review`](tools/pl_review/) | EC2 managed prefix lists | Before growing a managed prefix list: every security group that references it, in any account, and whether the proposed `MaxEntries` would push any of them over the rule quota |
 
-**Centralized VPC endpoints**
+**Centralized VPC endpoints and private hosted zones**
 
 | Tool | AWS service | What it does |
 |---|---|---|
-| [`vpce`](tools/vpce/) (suite of 3) | VPC endpoints, Route 53 | List VPC endpoints with their private hosted zones (`vpce_list`), review PHZ to VPC associations (`phz_review`), and generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`) |
+| [`vpce`](tools/vpce/) | VPC endpoints, Route 53 | List VPC endpoints with their private hosted zones (`vpce_list`) |
+| [`phz`](tools/phz/) (suite of 2) | Route 53 private hosted zones | Review PHZ to VPC associations in either direction (`phz_review`), and generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`) |
 
 The tools work well together. For example:
 - Use `ipam_locate` to find who owns an unknown address, then `reachability_trace` to check whether traffic
@@ -73,7 +74,7 @@ covers usage, options, output, configuration and IAM permissions.
 | Area | Convention |
 |---|---|
 | **Safety** | Nothing changes AWS resources except `reachability_trace`'s `create`, `analyze` and `delete-*` commands. Those are dry-run by default: they log `[DRY-RUN]` with the exact request and need `--execute` or `--apply`. `phz_assoc` and `dx_backup restore-plan` only print the commands for you to review and run |
-| **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce`, `pl_review` and `dx_route` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` are never picked automatically, and `pl_review` only uses profiles whose names start with `hcli-` |
+| **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce`, `phz`, `pl_review` and `dx_route` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` are never picked automatically, and `pl_review` only uses profiles whose names start with `hcli-` |
 | **Configuration** | Each tool or suite reads a `.env` file (see its `.env.example`) from its own directory, or from the nearest parent directory that has one (such as the repository root). The directory you run a tool from doesn't matter. CLI flags override `.env`, which overrides defaults |
 | **TLS** | The OS certificate store is used through `truststore` (macOS, Windows, Linux), so corporate TLS inspection works without extra configuration |
 
@@ -87,7 +88,8 @@ Where each tool writes, and what it expects:
 | `dx_backup` | JSON backups in `backups/<account>/<timestamp>/`; diff HTML in `reports/<date>/<account>/`; restore plan: shell script | `DXB_` | 0 ok, 1 error, 2 changes found |
 | `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal |
 | `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated |
-| `vpce/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
+| `vpce/*` | stdout: table, JSON or CSV | `VPCE_` | 0 ok, 1 error, 2 bad input |
+| `phz/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
 
 The `reports/` and `backups/` roots are relative to the current directory and are git-ignored.
 
@@ -107,6 +109,7 @@ pull request and weekly, and Dependabot proposes dependency updates weekly.
 | [`firewall`](tools/firewall/) | [![firewall tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-coverage.json) |
 | [`pl_review`](tools/pl_review/) | [![pl_review tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-coverage.json) |
 | [`vpce`](tools/vpce/) | [![vpce tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-coverage.json) |
+| [`phz`](tools/phz/) | [![phz tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-phz.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-phz.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fphz-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fphz-coverage.json) |
 
 The test and coverage badges show the latest run on `main` on Python 3.13. The workflow publishes them to
 the `badges` branch, so no external service is involved. The totals at the top add up the test counts and
@@ -138,13 +141,13 @@ tools/
     ├── README.md          # what the suite's tools have in common, with links to each tool's page
     ├── .env.example
     ├── requirements.txt
-    └── ...                # the tools, as <tool>.py files (firewall) or <tool>/ folders (vpce)
+    └── ...                # the tools, as <tool>.py files (firewall) or <tool>/ folders (vpce, phz)
 ```
 
 New tools go under `tools/` with the same layout and conventions, plus a row in the tables above.
 
 `firewall` and `vpce` were merged in from the `aws-firewall-tools` and `aws-vpce-tools` repositories with their
-history, so `git log --follow` works on their files. `pl_review` came from a standalone project with no version
+history, so `git log --follow` works on their files (`phz` was later split out of `vpce`). `pl_review` came from a standalone project with no version
 history.
 
 ## License
