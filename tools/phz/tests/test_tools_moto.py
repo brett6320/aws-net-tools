@@ -4,6 +4,7 @@ moto does not implement Route 53 VPC association authorizations, so cross-accoun
 behaviour is covered by the planner tests instead.
 """
 import json
+from pathlib import Path
 
 import boto3
 import pytest
@@ -85,3 +86,45 @@ def test_phz_assoc_name_selection_sees_existing_associations(env, capsys):
     # Selecting by name must load current VPCs; otherwise the hub VPC looks "not associated".
     assert pa.main(["disassociate", "--zone-name", "ssm.*", "--vpc", env["hub"], "-q"]) == 0
     assert "last VPC" in capsys.readouterr().out
+
+
+@pytest.fixture
+def no_auths(monkeypatch):
+    # moto does not implement ListVPCAssociationAuthorizations
+    monkeypatch.setattr(pr, "list_authorizations", lambda route53, zone_id: [])
+
+
+def test_outputs_include_accounts(env, no_auths, capsys):
+    rows = run_json(pr, ["zones"], capsys)
+    assert rows[0]["account"] == ACCT and rows[0]["vpc_owners"] == {env["hub"]: ACCT}
+    rows = run_json(pr, ["by-zone", "--zone-name", "ssm.*"], capsys)
+    assert [(r["zone_owner"], r["vpc_owner"], r["cross_account"]) for r in rows] == [(ACCT, ACCT, False)]
+    assert pr.main(["by-zone", "--zone-name", "ssm.*", "-o", "csv", "-q"]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "zone_id,zone_name,zone_owner,vpc_id,vpc_region,vpc_owner,cross_account,status"
+    rows = run_json(pr, ["by-zone", "--zone-name", "ssm.*", "--no-resolve-owners"], capsys)
+    assert rows[0]["vpc_owner"] == "unknown" and rows[0]["cross_account"] is None
+
+
+def _report_data(path):
+    text = path.read_text()
+    raw = text.split('<script type="application/json" id="phz-data">', 1)[1].split("</script>", 1)[0]
+    return json.loads(raw.replace("<\\/", "</"))
+
+
+@pytest.mark.parametrize("argv", [["zones"], ["by-zone", "--zone-tag", "Purpose=vpce"]])
+def test_html_report_from_phz_account(env, no_auths, capsys, tmp_path, argv):
+    assert pr.main(argv + ["-o", "html", "--reports-dir", str(tmp_path), "-q"]) == 0
+    path = Path(capsys.readouterr().out.strip())
+    assert path.parent.name == ACCT and path.is_relative_to(tmp_path)
+    d = _report_data(path)
+    assert d["vpc_counts_complete"] and d["authorizations_listed"]
+    assert [(z["zone_id"], z["owner"], z["vpc_count"], z["tags"]) for z in d["zones"]] == [(env["zone"], ACCT, 1, {"Purpose": "vpce"})]
+    assert [(a["vpc_id"], a["vpc_owner"], a["zone_owner"], a["status"]) for a in d["associations"]] == [(env["hub"], ACCT, ACCT, "associated")]
+
+
+def test_html_report_by_vpc(env, capsys, tmp_path):
+    out = tmp_path / "r.html"
+    assert pr.main(["by-vpc", "--vpc", env["hub"], "-o", "html", "--out", str(out), "-q"]) == 0
+    d = _report_data(out)
+    assert not d["vpc_counts_complete"] and not d["authorizations_listed"] and d["notes"]
+    assert d["zones"][0]["owner"] == ACCT and d["associations"][0]["vpc_owner"] == ACCT

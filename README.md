@@ -4,7 +4,7 @@
 
 Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, showing which
 Direct Connect path AWS prefers, backing up Direct Connect configuration, reviewing firewall policy, security groups, NACLs and prefix lists, and running centralized VPC endpoints. All but the
-`vpce` and `phz` tools write self-contained HTML reports you can share or attach to a ticket.
+`vpce` and `phz_assoc` tools write self-contained HTML reports you can share or attach to a ticket (`phz_review` with `-o html`).
 
 ## Tools
 
@@ -29,7 +29,7 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 | Tool | AWS service | What it does |
 |---|---|---|
 | [`vpce`](tools/vpce/) | VPC endpoints, Route 53 | List VPC endpoints with their private hosted zones (`vpce_list`) |
-| [`phz`](tools/phz/) (suite of 2) | Route 53 private hosted zones | Review PHZ to VPC associations in either direction (`phz_review`), and generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`) |
+| [`phz`](tools/phz/) (suite of 2) | Route 53 private hosted zones | Review PHZ to VPC associations in either direction with owner accounts, as a table or an interactive HTML report with a planner for moving VPCs to another PHZ (`phz_review`), and generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`) |
 
 The tools work well together. For example:
 - Use `ipam_locate` to find who owns an unknown address, then `reachability_trace` to check whether traffic
@@ -89,7 +89,7 @@ Where each tool writes, and what it expects:
 | `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal |
 | `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated |
 | `vpce/*` | stdout: table, JSON or CSV | `VPCE_` | 0 ok, 1 error, 2 bad input |
-| `phz/*` | stdout: table, JSON or CSV (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
+| `phz/*` | stdout: table, JSON or CSV; `phz_review -o html`: HTML in `reports/<date>/<account>/` (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
 
 The `reports/` and `backups/` roots are relative to the current directory and are git-ignored.
 

@@ -6,11 +6,11 @@ Tools for reviewing and managing **Route 53 private hosted zone (PHZ) to VPC ass
 
 The two tools in this suite share the code in `lib/`. This page covers what they have in common. For the other tools in this repository, see the [repository README](../../README.md).
 
-All tools are **read-only**: they never change AWS resources. `phz_assoc` prints the commands for you to review and run.
+All tools are **read-only**: they never change AWS resources. `phz_assoc` and the `phz_review` HTML report's migration planner print the commands for you to review and run.
 
 | Tool | Purpose |
 |---|---|
-| [`phz_review`](phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`) |
+| [`phz_review`](phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`). `-o html` writes an interactive report with a planner for moving VPCs to a different PHZ |
 | [`phz_assoc`](phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations |
 
 All tools are Python 3.11+ / boto3.
@@ -78,6 +78,9 @@ python tools/phz/phz_review/phz_review.py by-vpc --profile spoke \
 
 # Which VPCs are associated with (or authorized for) the endpoint PHZs?
 python tools/phz/phz_review/phz_review.py by-zone --profile hub --zone-tag Purpose=vpce
+
+# Interactive HTML report with the migration planner
+python tools/phz/phz_review/phz_review.py zones --profile hub -o html
 
 # Generate the cross-account association script (hub owns PHZs, spoke owns VPC)
 python tools/phz/phz_assoc/phz_assoc.py associate \
