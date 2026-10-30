@@ -1,6 +1,6 @@
- #!/usr/bin/env bash
+#!/usr/bin/env bash
 #
-# AWS Network Tools License
+# AWS CLI Logger License
 #
 # Copyright (c) 2026 brett6320 (https://github.com/brett6320)
 #
@@ -20,8 +20,8 @@
 # it is distributed, must:
 #
 #   a. keep the copyright notice above and this license text; and
-#   b. credit the Author, for example "Based on aws-net-tools by
-#      brett6320 (https://github.com/brett6320/aws-net-tools)",
+#   b. credit the Author, for example "Based on aws-cli-logger by
+#      brett6320 (https://github.com/brett6320)",
 #      in its documentation, notices, or other place where third-party
 #      attributions normally appear.
 #
@@ -88,21 +88,49 @@
 # shell, detected when its next aws command runs.
 # The bracketed ID ties lines together when several shells log concurrently.
 
-# --- locate the real aws ----------------------------------------------------
-self=$(readlink -f -- "${BASH_SOURCE[0]}")
-REAL_AWS=${AWS_REAL_BIN:-}
-if [[ -z $REAL_AWS ]]; then
-  while IFS= read -r c; do
-    [[ $(readlink -f -- "$c") != "$self" ]] && { REAL_AWS=$c; break; }
-  done < <(type -ap aws)
+# --- make sure we're in bash 5+ ---------------------------------------------
+# This block is plain POSIX sh so it still works if the script is started by
+# /bin/sh, an old bash (macOS ships 3.2), or bash in POSIX mode. If so, try to
+# re-run under a newer bash; failing that, pass straight through to aws.
+case "${BASH_VERSINFO:-0}:${SHELLOPTS:-}" in
+  [5-9]:*posix*|[1-4]:*|0:*) bash_ok=0 ;;
+  *) bash_ok=1 ;;
+esac
+if [ "$bash_ok" = 0 ] && [ -z "${AWS_WRAPPER_REEXEC:-}" ]; then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash /usr/bin/bash /bin/bash; do
+    if [ -x "$b" ] && "$b" -c '[ "${BASH_VERSINFO[0]}" -ge 5 ]' 2>/dev/null; then
+      AWS_WRAPPER_REEXEC=1 exec "$b" "$0" "$@"
+    fi
+  done
 fi
-if [[ ! -x $REAL_AWS ]]; then
+
+# --- locate the real aws (POSIX sh) -----------------------------------------
+self=$(readlink -f -- "$0")
+REAL_AWS=${AWS_REAL_BIN:-}
+if [ -z "$REAL_AWS" ]; then
+  save_ifs=$IFS; IFS=:
+  for d in $PATH; do
+    c="${d:-.}/aws"
+    if [ -f "$c" ] && [ -x "$c" ] && [ "$(readlink -f -- "$c")" != "$self" ]; then
+      REAL_AWS=$c; break
+    fi
+  done
+  IFS=$save_ifs
+fi
+if [ ! -x "$REAL_AWS" ]; then
   echo "aws-wrapper: cannot find the real aws binary (set AWS_REAL_BIN)" >&2
   exit 127
 fi
 
-# Needs bash 5+ (EPOCHREALTIME). On older bash, get out of the way.
-[[ -n ${EPOCHREALTIME:-} ]] || exec "$REAL_AWS" "$@"
+# Already inside the wrapper (e.g. a second copy on PATH, or aws calling aws
+# via credential_process): don't log twice.
+[ -z "${AWS_WRAPPER_ACTIVE:-}" ] || exec "$REAL_AWS" "$@"
+
+# No suitable bash: get out of the way rather than break aws.
+[ "$bash_ok" = 1 ] || [ -n "${AWS_WRAPPER_REEXEC:-}" ] || exec "$REAL_AWS" "$@"
+[ -n "${EPOCHREALTIME:-}" ] || exec "$REAL_AWS" "$@"
+unset AWS_WRAPPER_REEXEC
+export AWS_WRAPPER_ACTIVE=1
 
 # --- helpers ----------------------------------------------------------------
 fmt_ts() {  # fmt_ts VAR EPOCH  -> 2026-10-30T09:14:02.113-0400
@@ -187,7 +215,7 @@ esac
 declare -A cur=() old=()
 for n in $(compgen -e); do
   [[ $n == AWS_* ]] || continue
-  case $n in AWS_LOG_DIR|AWS_LOG_KEEP_DAYS|AWS_REAL_BIN) continue ;; esac
+  case $n in AWS_LOG_DIR|AWS_LOG_KEEP_DAYS|AWS_REAL_BIN|AWS_WRAPPER_*) continue ;; esac
   v=${!n}
   case $n in
     *SECRET*|*TOKEN*|*PASSWORD*)
