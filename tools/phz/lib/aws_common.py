@@ -410,8 +410,14 @@ def _cell(v: Any) -> str:
     return str(v)
 
 
-def render(rows: Sequence[Any], columns: Sequence[str], fmt: str, stream=None) -> None:
-    """Render rows (dicts/dataclasses) as table, csv or json to stdout."""
+HIGHLIGHT = ("\033[33m", "\033[0m")  # yellow
+
+
+def render(rows: Sequence[Any], columns: Sequence[str], fmt: str, stream=None, highlight=None) -> None:
+    """Render rows (dicts/dataclasses) as table, csv or json to stdout.
+
+    ``highlight(row) -> bool`` colors matching table rows when writing to a terminal (honours NO_COLOR).
+    """
     stream = stream or sys.stdout
     data = [_plain(r) for r in rows]
     if fmt == "json":
@@ -429,8 +435,10 @@ def render(rows: Sequence[Any], columns: Sequence[str], fmt: str, stream=None) -
     buf = io.StringIO()
     buf.write("  ".join(c.upper().ljust(widths[i]) for i, c in enumerate(columns)).rstrip() + "\n")
     buf.write("  ".join("-" * w for w in widths) + "\n")
-    for row in table:
-        buf.write("  ".join(v.ljust(widths[i]) for i, v in enumerate(row)).rstrip() + "\n")
+    color = highlight is not None and not os.getenv("NO_COLOR") and getattr(stream, "isatty", lambda: False)()
+    for r, row in zip(data, table):
+        line = "  ".join(v.ljust(widths[i]) for i, v in enumerate(row)).rstrip()
+        buf.write((HIGHLIGHT[0] + line + HIGHLIGHT[1] if color and highlight(r) else line) + "\n")
     stream.write(buf.getvalue())
     if not data:
         stream.write("(no results)\n")

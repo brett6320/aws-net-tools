@@ -69,6 +69,12 @@ def add_zone_selectors(p: argparse.ArgumentParser) -> None:
     p.add_argument("--exclude-zone-tag", action="append", metavar="KEY[=V1,V2]", help="Zone tag exclude filter")
 
 
+def add_stale_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--show-stale-authorizations", action="store_true",
+                   help="Also show authorizations for VPCs that are already associated (hidden by default; "
+                        "the HTML report has a toggle)")
+
+
 def add_owner_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-resolve-owners", action="store_true",
                    help="Don't look up VPC owner accounts (shown as 'unknown')")
@@ -296,7 +302,8 @@ def cmd_zones(args: argparse.Namespace, ctx: AccountContext) -> Review:
                 "vpc_count": len(z.vpcs),
                 "vpcs": [f"{r}/{v}" for r, v in sorted(z.vpcs)],
                 "vpc_owners": {v: owners.get(v, UNKNOWN) for _, v in sorted(z.vpcs)},
-                "pending_authorizations": [f"{r}/{v}" for r, v in sorted(z.authorizations)],
+                "pending_authorizations": [f"{r}/{v}" for r, v in sorted(z.authorizations) if (r, v) not in z.vpcs],
+                "stale_authorizations": [f"{r}/{v}" for r, v in sorted(z.authorizations) if (r, v) in z.vpcs],
                 "comment": z.comment,
                 "tags": z.tags,
             }
@@ -397,7 +404,9 @@ def build_parser() -> argparse.ArgumentParser:
     z = sub.add_parser("zones", parents=[parent], help="List PHZs in the PHZ account with associated VPCs")
     add_zone_selectors(z)
     z.add_argument("--include-public", action="store_true", help="Include public hosted zones")
-    z.add_argument("--authorizations", action="store_true", help="Also list pending cross-account association authorizations (always on for html)")
+    z.add_argument("--authorizations", action="store_true",
+                   help="Also list cross-account association authorizations for VPCs not yet associated (always on for html)")
+    add_stale_arg(z)
     z.add_argument("--wide", action="store_true", help="Show VPC list, VPC owners, comment and tags in table output")
     add_owner_args(z)
 
@@ -408,6 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("by-zone", parents=[parent], help="VPCs associated with / authorized for PHZ(s)")
     add_zone_selectors(b)
     b.add_argument("--no-authorizations", action="store_true", help="Skip listing association authorizations")
+    add_stale_arg(b)
     add_owner_args(b)
     return p
 
@@ -462,14 +472,29 @@ def main(argv: list[str] | None = None) -> int:
         print(path)
         return 0
 
+    rows, highlight = review.rows, None
+    show_stale = getattr(args, "show_stale_authorizations", False)
     if args.command == "zones":
         cols = COLUMNS["zones_wide"] if args.wide else COLUMNS["zones"]
         if args.authorizations:
-            cols = cols + ["pending_authorizations"]
+            cols = cols + ["pending_authorizations"] + (["stale_authorizations"] if show_stale else [])
+            highlight = lambda r: bool(r["pending_authorizations"])  # noqa: E731
+        if not show_stale:
+            rows = [{k: v for k, v in r.items() if k != "stale_authorizations"} for r in rows]
     else:
         cols = COLUMNS[args.command]
-    render(review.rows, cols, args.output)
-    log.info("%d row(s)", len(review.rows))
+        if args.command == "by-zone":
+            if not show_stale:
+                rows = [r for r in rows if r["status"] != "authorized"]
+            highlight = lambda r: r["status"] == "authorized-pending"  # noqa: E731
+    render(rows, cols, args.output, highlight=highlight)
+    hidden = len(review.rows) - len(rows) if args.command == "by-zone" else sum(len(r.get("stale_authorizations", [])) for r in review.rows)
+    pending = sum(1 for a in review.associations if a["status"] == "authorized-pending")
+    if pending:
+        log.info("%d authorization(s) without an association", pending)
+    if hidden and not show_stale:
+        log.info("%d stale authorization(s) hidden (VPC already associated); --show-stale-authorizations to list", hidden)
+    log.info("%d row(s)", len(rows))
     return 0
 
 

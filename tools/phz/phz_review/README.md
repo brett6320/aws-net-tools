@@ -29,7 +29,8 @@ python phz_review.py <subcommand> ... -o html [--out FILE | --reports-dir DIR]
 | `--zone-name GLOB` | Zone name glob, e.g. `'*.us-east-1.amazonaws.com'` |
 | `--zone-tag KEY[=V1,V2]` / `--exclude-zone-tag` | Zone tag filters (same syntax as `vpce_list --tag`) |
 | `--vpc ID\|ARN` | `by-vpc`: VPC(s) to look up; ARNs may span accounts (each is queried as its own owner, via `--role-name` if needed) |
-| `--authorizations` | `zones`: add pending cross-account authorizations (always on with `-o html`) |
+| `--authorizations` | `zones`: add cross-account authorizations for VPCs not yet associated (`pending_authorizations`; always on with `-o html`) |
+| `--show-stale-authorizations` | `zones`, `by-zone`: also show authorizations for VPCs that are already associated. They duplicate an association, so they're hidden by default (`zones` adds a `stale_authorizations` column). The HTML report always holds them, behind a toggle |
 | `--no-authorizations` | `by-zone`: skip listing authorizations |
 | `--no-resolve-owners` | `zones`, `by-zone`: skip looking up VPC owner accounts (`--resolve-owners`, the old opt-in, is still accepted) |
 | `--ipam-profile` / `--ipam-region` / `--ipam-id` | `zones`, `by-zone`: read VPC owners from IPAM first: one bulk pull covering every account and Region the IPAM monitors (env `VPCE_IPAM_PROFILE`, `VPCE_IPAM_REGION`, `VPCE_IPAM_ID`) |
@@ -59,7 +60,9 @@ Missing VPCs are looked up from each source in turn, each asked only about the V
 
 VPCs that are still unknown show `unknown`; the HTML planner asks for their account.
 
-In `by-zone`, `status` is `associated`, `authorized` (authorization still exists for an associated VPC, which is stale), or `authorized-pending` (authorized but not yet associated).
+Authorizations with no matching association are highlighted (yellow) in table output on a terminal: `by-zone` rows with status `authorized-pending`, and `zones --authorizations` rows with `pending_authorizations`. Set `NO_COLOR` to turn color off. The log also counts them, and the stale ones that were hidden.
+
+In `by-zone`, `status` is `associated`, `authorized` (authorization still exists for an associated VPC, which is stale), or `authorized-pending` (authorized but not yet associated). `authorized` rows are hidden unless you pass `--show-stale-authorizations`.
 
 ### Examples
 
