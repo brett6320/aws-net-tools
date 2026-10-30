@@ -25,6 +25,10 @@ def aws_env(monkeypatch, tmp_path):
     monkeypatch.setenv("AWS_CONFIG_FILE", str(cfg))
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "aws_credentials"))
     monkeypatch.delenv("VPCE_PROFILE_EXCLUDE_SUFFIXES", raising=False)
+    # Never touch the developer's real VPC owner map.
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
+    monkeypatch.delenv("VPCE_OWNER_CACHE", raising=False)
     from lib.aws_profiles import profile_accounts
 
     profile_accounts.cache_clear()
