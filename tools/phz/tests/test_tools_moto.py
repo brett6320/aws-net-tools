@@ -128,3 +128,49 @@ def test_html_report_by_vpc(env, capsys, tmp_path):
     d = _report_data(out)
     assert not d["vpc_counts_complete"] and not d["authorizations_listed"] and d["notes"]
     assert d["zones"][0]["owner"] == ACCT and d["associations"][0]["vpc_owner"] == ACCT
+
+
+@pytest.fixture
+def auths(monkeypatch, env):
+    # One stale authorization (hub, already associated) and one with no association (spoke).
+    monkeypatch.setattr(pr, "list_authorizations", lambda route53, zone_id: [("us-east-1", env["hub"]), ("us-east-1", env["spoke"])])
+
+
+def test_by_zone_hides_stale_authorizations_by_default(env, auths, capsys):
+    rows = run_json(pr, ["by-zone", "--zone-name", "ssm.*"], capsys)
+    assert [(r["vpc_id"], r["status"]) for r in rows] == [(env["hub"], "associated"), (env["spoke"], "authorized-pending")]
+    rows = run_json(pr, ["by-zone", "--zone-name", "ssm.*", "--show-stale-authorizations"], capsys)
+    assert sorted(r["status"] for r in rows) == ["associated", "authorized", "authorized-pending"]
+
+
+def test_zones_splits_pending_and_stale_authorizations(env, auths, capsys):
+    rows = run_json(pr, ["zones", "--authorizations"], capsys)
+    assert rows[0]["pending_authorizations"] == [f"us-east-1/{env['spoke']}"] and "stale_authorizations" not in rows[0]
+    assert pr.main(["zones", "--authorizations", "--show-stale-authorizations", "-o", "csv", "-q"]) == 0
+    header, line = capsys.readouterr().out.splitlines()[:2]
+    assert header.endswith("pending_authorizations,stale_authorizations") and line.endswith(f"us-east-1/{env['hub']}")
+
+
+def test_table_highlights_only_on_a_terminal(monkeypatch):
+    import io
+
+    from lib.aws_common import render
+
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    rows = [{"status": "associated"}, {"status": "authorized-pending"}]
+    hl = lambda r: r["status"] == "authorized-pending"  # noqa: E731
+    out = Tty()
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    render(rows, ["status"], "table", out, highlight=hl)
+    lines = out.getvalue().splitlines()
+    assert "\033[33m" not in lines[2] and lines[3].startswith("\033[33m")
+    plain = io.StringIO()
+    render(rows, ["status"], "table", plain, highlight=hl)
+    assert "\033[" not in plain.getvalue()
+    monkeypatch.setenv("NO_COLOR", "1")
+    out = Tty()
+    render(rows, ["status"], "table", out, highlight=hl)
+    assert "\033[" not in out.getvalue()
