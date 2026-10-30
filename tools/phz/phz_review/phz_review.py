@@ -20,13 +20,16 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
+
+from botocore.exceptions import BotoCoreError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lib.aws_common import (  # noqa: E402
     AccountContext,
+    AccountSessions,
     ClientError,
     add_account_args,
     add_common_args,
@@ -36,7 +39,9 @@ from lib.aws_common import (  # noqa: E402
     parse_tag_filters,
     parse_vpc_refs,
     render,
+    validate_account,
 )
+from lib.aws_profiles import exclude_suffixes, profile_accounts  # noqa: E402
 from lib.route53_helpers import Zone, list_authorizations, load_tags, load_vpcs, select_zones, zones_by_vpc  # noqa: E402
 from phz_html import render_html  # noqa: E402
 
@@ -67,21 +72,126 @@ def add_owner_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-resolve-owners", action="store_true",
                    help="Don't look up VPC owner accounts (shown as 'unknown')")
     p.add_argument("--resolve-owners", action="store_true", help=argparse.SUPPRESS)  # now the default; kept for old scripts
+    p.add_argument("--owner-accounts", metavar="ACCT[,ACCT]|org", default=os.getenv("VPCE_OWNER_ACCOUNTS"),
+                   help="Accounts to search for VPCs the PHZ account can't see (default: every account in your "
+                        "local AWS config; 'org' lists the AWS Organization's accounts)")
+    p.add_argument("--no-owner-search", action="store_true",
+                   help="Don't search other accounts for VPC owners (IPAM and the PHZ account are still used)")
+    p.add_argument("--ipam-profile", default=os.getenv("VPCE_IPAM_PROFILE"),
+                   help="Profile for the IPAM owner / delegated admin account. VPC owners are then read from IPAM "
+                        "in one bulk pull before any per-account lookups")
+    p.add_argument("--ipam-region", default=os.getenv("VPCE_IPAM_REGION"), help="IPAM home Region (default: --region)")
+    p.add_argument("--ipam-id", default=os.getenv("VPCE_IPAM_ID"), help="IPAM to use when the Region has several")
 
 
-def resolve_vpc_owners(ctx: AccountContext, pairs: set[tuple[str, str]]) -> dict[str, str]:
-    """Best-effort VPC owner lookup from the PHZ account (sees own + RAM-shared VPCs only)."""
-    sessions = ctx.phz_sessions()
-    by_region: dict[str, list[str]] = defaultdict(list)
-    for region, vpc_id in pairs:
-        by_region[region].append(vpc_id)
+ClientFor = Callable[[str, str], Any]  # (account, region) -> ec2 client
+
+
+def describe_owners(ec2, ids: list[str]) -> dict[str, str]:
     owners: dict[str, str] = {}
-    for region, ids in by_region.items():
-        ec2 = sessions.client("ec2", ctx.phz_account, region)
-        for i in range(0, len(ids), 200):
-            for page in ec2.get_paginator("describe_vpcs").paginate(Filters=[{"Name": "vpc-id", "Values": ids[i : i + 200]}]):
-                for v in page["Vpcs"]:
-                    owners[v["VpcId"]] = v["OwnerId"]
+    for i in range(0, len(ids), 200):
+        for page in ec2.get_paginator("describe_vpcs").paginate(Filters=[{"Name": "vpc-id", "Values": ids[i : i + 200]}]):
+            for v in page["Vpcs"]:
+                owners[v["VpcId"]] = v["OwnerId"]
+    return owners
+
+
+def find_owners(pairs: set[tuple[str, str]], accounts: Iterable[str], client_for: ClientFor) -> dict[str, str]:
+    """Look up each VPC's owner by searching ``accounts`` in order until every VPC is found.
+
+    DescribeVpcs returns a VPC's OwnerId to its owner and to accounts it is shared with, so the
+    first account that can see a VPC is enough. Accounts we can't get into are skipped.
+    """
+    owners: dict[str, str] = {}
+    skipped: list[str] = []
+    for account in accounts:
+        by_region: dict[str, list[str]] = defaultdict(list)
+        for region, vpc_id in sorted(pairs):
+            if vpc_id not in owners:
+                by_region[region].append(vpc_id)
+        if not by_region:
+            break
+        for region, ids in by_region.items():
+            try:
+                found = describe_owners(client_for(account, region), ids)
+            except (ClientError, BotoCoreError, PermissionError, ValueError) as e:
+                log.debug("Owner search: skipping account %s: %s", account, e)
+                skipped.append(account)
+                break
+            if found:
+                log.info("Owner search: account %s sees %d VPC(s) in %s", account, len(found), region)
+            owners.update(found)
+    if skipped:
+        log.warning("Owner search: couldn't query %d account(s): %s (-v for details)", len(skipped), ", ".join(skipped))
+    return owners
+
+
+def ipam_vpc_owners(ec2, ipam_id: str | None = None) -> dict[str, str]:
+    """Every VPC IPAM knows about -> owner account, from one paginated GetIpamResourceCidrs pull.
+
+    Covers all accounts and Regions the IPAM monitors. A VPC with several CIDRs appears once per CIDR.
+    """
+    ipams = ec2.describe_ipams(**({"IpamIds": [ipam_id]} if ipam_id else {})).get("Ipams", [])
+    if not ipams:
+        log.warning("IPAM: none found in this Region; use --ipam-region with the IPAM's home Region")
+        return {}
+    if len(ipams) > 1:
+        raise ValueError(f"Several IPAMs in this Region ({', '.join(i['IpamId'] for i in ipams)}); choose one with --ipam-id")
+    scope = ipams[0]["PrivateDefaultScopeId"]
+    owners: dict[str, str] = {}
+    for page in ec2.get_paginator("get_ipam_resource_cidrs").paginate(
+        IpamScopeId=scope, ResourceType="vpc", PaginationConfig={"PageSize": 1000}
+    ):
+        for r in page.get("IpamResourceCidrs", []):
+            if r.get("ResourceId") and r.get("ResourceOwnerId"):
+                owners[r["ResourceId"]] = r["ResourceOwnerId"]
+    log.info("IPAM %s: %d VPC(s) across %d account(s)", ipams[0]["IpamId"], len(owners), len(set(owners.values())))
+    return owners
+
+
+def owner_search_accounts(args: argparse.Namespace, ctx: AccountContext) -> list[str]:
+    raw = (args.owner_accounts or "").strip()
+    if raw.lower() == "org":
+        org = ctx.phz_sessions().client("organizations")
+        accounts = [a["Id"] for page in org.get_paginator("list_accounts").paginate() for a in page["Accounts"]
+                    if a.get("Status", "ACTIVE") == "ACTIVE"]
+        log.info("Owner search: %d account(s) in the organization", len(accounts))
+        return sorted(accounts)
+    if raw:
+        return [validate_account(a.strip(), "--owner-accounts") for a in raw.split(",") if a.strip()]
+    excluded = exclude_suffixes()
+    return sorted({acct for name, acct in profile_accounts().items() if not name.endswith(excluded)})
+
+
+def resolve_vpc_owners(args: argparse.Namespace, ctx: AccountContext, pairs: set[tuple[str, str]]) -> dict[str, str]:
+    """VPC owner accounts, cheapest source first, each only for the VPCs still unknown:
+
+    1. IPAM (with --ipam-profile): every monitored VPC in one bulk pull
+    2. DescribeVpcs in the PHZ account (its own and RAM-shared VPCs)
+    3. DescribeVpcs in other accounts, one batched call per account and Region, until all are found
+    """
+    owners: dict[str, str] = {}
+    if args.ipam_profile:
+        try:
+            ipam = AccountSessions(args.ipam_profile, args.ipam_region or ctx.region, label="IPAM")
+            known = ipam_vpc_owners(ipam.client("ec2"), args.ipam_id)
+            owners = {vpc: known[vpc] for _, vpc in pairs if vpc in known}
+        except (ClientError, BotoCoreError) as e:
+            log.warning("IPAM lookup failed (%s); falling back to per-account lookups", e)
+    phz = ctx.phz_sessions()
+    phz_account = ctx.phz_account or phz.caller_account
+    missing = {p for p in pairs if p[1] not in owners}
+    if missing:
+        owners.update(find_owners(missing, [phz_account], lambda a, r: phz.client("ec2", ctx.phz_account, r)))
+    missing = {p for p in pairs if p[1] not in owners}
+    if missing and not args.no_owner_search:
+        accounts = [a for a in owner_search_accounts(args, ctx) if a != phz_account]
+        log.info("Owner search: %d VPC(s) not visible from %s; searching %d other account(s)", len(missing), phz_account, len(accounts))
+        search = ctx.vpc_sessions()
+        owners.update(find_owners(missing, accounts, lambda a, r: search.client("ec2", a, r)))
+    unresolved = len({p[1] for p in pairs} - set(owners))
+    if unresolved:
+        log.warning("%d VPC owner(s) still unknown; pass --owner-accounts (or --role-name with --owner-accounts org)", unresolved)
     return owners
 
 
@@ -117,7 +227,7 @@ def lookup_owners(args: argparse.Namespace, ctx: AccountContext, zones: list[Zon
     if args.no_resolve_owners:
         return {}
     pairs = {p for z in zones for p in z.vpcs} | {p for a in auths.values() for p in a}
-    return resolve_vpc_owners(ctx, pairs) if pairs else {}
+    return resolve_vpc_owners(args, ctx, pairs) if pairs else {}
 
 
 def cmd_zones(args: argparse.Namespace, ctx: AccountContext) -> Review:

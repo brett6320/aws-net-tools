@@ -31,7 +31,10 @@ python phz_review.py <subcommand> ... -o html [--out FILE | --reports-dir DIR]
 | `--vpc ID\|ARN` | `by-vpc`: VPC(s) to look up; ARNs may span accounts (each is queried as its own owner, via `--role-name` if needed) |
 | `--authorizations` | `zones`: add pending cross-account authorizations (always on with `-o html`) |
 | `--no-authorizations` | `by-zone`: skip listing authorizations |
-| `--no-resolve-owners` | `zones`, `by-zone`: skip looking up VPC owner accounts. By default they are looked up from the PHZ account, which sees its own and RAM-shared VPCs; others show `unknown` (`--resolve-owners` is still accepted) |
+| `--no-resolve-owners` | `zones`, `by-zone`: skip looking up VPC owner accounts (`--resolve-owners`, the old opt-in, is still accepted) |
+| `--ipam-profile` / `--ipam-region` / `--ipam-id` | `zones`, `by-zone`: read VPC owners from IPAM first: one bulk pull covering every account and Region the IPAM monitors (env `VPCE_IPAM_PROFILE`, `VPCE_IPAM_REGION`, `VPCE_IPAM_ID`) |
+| `--owner-accounts ACCT[,ACCT]\|org` | `zones`, `by-zone`: accounts to search for VPCs that IPAM and the PHZ account can't see. Default: every account in your local AWS config; `org` lists the AWS Organization's accounts (env `VPCE_OWNER_ACCOUNTS`) |
+| `--no-owner-search` | `zones`, `by-zone`: don't search other accounts (IPAM and the PHZ account are still used) |
 | `--wide` | `zones`: add VPC list, VPC owner accounts, comment, tags |
 | `-o table\|json\|csv\|html`, `--json` | Output format |
 | `--out FILE` | `html`: write the report here |
@@ -39,6 +42,16 @@ python phz_review.py <subcommand> ... -o html [--out FILE | --reports-dir DIR]
 | account/profile flags | See the [suite README](../README.md#accounts-and-credentials) |
 
 Account columns: `zones` has `account` (the PHZ owner) and, in `--wide`/JSON, `vpc_owners`; `by-vpc` has `vpc_account` and `zone_owner`; `by-zone` has `zone_owner`, `vpc_owner` and `cross_account` (empty when the VPC owner is unknown).
+
+### VPC owner lookup
+
+`zones` and `by-zone` see the PHZ side only, so they look up who owns each VPC. Each source is only asked about the VPCs that are still unknown, and the lookup stops once all are found:
+
+1. **IPAM** (with `--ipam-profile`): one paginated `GetIpamResourceCidrs` pull (`ResourceType=vpc`, 1,000 per page) from the IPAM owner or delegated admin account, kept in memory for the run. This is the cheapest option for many accounts.
+2. **The PHZ account**: `DescribeVpcs` finds its own VPCs and VPCs shared to it through RAM.
+3. **Other accounts**: one `DescribeVpcs` per account and Region, filtered to the remaining VPC IDs. Accounts come from `--owner-accounts`, or by default from the profiles in your local AWS config (the same `-priv` / `-cpar` exclusions apply). Credentials work as for the VPC side: `--role-name`, or the profile derived from the account. Accounts you can't get into are skipped with a warning.
+
+VPCs that are still unknown show `unknown`; the HTML planner asks for their account.
 
 In `by-zone`, `status` is `associated`, `authorized` (authorization still exists for an associated VPC, which is stale), or `authorized-pending` (authorized but not yet associated).
 
@@ -69,7 +82,7 @@ python phz_review.py zones --profile hub -o html
 
 - **Summary**: zones, associations, VPCs, accounts, cross-account associations, pending and stale authorizations, VPCs whose owner is unknown.
 - **Private hosted zones**: name, ID, owner account, VPC count, records, comment, tags. Search, filter by owner, click a header to sort (shift-click adds a second sort key). **Use as target** picks the zone in the planner.
-- **Associations**: one row per PHZ and VPC with both owner accounts, cross-account flag and status. Search and filter by zone, either owner account, region, cross-account and status; sort by any column.
+- **Associations**: one row per PHZ and VPC with both owner accounts, cross-account flag and status. Search and filter by zone, either owner account, region, cross-account and status; sort by any column. Authorizations for VPCs that aren't associated are **highlighted**: they are waiting for the VPC owner or left over. Stale authorizations, for VPCs that are already associated, duplicate an association row, so they're hidden unless you tick **Show stale authorizations** or filter on that status.
 - **Migration planner**: tick associated rows (the VPCs to move, and the PHZ to move them off), choose a target PHZ from the report or enter any other one (zone ID, name, owner account), and the page prepares a bash script. Commands are grouped into steps, each headed with the account that must run it, and you can add a `--profile` per account. Copy it or download it as `phz-migration.sh`. Nothing runs from the page.
 
 The planner follows Route 53's rules:
@@ -118,7 +131,13 @@ Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../.env.ex
 }
 ```
 
-`ListHostedZonesByVPC` is needed in the VPC owner account; the rest in the PHZ account (`ec2:DescribeVpcs` there looks up VPC owner accounts; skip it with `--no-resolve-owners`).
+`ListHostedZonesByVPC` is needed in the VPC owner account; the rest in the PHZ account. VPC owner lookup also uses:
+
+| Where | Actions |
+|---|---|
+| IPAM owner / delegated admin account (`--ipam-profile`) | `ec2:DescribeIpams`, `ec2:GetIpamResourceCidrs` |
+| PHZ account and each searched account | `ec2:DescribeVpcs` (+ `sts:AssumeRole` with `--role-name`) |
+| PHZ account, with `--owner-accounts org` | `organizations:ListAccounts` (management or delegated admin account) |
 
 ## Output
 

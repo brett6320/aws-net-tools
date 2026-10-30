@@ -122,7 +122,7 @@ Disassociation can be run by either account (`--disassociate-as vpc|phz`). Route
 }
 ```
 
-Add `sts:AssumeRole` on the target role ARNs when using `--role-name`. Whoever runs a generated `phz_assoc` script needs the write permissions listed in [its README](phz_assoc/README.md#iam-permissions).
+`phz_review`'s VPC owner lookup also uses `ec2:DescribeIpams` and `ec2:GetIpamResourceCidrs` in the IPAM account (with `--ipam-profile`), `ec2:DescribeVpcs` in each searched account, and `organizations:ListAccounts` with `--owner-accounts org` (see [its README](phz_review/README.md#iam-permissions)). Add `sts:AssumeRole` on the target role ARNs when using `--role-name`. Whoever runs a generated `phz_assoc` script needs the write permissions listed in [its README](phz_assoc/README.md#iam-permissions).
 
 ## Platform Notes
 

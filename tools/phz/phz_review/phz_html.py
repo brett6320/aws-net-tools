@@ -56,6 +56,9 @@ table.grid th.asc::after{content:" \\25B2"}table.grid th.desc::after{content:" \
 table.grid td{border-bottom:1px solid var(--line);padding:5px 10px 5px 0;vertical-align:top}
 table.grid td.m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;white-space:nowrap}
 table.grid tr.sel td{background:var(--hit)}
+table.grid tr.pend td{background:var(--warnbg)}
+table.grid tr.pend td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.stat.hl{border-color:var(--warn);background:var(--warnbg)}.stat.hl b{color:var(--warn)}
 .pill{display:inline-block;padding:0 8px;border-radius:4px;font-weight:600;font-size:12px;background:var(--code)}
 .pill.ok{color:var(--ok);background:var(--okbg)}.pill.bad{color:var(--bad);background:var(--badbg)}.pill.warn{color:var(--warn);background:var(--warnbg)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
@@ -278,7 +281,7 @@ UI_JS = r"""
 
   // ---------------------------------------------------------------- tables
   function Table(cfg) {
-    var st = {q: "", f: {}, sort: cfg.sort ? [cfg.sort] : []};
+    var st = {q: "", f: {}, sort: cfg.sort ? [cfg.sort] : [], showHidden: false};
     var root = $(cfg.id), ctl = document.createElement("div"), tw = document.createElement("div");
     ctl.className = "controls"; tw.className = "tw"; root.appendChild(ctl); root.appendChild(tw);
     var q = document.createElement("input"); q.type = "search"; q.placeholder = "Search " + cfg.label;
@@ -294,10 +297,18 @@ UI_JS = r"""
       sel.addEventListener("change", function () { st.f[k] = sel.value; draw(); });
       var l = document.createElement("label"); l.textContent = col ? col[1] : k; l.appendChild(sel); ctl.appendChild(l);
     });
+    if (cfg.hide) {
+      var nh = cfg.rows.filter(cfg.hide.test).length;
+      var hl = document.createElement("label"); hl.className = "check";
+      hl.innerHTML = '<input type="checkbox"> ' + esc(cfg.hide.label) + " (" + nh + ")";
+      hl.querySelector("input").addEventListener("change", function (e) { st.showHidden = e.target.checked; draw(); });
+      ctl.appendChild(hl);
+    }
     var count = document.createElement("span"); count.className = "muted"; ctl.appendChild(count);
     if (cfg.extraControls) cfg.extraControls(ctl);
     var shown = [];
     function match(r) {
+      if (cfg.hide && !st.showHidden && !st.f[cfg.hide.key] && cfg.hide.test(r)) return false;
       for (var k in st.f) if (st.f[k] && (fmt(r[k]) || "(none)") !== st.f[k]) return false;
       if (!st.q) return true;
       return cfg.columns.some(function (c) { return fmt(r[c[0]]).toLowerCase().indexOf(st.q) >= 0; });
@@ -345,7 +356,8 @@ UI_JS = r"""
 
   function pill(v, cls) { return '<span class="pill ' + cls + '">' + esc(v) + "</span>"; }
   function statusCell(r) {
-    return r.status === "associated" ? pill(r.status, "ok") : r.status === "authorized" ? pill("authorized (stale)", "warn") : pill(r.status, "");
+    return r.status === "associated" ? pill(r.status, "ok") : r.status === "authorized" ? pill("authorized (stale)", "") :
+      pill("authorized, not associated", "warn");
   }
   function crossCell(r) { return r.cross_account == null ? '<span class="muted">unknown</span>' : r.cross_account ? pill("yes", "warn") : "no"; }
   function acctCell(k) { return function (r) { return /^\d{12}$/.test(r[k] || "") ? esc(r[k]) : '<span class="muted">' + esc(r[k] || "unknown") + "</span>"; }; }
@@ -378,7 +390,9 @@ UI_JS = r"""
           (selected[akey(r)] ? " checked" : "") + ">" : "";
       }
     },
-    rowClass: function (r) { return selected[akey(r)] ? "sel" : ""; },
+    rowClass: function (r) { return selected[akey(r)] ? "sel" : r.status === "authorized-pending" ? "pend" : ""; },
+    hide: {key: "status", test: function (r) { return r.status === "authorized"; },
+           label: "Show stale authorizations (VPC already associated)"},
     extraControls: function (ctl) {
       var b = document.createElement("button"); b.type = "button"; b.textContent = "Clear selection";
       b.addEventListener("click", function () { selected = {}; at.draw(); plan(); }); ctl.appendChild(b);
@@ -498,11 +512,15 @@ def _cards(d: dict) -> str:
         (len({(r["vpc_region"], r["vpc_id"]) for r in assoc}), "VPCs"),
         (len({x for x in accounts if x and x.isdigit()}), "accounts"),
         (sum(1 for r in assoc if r["cross_account"]), "cross-account"),
-        (sum(1 for r in a if r["status"] == "authorized-pending"), "pending authorizations"),
-        (sum(1 for r in a if r["status"] == "authorized"), "stale authorizations"),
+        (sum(1 for r in a if r["status"] == "authorized-pending"), "authorized, not associated"),
+        (sum(1 for r in a if r["status"] == "authorized"), "stale authorizations (hidden)"),
         (len({r["vpc_id"] for r in a if not r["vpc_owner"].isdigit()}), "VPCs with unknown owner"),
     ]
-    return '<div class="cards">' + "".join(f'<div class="stat"><b>{n}</b><span>{_e(label)}</span></div>' for n, label in stats) + "</div>"
+    def cls(n: int, label: str) -> str:
+        return "stat hl" if n and label.startswith(("authorized, not", "VPCs with unknown")) else "stat"
+
+    return '<div class="cards">' + "".join(
+        f'<div class="{cls(n, label)}"><b>{n}</b><span>{_e(label)}</span></div>' for n, label in stats) + "</div>"
 
 
 def render_html(d: dict, theme: str = "dark") -> str:
@@ -520,9 +538,11 @@ account {_e(d.get("scope"))} · generated {_e(d.get("generated_at"))}</div></div
 {notes}
 <div class="card"><h3>Private hosted zones</h3><div id="zones"></div></div>
 <div class="card"><h3>Associations</h3>
-<p class="muted">One row per PHZ and VPC, with the account that owns each. <b>authorized-pending</b>: the PHZ owner allowed a
-VPC in another account to associate, and it hasn't yet. <b>authorized (stale)</b>: the VPC is associated and the authorization
-is no longer needed. Tick associated rows to move those VPCs off that PHZ in the planner below.</p>
+<p class="muted">One row per PHZ and VPC, with the account that owns each. Highlighted <b>authorized, not associated</b> rows:
+the PHZ owner allowed a VPC in another account to associate and it hasn't (yet), so the authorization is either waiting
+for the VPC owner or left over. <b>Stale authorizations</b>, for VPCs that are already associated, duplicate an
+association row and are hidden unless you tick the box. Tick associated rows to move those VPCs off that PHZ in the
+planner below.</p>
 <div id="assocs"></div></div>
 <div class="card" id="planner"><h3>Migration planner</h3>
 <p class="muted">Prepares the AWS CLI commands to move the selected VPCs to a different PHZ. Nothing runs from this page.
