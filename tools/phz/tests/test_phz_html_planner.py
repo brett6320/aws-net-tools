@@ -1,6 +1,5 @@
 """The HTML report's migration planner (JavaScript), run under Node."""
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -162,8 +161,8 @@ def test_incomplete_data_warns():
 
 def test_page_scripts_parse(tmp_path):
     page = phz_html.render_html({"command": "zones", "scope": HUB, "zones": [], "associations": [], "notes": ["</script>"]})
-    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
-    assert len(scripts) == 1
+    assert page.count("<script>") == 1
+    script = page.split("<script>", 1)[1].split("</script>", 1)[0]
     f = tmp_path / "page.js"
-    f.write_text(scripts[0])
+    f.write_text(script)
     subprocess.run([NODE, "--check", str(f)], check=True)
