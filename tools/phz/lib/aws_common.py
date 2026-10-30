@@ -112,8 +112,9 @@ def add_account_args(parser: argparse.ArgumentParser) -> None:
     g.add_argument("--external-id", default=os.getenv("VPCE_EXTERNAL_ID"), help="ExternalId for --role-name")
 
 
-def add_output_args(parser: argparse.ArgumentParser, default: str = "table") -> None:
-    parser.add_argument("--output", "-o", choices=("table", "json", "csv"), default=default, help=f"Output format (default: {default})")
+def add_output_args(parser: argparse.ArgumentParser, default: str = "table", extra: Sequence[str] = ()) -> None:
+    choices = ("table", "json", "csv", *extra)
+    parser.add_argument("--output", "-o", choices=choices, default=default, help=f"Output format (default: {default})")
     parser.add_argument("--json", dest="output", action="store_const", const="json", help="Shortcut for --output json")
 
 
