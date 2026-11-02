@@ -189,8 +189,11 @@ def _error(e: Exception) -> str:
 
 def vpc_row(acct: OrgAccount, region: str, vpc: dict[str, Any]) -> dict[str, Any]:
     tags = {t["Key"]: t["Value"] for t in vpc.get("Tags") or []}
-    cidrs = [c["CidrBlock"] for c in vpc.get("CidrBlockAssociationSet") or []
-             if c.get("CidrBlockState", {}).get("State", "associated") == "associated"]
+    primary = vpc.get("CidrBlock", "")
+    # Primary first, the rest sorted, so a re-run never sees a change in AWS's ordering as a new entry.
+    cidrs = sorted({c["CidrBlock"] for c in vpc.get("CidrBlockAssociationSet") or []
+                    if c.get("CidrBlockState", {}).get("State", "associated") == "associated"},
+                   key=lambda c: (c != primary, c))
     return {
         "ou_id": acct.ou_id,
         "ou_path": acct.ou_path,
@@ -199,8 +202,8 @@ def vpc_row(acct: OrgAccount, region: str, vpc: dict[str, Any]) -> dict[str, Any
         "region": region,
         "vpc_id": vpc["VpcId"],
         "name": tags.get("Name", ""),
-        "cidr": vpc.get("CidrBlock", ""),
-        "cidrs": cidrs or [vpc.get("CidrBlock", "")],
+        "cidr": primary,
+        "cidrs": cidrs or [primary],
         "is_default": bool(vpc.get("IsDefault")),
         "state": vpc.get("State", ""),
     }

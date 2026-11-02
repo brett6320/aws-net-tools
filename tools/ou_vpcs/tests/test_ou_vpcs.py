@@ -260,3 +260,36 @@ def test_cli_bad_input_and_org_errors(org, aws_config, capsys):
             raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "no"}}, "ListParents")
 
     assert ou_vpcs.main(["--ou", "ou-ab12-11111111", "--no-cache"], session_for=lambda p: Denied()) == 1
+
+
+# --------------------------------------------------------------------------- idempotency
+
+
+def test_rerun_gives_the_same_output_and_never_rewrites_the_map(org, aws_config, capsys):
+    _, ous, _ = org
+    rc1, out1 = run(org, aws_config, capsys, "--ou", ous["prod"], "--json")
+    path = default_path()
+    before = (path.read_bytes(), path.stat().st_mtime_ns)
+    rc2, out2 = run(org, aws_config, capsys, "--ou", ous["prod"], "--json")
+    assert (rc1, out1) == (rc2, out2)
+    assert (path.read_bytes(), path.stat().st_mtime_ns) == before  # second run wrote nothing
+    assert not path.with_suffix(".tmp").exists()
+
+
+def test_secondary_cidr_order_does_not_change_the_entry(tmp_path):
+    a = vpc("vpc-a1", extra=("100.64.0.0/16", "10.9.0.0/16"))
+    b = dict(a, CidrBlockAssociationSet=[a["CidrBlockAssociationSet"][0], *reversed(a["CidrBlockAssociationSet"][1:])])
+    row_a, row_b = (core.vpc_row(acct(A), "us-east-1", v) for v in (a, b))
+    assert row_a["cidrs"] == row_b["cidrs"] == ["10.0.0.0/16", "10.9.0.0/16", "100.64.0.0/16"]  # primary first
+    cache = VpcOwnerCache(tmp_path / "owners.json")
+    assert core.store(cache, [row_a]) == 1 and core.store(cache, [row_b]) == 0
+
+
+def test_phz_review_owner_only_entry_is_enriched_once(tmp_path):
+    path = tmp_path / "owners.json"
+    path.write_text(json.dumps({"us-east-1/vpc-a1": {"account": A, "source": "ipam", "seen": "2026-01-01"}}))
+    rows = [core.vpc_row(acct(A), "us-east-1", vpc("vpc-a1"))]
+    cache = VpcOwnerCache(path)
+    assert core.store(cache, rows) == 1
+    cache.save()
+    assert core.store(VpcOwnerCache(path), rows) == 0
