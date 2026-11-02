@@ -35,7 +35,29 @@ def env():
 
 def run_json(mod, argv, capsys):
     assert mod.main(argv + ["--json", "-q"]) == 0
-    return json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)
+    return out["rows"] if isinstance(out, dict) else out  # zones / by-zone: {"rows", "missing_owners"}
+
+
+@pytest.fixture(autouse=True)
+def no_ipam(monkeypatch):
+    # moto does not implement DescribeIpams: behave like an account with no IPAM
+    monkeypatch.setattr(pr, "ipam_vpc_owners", lambda ec2, ipam_id=None: {})
+
+
+@pytest.fixture(autouse=True)
+def owner_search(monkeypatch):
+    # These tests check owners resolved from the PHZ account; the default (map + IPAM only) is tested below.
+    real = pr.build_parser
+
+    def parser():
+        p = real()
+        for sub in p._subparsers._group_actions[0].choices.values():
+            sub.set_defaults(owner_search=True)
+        return p
+
+    parser.real = real
+    monkeypatch.setattr(pr, "build_parser", parser)
 
 
 def test_phz_review_zones_and_tags(env, capsys):
@@ -174,3 +196,28 @@ def test_table_highlights_only_on_a_terminal(monkeypatch):
     out = Tty()
     render(rows, ["status"], "table", out, highlight=hl)
     assert "\033[" not in out.getvalue()
+
+
+def test_unknown_owners_are_listed_not_searched(env, no_auths, capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(pr, "build_parser", pr.build_parser.real)  # the real default: map + IPAM, no account search
+    missing = [{"vpc_region": "us-east-1", "vpc_id": env["hub"], "zones": ["ssm.us-east-1.amazonaws.com"]}]
+    for cmd in (["by-zone", "--zone-name", "ssm.*"], ["zones"]):
+        assert pr.main(cmd + ["--json", "-q"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["missing_owners"] == missing
+    assert out["rows"][0]["vpc_owners"] == {env["hub"]: "unknown"}
+
+    assert pr.main(["by-zone", "--zone-name", "ssm.*", "-q"]) == 0
+    table = capsys.readouterr().out
+    assert "VPCs with unknown owner (1)" in table and "ou_vpcs" in table and table.count(env["hub"]) == 2
+
+    assert pr.main(["by-zone", "--zone-name", "ssm.*", "-o", "csv", "-q"]) == 0
+    assert "unknown owner" not in capsys.readouterr().out  # CSV stays one table; rows say 'unknown'
+
+    out = tmp_path / "r.html"
+    assert pr.main(["by-zone", "--zone-name", "ssm.*", "-o", "html", "--out", str(out), "-q"]) == 0
+    assert any("1 VPC(s) with unknown owner: us-east-1/" + env["hub"] in n for n in _report_data(out)["notes"])
+    capsys.readouterr()  # the report path
+
+    assert pr.main(["by-zone", "--zone-name", "ssm.*", "--no-resolve-owners", "--json", "-q"]) == 0
+    assert json.loads(capsys.readouterr().out)["missing_owners"] == []  # owners not wanted: nothing listed
