@@ -50,7 +50,7 @@ Account columns: `zones` has `account` (the PHZ owner) and, in `--wide`/JSON, `v
 
 `zones` and `by-zone` see the PHZ side only, so they look up who owns each VPC.
 
-A VPC never changes owner, so every owner found is saved to a **local map** (`~/.cache/aws-net-tools/vpc-owners.json`, owner-only permissions) and reused on later runs. Only VPCs missing from the map are looked up. The map is kept outside the repository, and `.gitignore` excludes `vpc-owners*.json` in case `--owner-cache` points inside it.
+A VPC never changes owner, so every owner found is saved to a **local map** (`~/.cache/aws-net-tools/vpc-owners.json`, owner-only permissions) and reused on later runs. Only VPCs missing from the map are looked up. The map is kept outside the repository, and `.gitignore` excludes `vpc-owners*.json` in case `--owner-cache` points inside it. To fill the map up front for a whole OU, run [`ou_vpcs`](../../ou_vpcs/README.md), which writes to the same file.
 
 Missing VPCs are looked up from each source in turn, each asked only about the VPCs still unknown, stopping once all are found:
 
