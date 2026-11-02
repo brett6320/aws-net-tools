@@ -414,7 +414,7 @@ UI_JS = r"""
   });
 
   // ---------------------------------------------------------------- planner
-  var profiles = {}, owners = {}, lastAccounts = "", lastUnknown = "";
+  var profiles = Object.assign({}, D.profiles || {}), owners = {}, lastAccounts = "", lastUnknown = "";
   var tsel = $("t-zone");
   tsel.innerHTML = '<option value="">\u2014 choose \u2014</option>' + D.zones.slice().sort(function (a, b) {
       return a.name.localeCompare(b.name) || a.owner.localeCompare(b.owner); }).map(function (z) {
@@ -472,7 +472,7 @@ UI_JS = r"""
     accts.sort();
     if (accts.join() !== lastAccounts) {
       lastAccounts = accts.join();
-      inputs($("profiles"), accts, profiles, "AWS CLI profile per account (optional, added as --profile)", "profile name");
+      inputs($("profiles"), accts, profiles, "AWS CLI profile per account (added as --profile; prefilled with the account's -priv profile from ~/.aws/config)", "profile name");
     }
     $("msgs").innerHTML = p.errors.map(function (e) { return '<div class="err">' + esc(e) + "</div>"; }).join("") +
       p.warnings.map(function (w) { return '<div class="wrn">' + esc(w) + "</div>"; }).join("");
