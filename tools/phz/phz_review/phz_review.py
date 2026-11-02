@@ -411,9 +411,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_args(parent)
     add_account_args(parent)
     add_output_args(parent, extra=("html",))
-    parent.add_argument("--out", metavar="FILE", help="html: write the report here instead of the reports directory")
+    parent.add_argument("--out", metavar="FILE", help="html: write the report here instead of the reports directory (plus a timestamped copy next to it)")
     parent.add_argument("--reports-dir", default=os.getenv("VPCE_REPORTS_DIR", "reports"), metavar="DIR",
-                        help="html: reports go to DIR/<YYYY-MM-DD>/<account>/ (default: ./reports)")
+                        help="html: the current report is DIR/<account>/phz-review_<command>.html (overwritten each run), "
+                             "with a timestamped copy in DIR/<YYYY-MM-DD>/<account>/ (default: ./reports)")
 
     p = argparse.ArgumentParser(description="Review Route 53 private hosted zones and VPC associations (read-only).")
     sub = p.add_subparsers(dest="command", required=True)
@@ -448,8 +449,19 @@ COLUMNS = {
 
 
 def report_path(review: Review, command: str, reports_dir: str) -> Path:
-    day = dt.date.today().isoformat()
-    return Path(reports_dir) / day / (review.scope or "unknown") / f"phz-review_{command}.html"
+    """The current report, overwritten on every run: DIR/<account>/phz-review_<command>.html."""
+    return Path(reports_dir) / (review.scope or "unknown") / f"phz-review_{command}.html"
+
+
+def history_path(current: Path, reports_dir: str | None, now: dt.datetime) -> Path:
+    """Where the timestamped copy of ``current`` goes.
+
+    Under --reports-dir: DIR/<YYYY-MM-DD>/<account>/<name>_<HHMMSS>.html. With --out FILE:
+    next to FILE, as <name>_<YYYYMMDD-HHMMSS>.html.
+    """
+    if reports_dir is None:
+        return current.with_name(f"{current.stem}_{now:%Y%m%d-%H%M%S}{current.suffix}")
+    return Path(reports_dir) / now.date().isoformat() / current.parent.name / f"{current.stem}_{now:%H%M%S}{current.suffix}"
 
 
 MISSING_HINT = ("check --ipam-profile (VPCE_IPAM_PROFILE) points at the IPAM account, run tools/ou_vpcs/ou_vpcs.py "
@@ -462,11 +474,13 @@ def missing_note(missing: list[dict[str, Any]]) -> str:
 
 
 def write_html(review: Review, args: argparse.Namespace) -> Path:
+    """Write the report to its current path (overwritten each run) and a timestamped copy. Returns the current path."""
+    now = dt.datetime.now().astimezone()
     accounts = {z["owner"] for z in review.zones} | {
         a[k] for a in review.associations for k in ("zone_owner", "vpc_owner")}
     data = {
         "command": args.command,
-        "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "generated_at": now.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "scope": review.scope,
         "zones": review.zones,
         "associations": review.associations,
@@ -477,8 +491,12 @@ def write_html(review: Review, args: argparse.Namespace) -> Path:
         "profiles": priv_profiles(a for a in accounts if a.isdigit()),
     }
     path = Path(args.out) if args.out else report_path(review, args.command, args.reports_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_html(data), encoding="utf-8")
+    copy = history_path(path, None if args.out else args.reports_dir, now)
+    page = render_html(data)
+    for p in (copy, path):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(page, encoding="utf-8")
+    log.info("Report history copy: %s", copy)
     return path
 
 

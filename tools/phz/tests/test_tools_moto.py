@@ -142,7 +142,9 @@ def test_html_report_from_phz_account(env, no_auths, capsys, tmp_path, argv):
     profile_accounts.cache_clear()
     assert pr.main(argv + ["-o", "html", "--reports-dir", str(tmp_path), "-q"]) == 0
     path = Path(capsys.readouterr().out.strip())
-    assert path.parent.name == ACCT and path.is_relative_to(tmp_path)
+    assert path == tmp_path / ACCT / f"phz-review_{argv[0]}.html"  # current: one place, overwritten each run
+    copies = list(tmp_path.glob(f"*-*-*/{ACCT}/phz-review_{argv[0]}_*.html"))
+    assert len(copies) == 1 and copies[0].read_text() == path.read_text()
     d = _report_data(path)
     assert d["vpc_counts_complete"] and d["authorizations_listed"]
     assert [(z["zone_id"], z["owner"], z["vpc_count"], z["tags"]) for z in d["zones"]] == [(env["zone"], ACCT, 1, {"Purpose": "vpce"})]
@@ -153,6 +155,8 @@ def test_html_report_from_phz_account(env, no_auths, capsys, tmp_path, argv):
 def test_html_report_by_vpc(env, capsys, tmp_path):
     out = tmp_path / "r.html"
     assert pr.main(["by-vpc", "--vpc", env["hub"], "-o", "html", "--out", str(out), "-q"]) == 0
+    assert capsys.readouterr().out.strip() == str(out)
+    assert [c.read_text() for c in tmp_path.glob("r_*.html")] == [out.read_text()]
     d = _report_data(out)
     assert not d["vpc_counts_complete"] and not d["authorizations_listed"] and d["notes"]
     assert d["zones"][0]["owner"] == ACCT and d["associations"][0]["vpc_owner"] == ACCT
@@ -227,3 +231,14 @@ def test_unknown_owners_are_listed_not_searched(env, no_auths, capsys, tmp_path,
 
     assert pr.main(["by-zone", "--zone-name", "ssm.*", "--no-resolve-owners", "--json", "-q"]) == 0
     assert json.loads(capsys.readouterr().out)["missing_owners"] == []  # owners not wanted: nothing listed
+
+
+def test_report_paths():
+    import datetime as dt
+
+    now = dt.datetime(2026, 11, 2, 9, 5, 7)
+    review = pr.Review(rows=[], scope=ACCT)
+    cur = pr.report_path(review, "zones", "reports")
+    assert cur == Path("reports", ACCT, "phz-review_zones.html")
+    assert pr.history_path(cur, "reports", now) == Path("reports", "2026-11-02", ACCT, "phz-review_zones_090507.html")
+    assert pr.history_path(Path("x/r.html"), None, now) == Path("x/r_20261102-090507.html")
