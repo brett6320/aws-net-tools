@@ -88,7 +88,7 @@ def test_ipam_vpc_owners_is_one_bulk_pull():
 
 
 def args(**kw):
-    base = dict(ipam_profile=None, ipam_region=None, ipam_id=None, no_owner_search=False, owner_accounts=None,
+    base = dict(profile=None, ipam_profile=None, ipam_region=None, ipam_id=None, owner_search=True, owner_accounts=None,
                 owner_cache=None, no_owner_cache=True, refresh_owner_cache=False)
     return argparse.Namespace(**{**base, **kw})
 
@@ -99,6 +99,12 @@ class FakeSessions:
 
     def client(self, service, account=None, region=None):
         return self.clients[account or self.caller_account]
+
+
+@pytest.fixture(autouse=True)
+def empty_ipam(monkeypatch):
+    """IPAM is always asked about cache misses; by default it knows no VPCs. Tests override AccountSessions."""
+    monkeypatch.setattr(pr, "AccountSessions", lambda *a, **k: FakeSessions({PHZ: FakeEc2()}))
 
 
 class FakeCtx:
@@ -133,8 +139,8 @@ def test_resolve_falls_back_to_phz_account_then_search():
     assert [c[1]["Filters"][0]["Values"] for c in calls] == [["vpc-1", "vpc-2"], ["vpc-2"]]  # PHZ account not searched twice
 
     calls.clear()
-    owners = pr.resolve_vpc_owners(args(owner_accounts=A, no_owner_search=True), ctx, pairs("vpc-1", "vpc-2"))
-    assert owners == {"vpc-1": PHZ} and len(calls) == 1
+    owners = pr.resolve_vpc_owners(args(owner_accounts=A, owner_search=False), ctx, pairs("vpc-1", "vpc-2"))
+    assert owners == {} and calls == []  # default: no account search at all
 
 
 def test_search_accounts_default_to_local_profiles(monkeypatch):
@@ -149,22 +155,23 @@ def test_search_accounts_default_to_local_profiles(monkeypatch):
 from lib.vpc_owner_cache import VpcOwnerCache, default_path  # noqa: E402
 
 
-def test_map_answers_first_and_only_misses_are_looked_up(tmp_path):
+def test_default_is_map_then_ipam_and_misses_are_saved(tmp_path, monkeypatch):
     path = tmp_path / "owners.json"
     seed = VpcOwnerCache(path)
-    seed.put("us-east-1", "vpc-1", A, "ipam")
+    seed.put("us-east-1", "vpc-1", A, "ou_vpcs")
     seed.save()
-    calls = []
-    ctx = FakeCtx({PHZ: FakeEc2({"vpc-2": PHZ}, calls=calls)})
-    cache = VpcOwnerCache(path)
-    owners = pr.resolve_vpc_owners(args(no_owner_search=True), ctx, pairs("vpc-1", "vpc-2"), cache)
-    assert owners == {"vpc-1": A, "vpc-2": PHZ}
-    assert [c[1]["Filters"][0]["Values"] for c in calls] == [["vpc-2"]]  # vpc-1 came from the map
-    assert VpcOwnerCache(path).get("us-east-1", "vpc-2") == PHZ  # the miss was saved
+    ipam_calls, calls = [], []
+    ipam = FakeEc2(ipam_rows=[ipam_row("vpc-2", PHZ)], calls=ipam_calls)
+    monkeypatch.setattr(pr, "AccountSessions", lambda *a, **k: FakeSessions({PHZ: ipam}))
+    ctx = FakeCtx({PHZ: FakeEc2({"vpc-3": PHZ}, calls=calls)})
+    owners = pr.resolve_vpc_owners(args(owner_search=False), ctx, pairs("vpc-1", "vpc-2", "vpc-3"), VpcOwnerCache(path))
+    assert owners == {"vpc-1": A, "vpc-2": PHZ}  # vpc-3: in no map and no IPAM, left unknown
+    assert calls == []  # no account was searched
+    assert VpcOwnerCache(path).get("us-east-1", "vpc-2") == PHZ  # the IPAM answer was saved
 
-    calls.clear()
-    pr.resolve_vpc_owners(args(no_owner_search=True), ctx, pairs("vpc-1", "vpc-2"), VpcOwnerCache(path))
-    assert calls == []  # everything known now: no API calls at all
+    ipam_calls.clear()
+    pr.resolve_vpc_owners(args(owner_search=False), ctx, pairs("vpc-1", "vpc-2"), VpcOwnerCache(path))
+    assert ipam_calls == []  # everything known now: no API calls at all
 
 
 def test_ipam_pull_fills_the_whole_map_once(tmp_path, monkeypatch):
@@ -180,13 +187,13 @@ def test_ipam_pull_fills_the_whole_map_once(tmp_path, monkeypatch):
     assert owners == {"vpc-7": B} and ipam_calls == []  # served from the map, IPAM not called again
 
 
-def test_refresh_ignores_the_map(tmp_path):
+def test_refresh_ignores_the_map(tmp_path, monkeypatch):
     path = tmp_path / "owners.json"
     seed = VpcOwnerCache(path)
     seed.put("us-east-1", "vpc-1", A, "old")
     seed.save()
-    ctx = FakeCtx({PHZ: FakeEc2({"vpc-1": B})})
-    owners = pr.resolve_vpc_owners(args(no_owner_search=True, refresh_owner_cache=True), ctx, pairs("vpc-1"), VpcOwnerCache(path))
+    monkeypatch.setattr(pr, "AccountSessions", lambda *a, **k: FakeSessions({PHZ: FakeEc2(ipam_rows=[ipam_row("vpc-1", B)])}))
+    owners = pr.resolve_vpc_owners(args(owner_search=False, refresh_owner_cache=True), FakeCtx({}), pairs("vpc-1"), VpcOwnerCache(path))
     assert owners == {"vpc-1": B} and VpcOwnerCache(path).get("us-east-1", "vpc-1") == B
 
 

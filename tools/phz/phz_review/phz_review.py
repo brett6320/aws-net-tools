@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import logging
 import os
 import sys
@@ -60,6 +61,7 @@ class Review:
     associations: list[dict[str, Any]] = field(default_factory=list)
     scope: str = ""  # account the report is filed under
     notes: list[str] = field(default_factory=list)
+    missing_owners: list[dict[str, Any]] = field(default_factory=list)  # VPCs whose owner account is unknown
 
 
 def add_zone_selectors(p: argparse.ArgumentParser) -> None:
@@ -77,23 +79,26 @@ def add_stale_arg(p: argparse.ArgumentParser) -> None:
 
 def add_owner_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-resolve-owners", action="store_true",
-                   help="Don't look up VPC owner accounts (shown as 'unknown')")
+                   help="Don't resolve VPC owner accounts at all (shown as 'unknown')")
     p.add_argument("--resolve-owners", action="store_true", help=argparse.SUPPRESS)  # now the default; kept for old scripts
+    p.add_argument("--owner-search", action="store_true",
+                   help="Also search accounts for VPCs that the local map and IPAM don't know: the PHZ account, then "
+                        "--owner-accounts. Off by default; the unknown VPCs are listed instead")
     p.add_argument("--owner-accounts", metavar="ACCT[,ACCT]|org", default=os.getenv("VPCE_OWNER_ACCOUNTS"),
-                   help="Accounts to search for VPCs the PHZ account can't see (default: every account in your "
+                   help="With --owner-search: accounts to search for VPCs the PHZ account can't see (default: every account in your "
                         "local AWS config; 'org' lists the AWS Organization's accounts)")
-    p.add_argument("--no-owner-search", action="store_true",
-                   help="Don't search other accounts for VPC owners (IPAM and the PHZ account are still used)")
+    p.add_argument("--no-owner-search", action="store_true", help=argparse.SUPPRESS)  # now the default; kept for old scripts
     p.add_argument("--ipam-profile", default=os.getenv("VPCE_IPAM_PROFILE"),
-                   help="Profile for the IPAM owner / delegated admin account. VPC owners are then read from IPAM "
-                        "in one bulk pull before any per-account lookups")
+                   help="Profile for the IPAM owner / delegated admin account (default: --profile). VPCs missing from "
+                        "the local map are resolved from IPAM in one bulk pull (env VPCE_IPAM_PROFILE)")
     p.add_argument("--ipam-region", default=os.getenv("VPCE_IPAM_REGION"), help="IPAM home Region (default: --region)")
     p.add_argument("--ipam-id", default=os.getenv("VPCE_IPAM_ID"), help="IPAM to use when the Region has several")
     p.add_argument("--owner-cache", metavar="FILE", default=os.getenv("VPCE_OWNER_CACHE"),
-                   help=f"Local VPC -> owner map; only VPCs missing from it are looked up (default: {default_path()})")
+                   help="Local VPC -> owner map, filled by tools/ou_vpcs and by IPAM lookups "
+                        "(default: ~/.cache/aws-net-tools/vpc-owners.json)")
     p.add_argument("--no-owner-cache", action="store_true", help="Don't read or write the local VPC owner map")
     p.add_argument("--refresh-owner-cache", action="store_true",
-                   help="Look up every VPC again and update the local map")
+                   help="Ignore the local map: resolve every VPC again and update the map")
 
 
 ClientFor = Callable[[str, str], Any]  # (account, region) -> ec2 client
@@ -183,12 +188,13 @@ def owner_cache(args: argparse.Namespace) -> VpcOwnerCache:
 
 def resolve_vpc_owners(args: argparse.Namespace, ctx: AccountContext, pairs: set[tuple[str, str]],
                        cache: VpcOwnerCache | None = None) -> dict[str, str]:
-    """VPC owner accounts. The local map answers first; only VPCs missing from it are looked up,
-    cheapest source first, each source asked only about the VPCs still unknown:
+    """VPC owner accounts. The local map answers first; VPCs missing from it are resolved through
+    IPAM, and whatever is still unknown is left for the caller to list:
 
-    1. IPAM (with --ipam-profile): every monitored VPC in one bulk pull (all of it goes into the map)
-    2. DescribeVpcs in the PHZ account (its own and RAM-shared VPCs)
-    3. DescribeVpcs in other accounts, one batched call per account and Region, until all are found
+    1. IPAM (--ipam-profile, else --profile / default credentials): every monitored VPC in one bulk
+       pull (all of it goes into the map)
+    2. Only with --owner-search: DescribeVpcs in the PHZ account, then in other accounts, one batched
+       call per account and Region, until all are found
     """
     cache = cache if cache is not None else owner_cache(args)
     owners: dict[str, str] = {}
@@ -199,16 +205,15 @@ def resolve_vpc_owners(args: argparse.Namespace, ctx: AccountContext, pairs: set
                 owners[vpc] = acct
     missing = {p for p in pairs if p[1] not in owners}
     log.info("VPC owners: %d from the local map, %d to look up", len(owners), len(missing))
-
-    if missing and args.ipam_profile:
+    if missing:
         try:
-            ipam = AccountSessions(args.ipam_profile, args.ipam_region or ctx.region, label="IPAM")
+            ipam = AccountSessions(args.ipam_profile or args.profile, args.ipam_region or ctx.region, label="IPAM")
             known = ipam_vpc_owners(ipam.client("ec2"), args.ipam_id)
             for (region, vpc), acct in known.items():
                 cache.put(region, vpc, acct, "ipam")
             owners.update({vpc: known[(region, vpc)] for region, vpc in missing if (region, vpc) in known})
         except (ClientError, BotoCoreError) as e:
-            log.warning("IPAM lookup failed (%s); falling back to per-account lookups", e)
+            log.warning("IPAM lookup failed (%s); set --ipam-profile to the IPAM owner or delegated admin account", e)
         missing = {p for p in pairs if p[1] not in owners}
 
     def remember(found: dict[str, str], source: str) -> None:
@@ -217,12 +222,12 @@ def resolve_vpc_owners(args: argparse.Namespace, ctx: AccountContext, pairs: set
                 cache.put(region, vpc, found[vpc], source)
         owners.update(found)
 
-    if missing:
+    if missing and args.owner_search:
         phz = ctx.phz_sessions()
         phz_account = ctx.phz_account or phz.caller_account
         remember(find_owners(missing, [phz_account], lambda a, r: phz.client("ec2", ctx.phz_account, r)), "phz-account")
         missing = {p for p in pairs if p[1] not in owners}
-        if missing and not args.no_owner_search:
+        if missing:
             accounts = [a for a in owner_search_accounts(args, ctx) if a != phz_account]
             log.info("Owner search: %d VPC(s) not visible from %s; searching %d other account(s)", len(missing), phz_account, len(accounts))
             search = ctx.vpc_sessions()
@@ -230,7 +235,7 @@ def resolve_vpc_owners(args: argparse.Namespace, ctx: AccountContext, pairs: set
     cache.save()
     unresolved = len({p[1] for p in pairs} - set(owners))
     if unresolved:
-        log.warning("%d VPC owner(s) still unknown; pass --owner-accounts (or --role-name with --owner-accounts org)", unresolved)
+        log.warning("%d VPC owner(s) unknown (listed with the output); %s", unresolved, MISSING_HINT)
     return owners
 
 
@@ -260,6 +265,15 @@ def zone_associations(z: Zone, owner: str, owners: dict[str, str], authorization
     for r, v in sorted(authorizations or []):
         rows.append(row(r, v, "authorized" if (r, v) in z.vpcs else "authorized-pending"))
     return rows
+
+
+def missing_owners(associations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per VPC whose owner is unknown, with the zones it's associated with or authorized for."""
+    zones: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for a in associations:
+        if not a["vpc_owner"].isdigit():
+            zones[(a["vpc_region"], a["vpc_id"])].add(a["zone_name"])
+    return [{"vpc_region": r, "vpc_id": v, "zones": sorted(zones[(r, v)])} for r, v in sorted(zones)]
 
 
 def lookup_owners(args: argparse.Namespace, ctx: AccountContext, zones: list[Zone], auths: dict[str, list[tuple[str, str]]]) -> dict[str, str]:
@@ -309,11 +323,13 @@ def cmd_zones(args: argparse.Namespace, ctx: AccountContext) -> Review:
             }
         )
     private = [z for z in zones if z.private]
+    associations = [a for z in private for a in zone_associations(z, account, owners, auths.get(z.zone_id))]
     return Review(
         rows,
         zones=[zone_record(z, account) for z in private],
-        associations=[a for z in private for a in zone_associations(z, account, owners, auths.get(z.zone_id))],
+        associations=associations,
         scope=account,
+        missing_owners=[] if args.no_resolve_owners else missing_owners(associations),
     )
 
 
@@ -386,6 +402,7 @@ def cmd_by_zone(args: argparse.Namespace, ctx: AccountContext) -> Review:
     return Review(
         associations, zones=[zone_record(z, account) for z in private], associations=associations, scope=account,
         notes=["Authorizations were not listed (--no-authorizations)."] if args.no_authorizations else [],
+        missing_owners=[] if args.no_resolve_owners else missing_owners(associations),
     )
 
 
@@ -435,6 +452,15 @@ def report_path(review: Review, command: str, reports_dir: str) -> Path:
     return Path(reports_dir) / day / (review.scope or "unknown") / f"phz-review_{command}.html"
 
 
+MISSING_HINT = ("check --ipam-profile (VPCE_IPAM_PROFILE) points at the IPAM account, run tools/ou_vpcs/ou_vpcs.py "
+                "to add them to the local VPC owner map, or re-run with --owner-search")
+
+
+def missing_note(missing: list[dict[str, Any]]) -> str:
+    vpcs = ", ".join(f"{m['vpc_region']}/{m['vpc_id']}" for m in missing)
+    return f"{len(missing)} VPC(s) with unknown owner: {vpcs}. To resolve them, {MISSING_HINT}."
+
+
 def write_html(review: Review, args: argparse.Namespace) -> Path:
     data = {
         "command": args.command,
@@ -444,7 +470,7 @@ def write_html(review: Review, args: argparse.Namespace) -> Path:
         "associations": review.associations,
         "authorizations_listed": args.command == "zones" or (args.command == "by-zone" and not args.no_authorizations),
         "vpc_counts_complete": args.command != "by-vpc",
-        "notes": review.notes,
+        "notes": review.notes + ([missing_note(review.missing_owners)] if review.missing_owners else []),
     }
     path = Path(args.out) if args.out else report_path(review, args.command, args.reports_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -487,7 +513,16 @@ def main(argv: list[str] | None = None) -> int:
             if not show_stale:
                 rows = [r for r in rows if r["status"] != "authorized"]
             highlight = lambda r: r["status"] == "authorized-pending"  # noqa: E731
-    render(rows, cols, args.output, highlight=highlight)
+    if args.output == "json" and args.command != "by-vpc":
+        json.dump({"rows": rows, "missing_owners": review.missing_owners}, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        print_missing = False
+    else:
+        render(rows, cols, args.output, highlight=highlight)
+        print_missing = args.output == "table" and bool(review.missing_owners)
+    if print_missing:
+        print(f"\nVPCs with unknown owner ({len(review.missing_owners)}): {MISSING_HINT}\n")
+        render(review.missing_owners, ["vpc_region", "vpc_id", "zones"], "table")
     hidden = len(review.rows) - len(rows) if args.command == "by-zone" else sum(len(r.get("stale_authorizations", [])) for r in review.rows)
     pending = sum(1 for a in review.associations if a["status"] == "authorized-pending")
     if pending:

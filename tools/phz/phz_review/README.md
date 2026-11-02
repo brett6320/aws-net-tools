@@ -32,12 +32,12 @@ python phz_review.py <subcommand> ... -o html [--out FILE | --reports-dir DIR]
 | `--authorizations` | `zones`: add cross-account authorizations for VPCs not yet associated (`pending_authorizations`; always on with `-o html`) |
 | `--show-stale-authorizations` | `zones`, `by-zone`: also show authorizations for VPCs that are already associated. They duplicate an association, so they're hidden by default (`zones` adds a `stale_authorizations` column). The HTML report always holds them, behind a toggle |
 | `--no-authorizations` | `by-zone`: skip listing authorizations |
-| `--no-resolve-owners` | `zones`, `by-zone`: skip looking up VPC owner accounts (`--resolve-owners`, the old opt-in, is still accepted) |
-| `--ipam-profile` / `--ipam-region` / `--ipam-id` | `zones`, `by-zone`: read VPC owners from IPAM first: one bulk pull covering every account and Region the IPAM monitors (env `VPCE_IPAM_PROFILE`, `VPCE_IPAM_REGION`, `VPCE_IPAM_ID`) |
-| `--owner-accounts ACCT[,ACCT]\|org` | `zones`, `by-zone`: accounts to search for VPCs that IPAM and the PHZ account can't see. Default: every account in your local AWS config; `org` lists the AWS Organization's accounts (env `VPCE_OWNER_ACCOUNTS`) |
-| `--no-owner-search` | `zones`, `by-zone`: don't search other accounts (IPAM and the PHZ account are still used) |
+| `--no-resolve-owners` | `zones`, `by-zone`: don't resolve VPC owner accounts at all (`--resolve-owners`, the old opt-in, is still accepted) |
+| `--ipam-profile` / `--ipam-region` / `--ipam-id` | `zones`, `by-zone`: the IPAM that resolves VPCs missing from the local map, in one bulk pull covering every account and Region it monitors. The profile defaults to `--profile` (env `VPCE_IPAM_PROFILE`, `VPCE_IPAM_REGION`, `VPCE_IPAM_ID`) |
+| `--owner-search` | `zones`, `by-zone`: also search accounts for VPCs that the map and IPAM don't know: the PHZ account, then `--owner-accounts`. Off by default (`--no-owner-search` is still accepted and does nothing) |
+| `--owner-accounts ACCT[,ACCT]\|org` | With `--owner-search`: accounts to search. Default: every account in your local AWS config; `org` lists the AWS Organization's accounts (env `VPCE_OWNER_ACCOUNTS`) |
 | `--owner-cache FILE` | Local VPC → owner map (default `~/.cache/aws-net-tools/vpc-owners.json`, `%LOCALAPPDATA%\aws-net-tools\` on Windows; env `VPCE_OWNER_CACHE`) |
-| `--no-owner-cache` / `--refresh-owner-cache` | Don't read or write the map / look every VPC up again and update it |
+| `--no-owner-cache` / `--refresh-owner-cache` | Don't read or write the map / resolve every VPC again and update it |
 | `--wide` | `zones`: add VPC list, VPC owner accounts, comment, tags |
 | `-o table\|json\|csv\|html`, `--json` | Output format |
 | `--out FILE` | `html`: write the report here |
@@ -48,17 +48,18 @@ Account columns: `zones` has `account` (the PHZ owner) and, in `--wide`/JSON, `v
 
 ### VPC owner lookup
 
-`zones` and `by-zone` see the PHZ side only, so they look up who owns each VPC.
+`zones` and `by-zone` see the PHZ side only, so they resolve who owns each VPC, by default from the local map and then IPAM:
 
-A VPC never changes owner, so every owner found is saved to a **local map** (`~/.cache/aws-net-tools/vpc-owners.json`, owner-only permissions) and reused on later runs. Only VPCs missing from the map are looked up. The map is kept outside the repository, and `.gitignore` excludes `vpc-owners*.json` in case `--owner-cache` points inside it. To fill the map up front for a whole OU, run [`ou_vpcs`](../../ou_vpcs/README.md), which writes to the same file.
+1. **Local map** (`~/.cache/aws-net-tools/vpc-owners.json`, owner-only permissions). A VPC never changes owner, so every owner found is saved here and reused on later runs. To fill it up front for a whole OU or organization, run [`ou_vpcs`](../../ou_vpcs/README.md), which writes to the same file. The map is kept outside the repository, and `.gitignore` excludes `vpc-owners*.json` in case `--owner-cache` points inside it.
+2. **IPAM**, only for VPCs missing from the map: one paginated `GetIpamResourceCidrs` pull (`ResourceType=vpc`, 1,000 per page) with `--ipam-profile` (default `--profile`), which should be the IPAM owner or delegated admin account. Every VPC it returns goes into the map, so IPAM is only asked again when a VPC turns up that the map doesn't have. If IPAM can't be read, the tool warns and carries on.
+3. **Account search**, only with `--owner-search`: `DescribeVpcs` in the PHZ account (its own and RAM-shared VPCs), then one `DescribeVpcs` per account and Region, filtered to the remaining VPC IDs. Accounts come from `--owner-accounts`, or by default from the profiles in your local AWS config (the same `-priv` / `-cpar` exclusions apply). Credentials work as for the VPC side: `--role-name`, or the profile derived from the account. Accounts you can't get into are skipped with a warning.
 
-Missing VPCs are looked up from each source in turn, each asked only about the VPCs still unknown, stopping once all are found:
+VPCs that are still unknown show `unknown` and are **listed with the output**, with the zones they belong to:
 
-1. **IPAM** (with `--ipam-profile`): one paginated `GetIpamResourceCidrs` pull (`ResourceType=vpc`, 1,000 per page) from the IPAM owner or delegated admin account. Every VPC it returns goes into the map, so IPAM is only asked again when a VPC turns up that it didn't list. This is the cheapest option for many accounts.
-2. **The PHZ account**: `DescribeVpcs` finds its own VPCs and VPCs shared to it through RAM.
-3. **Other accounts**: one `DescribeVpcs` per account and Region, filtered to the remaining VPC IDs. Accounts come from `--owner-accounts`, or by default from the profiles in your local AWS config (the same `-priv` / `-cpar` exclusions apply). Credentials work as for the VPC side: `--role-name`, or the profile derived from the account. Accounts you can't get into are skipped with a warning.
-
-VPCs that are still unknown show `unknown`; the HTML planner asks for their account.
+- table: a *VPCs with unknown owner* section after the main table
+- JSON: `zones` and `by-zone` print `{"rows": [...], "missing_owners": [{"vpc_region", "vpc_id", "zones"}]}` (`by-vpc` still prints a list)
+- HTML: a note at the top; the planner asks for their account
+- CSV: stays a single table; those rows have `vpc_owner` `unknown`, and the log has a warning
 
 Authorizations with no matching association are highlighted (yellow) in table output on a terminal: `by-zone` rows with status `authorized-pending`, and `zones --authorizations` rows with `pending_authorizations`. Set `NO_COLOR` to turn color off. The log also counts them, and the stale ones that were hidden.
 
@@ -144,8 +145,8 @@ Python 3.11+, `pip install -r requirements.txt`. See [`.env.example`](../.env.ex
 
 | Where | Actions |
 |---|---|
-| IPAM owner / delegated admin account (`--ipam-profile`) | `ec2:DescribeIpams`, `ec2:GetIpamResourceCidrs` |
-| PHZ account and each searched account | `ec2:DescribeVpcs` (+ `sts:AssumeRole` with `--role-name`) |
+| IPAM owner / delegated admin account (`--ipam-profile`, default `--profile`) | `ec2:DescribeIpams`, `ec2:GetIpamResourceCidrs` |
+| With `--owner-search`: PHZ account and each searched account | `ec2:DescribeVpcs` (+ `sts:AssumeRole` with `--role-name`) |
 | PHZ account, with `--owner-accounts org` | `organizations:ListAccounts` (management or delegated admin account) |
 
 ## Output
