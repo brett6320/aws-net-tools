@@ -278,6 +278,9 @@ UI_JS = r"""
     return String(v);
   }
   function akey(a) { return a.zone_id + "|" + a.vpc_region + "|" + a.vpc_id + "|" + a.status; }
+  function ownerKnown(vpc) {
+    return D.associations.some(function (a) { return a.vpc_id === vpc && /^\d{12}$/.test(a.vpc_owner || ""); });
+  }
 
   // ---------------------------------------------------------------- tables
   function Table(cfg) {
@@ -396,6 +399,12 @@ UI_JS = r"""
     extraControls: function (ctl) {
       var b = document.createElement("button"); b.type = "button"; b.textContent = "Clear selection";
       b.addEventListener("click", function () { selected = {}; at.draw(); plan(); }); ctl.appendChild(b);
+      var u = document.createElement("button"); u.type = "button"; u.textContent = "Deselect unknown-owner VPCs";
+      u.title = "Untick the selected rows whose VPC owner account isn't known from this report";
+      u.addEventListener("click", function () {
+        D.associations.forEach(function (a) { if (!ownerKnown(a.vpc_id)) delete selected[akey(a)]; });
+        at.draw(); plan();
+      }); ctl.appendChild(u);
     },
     onDraw: function (tw, shown) {
       tw.querySelectorAll("input.pick").forEach(function (c) {
@@ -459,8 +468,7 @@ UI_JS = r"""
     $("sel-count").textContent = sel.length + " association(s) selected";
     var unknown = [];
     sel.forEach(function (s) {
-      var known = D.associations.some(function (a) { return a.vpc_id === s.vpc_id && /^\d{12}$/.test(a.vpc_owner || ""); });
-      if (!known && unknown.indexOf(s.vpc_id) < 0) unknown.push(s.vpc_id);
+      if (!ownerKnown(s.vpc_id) && unknown.indexOf(s.vpc_id) < 0) unknown.push(s.vpc_id);
     });
     if (!keepInputs || unknown.join() !== lastUnknown) {
       lastUnknown = unknown.join();

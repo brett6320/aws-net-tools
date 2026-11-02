@@ -103,7 +103,7 @@ The planner follows Route 53's rules:
 | Target has a different name from the old PHZ | Associate the new PHZ first, then disassociate the old one, so there is no gap |
 | Target has the **same name** as the old PHZ | A VPC can't have two PHZs with the same name (`ConflictingDomainExists`), so each VPC's old PHZ is disassociated right before the new one is associated, back to back, with a warning about the brief gap. Another same-name PHZ on the VPC that isn't selected is an error |
 | Disassociation would remove a PHZ's last VPC | Skipped with a reason (Route 53 rejects it). For a same-name move, that VPC is blocked |
-| VPC owner unknown | The planner asks for the account before generating commands |
+| VPC owner unknown | The planner asks for the account before generating commands. **Deselect unknown-owner VPCs** (next to *Clear selection*) unticks those rows instead |
 | Leftover authorizations on the old PHZ | Deleted by the old PHZ owner (optional), so the VPC can't re-associate |
 
 Disassociation runs as the VPC owner by default, or as the old PHZ owner. Reports from `by-vpc` don't show every VPC on a zone or any authorizations, so the planner warns that it can't check for last VPCs or existing authorizations; use `zones` or `by-zone` in the PHZ account for a complete picture.
