@@ -25,7 +25,7 @@ DEFAULT_REGIONS = ("us-east-1", "ca-central-1")
 DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 
-OU_ID_RE = re.compile(r"^(?:ou-[0-9a-z]{4,32}-[0-9a-z]{8,32}|r-[0-9a-z]{4,32})$")
+OU_ID_RE = re.compile(r"^(?:ou-[0-9a-z]{4,32}-[0-9a-z]{8,32}|r-[0-9a-z]{4,32}|o-[a-z0-9]{10,32})$")
 ACCOUNT_RE = re.compile(r"^\d{12}$")
 REGION_RE = re.compile(r"^[a-z]{2}(?:-[a-z]+)+-\d$")
 _ROLE_ARN_ACCOUNT = re.compile(r"^arn:[^:]+:iam::(\d{12}):")
@@ -46,10 +46,10 @@ def split_csv(values: Iterable[str] | None) -> list[str]:
 def parse_ou_ids(values: Iterable[str] | None) -> list[str]:
     ids = split_csv(values)
     if not ids:
-        raise ValueError("Give at least one --ou (ou-xxxx-xxxxxxxx, or r-xxxx for the whole organization)")
+        raise ValueError("Give at least one --ou (ou-xxxx-xxxxxxxx, or r-xxxx / o-xxxxxxxxxx for the whole organization)")
     for v in ids:
         if not OU_ID_RE.match(v):
-            raise ValueError(f"--ou: '{v}' is not an OU ID (ou-xxxx-xxxxxxxx) or root ID (r-xxxx)")
+            raise ValueError(f"--ou: '{v}' is not an OU ID (ou-xxxx-xxxxxxxx), root ID (r-xxxx) or organization ID (o-xxxxxxxxxx)")
     return ids
 
 
@@ -104,11 +104,29 @@ def walk_ous(org: Any, ou_id: str, path: str, recurse: bool = True) -> Iterator[
             yield from walk_ous(org, child["Id"], f"{path}/{child['Name']}", True)
 
 
+def resolve_org_ids(org: Any, ids: Iterable[str]) -> list[str]:
+    """Replace an organization ID (o-...) with its root, after checking it's the profile's organization."""
+    out: list[str] = []
+    for v in ids:
+        if v.startswith("o-"):
+            actual = org.describe_organization()["Organization"]["Id"]
+            if actual != v:
+                raise ValueError(f"--ou: organization {v} was requested, but the Organizations profile is in {actual}")
+            v = org.list_roots()["Roots"][0]["Id"]  # an organization has exactly one root
+            log.info("Organization %s: root %s", actual, v)
+        if v not in out:
+            out.append(v)
+    return out
+
+
 def accounts_in_ous(org: Any, ou_ids: Iterable[str], recurse: bool = True) -> list[OrgAccount]:
-    """Active accounts directly in each OU, and (with ``recurse``) in every OU below it."""
+    """Active accounts directly in each OU, and (with ``recurse``) in every OU below it.
+
+    ``ou_ids`` may include the root (r-...) or the organization ID (o-...), meaning every account.
+    """
     found: dict[str, OrgAccount] = {}
     ous = 0
-    for start in ou_ids:
+    for start in resolve_org_ids(org, ou_ids):
         for ou, path in walk_ous(org, start, ou_path(org, start), recurse):
             ous += 1
             for a in _pages(org, "list_accounts_for_parent", "Accounts", ParentId=ou):

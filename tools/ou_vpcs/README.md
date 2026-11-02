@@ -31,13 +31,14 @@ python tools/ou_vpcs/ou_vpcs.py --profile org-mgmt-ro --ou ou-ab12-11111111
 python tools/ou_vpcs/ou_vpcs.py --profile org-mgmt-ro --ou ou-ab12-11111111,ou-ab12-22222222 \
     --regions us-east-1,us-west-2 -o csv > vpcs.csv
 
-# The whole organization, as JSON
+# The whole organization, as JSON (root ID or organization ID)
 python tools/ou_vpcs/ou_vpcs.py --profile org-mgmt-ro --ou r-ab12 --json
+python tools/ou_vpcs/ou_vpcs.py --profile org-mgmt-ro --ou o-abcde12345 --json
 ```
 
 | Flag | Env var | Meaning |
 |---|---|---|
-| `--ou OU_ID` | `OU_VPCS_OU` | OU (`ou-xxxx-xxxxxxxx`) or root (`r-xxxx`); repeat or comma-separate. Required |
+| `--ou OU_ID` | `OU_VPCS_OU` | OU (`ou-xxxx-xxxxxxxx`), root (`r-xxxx`) or organization (`o-xxxxxxxxxx`); repeat or comma-separate. Required |
 | `--profile` | `OU_VPCS_ORG_PROFILE`, then `AWS_PROFILE` | Profile for the Organizations calls (management or delegated-administrator account) |
 | `--regions` | `OU_VPCS_REGIONS` | Regions to scan in each account; repeat or comma-separate (default `us-east-1,ca-central-1`) |
 | `--no-recurse` | | Only accounts directly in the OU |
@@ -46,6 +47,8 @@ python tools/ou_vpcs/ou_vpcs.py --profile org-mgmt-ro --ou r-ab12 --json
 | `--no-cache` | | Don't write the VPC owner map |
 | `-o table\|csv\|json`, `--json` | | Output format (default `table`) |
 | `-v` / `-q` | | Debug logging / warnings only |
+
+A root or organization ID means every account in the organization. An organization ID must be the organization the `--profile` account belongs to; any other is rejected (exit code `2`). It is then resolved to the organization's root.
 
 Only active accounts are listed; suspended and closed accounts are skipped.
 
@@ -83,7 +86,7 @@ The file is written owner-only (`0600`) outside the repository. `.gitignore` exc
 
 ## IAM permissions
 
-Organizations profile:
+Organizations profile (`DescribeOrganization` and `ListRoots` are only used for an organization ID):
 
 ```json
 {
@@ -94,7 +97,9 @@ Organizations profile:
       "organizations:ListAccountsForParent",
       "organizations:ListOrganizationalUnitsForParent",
       "organizations:ListParents",
-      "organizations:DescribeOrganizationalUnit"
+      "organizations:DescribeOrganizationalUnit",
+      "organizations:DescribeOrganization",
+      "organizations:ListRoots"
     ],
     "Resource": "*"
   }]

@@ -89,7 +89,7 @@ def render(rows: Sequence[dict[str, Any]], columns: Sequence[str], fmt: str, str
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="List the VPCs owned by every account in one or more OUs (read-only).")
-    p.add_argument("--ou", action="append", metavar="OU_ID", help="OU ID (ou-xxxx-xxxxxxxx) or root ID (r-xxxx); repeat or comma-separate (env OU_VPCS_OU)")
+    p.add_argument("--ou", action="append", metavar="OU_ID", help="OU ID (ou-xxxx-xxxxxxxx), root ID (r-xxxx) or organization ID (o-xxxxxxxxxx); repeat or comma-separate (env OU_VPCS_OU)")
     p.add_argument("--profile", default=os.getenv("OU_VPCS_ORG_PROFILE") or os.getenv("AWS_PROFILE"),
                    help="Profile for the Organizations calls: management or delegated-administrator account "
                         "(default: OU_VPCS_ORG_PROFILE, AWS_PROFILE, default chain)")
@@ -123,6 +123,9 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     try:
         org = session_for(args.profile).client("organizations", region_name="us-east-1", config=core.BOTO_CONFIG)
         accounts = core.accounts_in_ous(org, ou_ids, recurse=not args.no_recurse)
+    except ValueError as e:
+        log.error("%s", e)
+        return 2
     except (ClientError, BotoCoreError) as e:
         log.error("Organizations (profile %s): %s", args.profile or "default", core._error(e))
         return 1

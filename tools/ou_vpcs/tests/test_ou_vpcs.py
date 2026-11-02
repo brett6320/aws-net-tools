@@ -293,3 +293,30 @@ def test_phz_review_owner_only_entry_is_enriched_once(tmp_path):
     assert core.store(cache, rows) == 1
     cache.save()
     assert core.store(VpcOwnerCache(path), rows) == 0
+
+
+# --------------------------------------------------------------------------- organization ID
+
+
+def test_org_id_means_the_root_and_is_checked(org):
+    o, ous, ids = org
+    org_id = o.describe_organization()["Organization"]["Id"]
+    assert core.parse_ou_ids([org_id]) == [org_id]
+    assert core.resolve_org_ids(o, [org_id, ous["root"], ous["prod"]]) == [ous["root"], ous["prod"]]
+    by_org = core.accounts_in_ous(o, [org_id])
+    assert by_org == core.accounts_in_ous(o, [ous["root"]])
+    assert {ids["app"], ids["web"], ids["dev"]} <= {a.id for a in by_org}
+    with pytest.raises(ValueError, match="Organizations profile is in"):
+        core.resolve_org_ids(o, ["o-zzzzzzzzzz"])
+    with pytest.raises(ValueError):
+        core.parse_ou_ids(["o-short"])
+
+
+def test_cli_accepts_org_id_and_rejects_another_org(org, aws_config, capsys):
+    o, _, ids = org
+    org_id = o.describe_organization()["Organization"]["Id"]
+    rc, out = run(org, aws_config, capsys, "--ou", org_id, "--no-cache", "--json")
+    assert rc == 3  # the management and dev accounts have no profile
+    assert {r["account"] for r in json.loads(out)} == {ids["app"], ids["web"]}
+    rc, out = run(org, aws_config, capsys, "--ou", "o-zzzzzzzzzz", "--no-cache")
+    assert rc == 2 and out == ""
