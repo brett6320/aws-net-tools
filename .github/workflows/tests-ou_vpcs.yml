@@ -1,0 +1,32 @@
+name: ou_vpcs tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/ou_vpcs/**"
+      - ".github/workflows/tests-ou_vpcs.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/ou_vpcs/**"
+      - ".github/workflows/tests-ou_vpcs.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: ou_vpcs
+      path: tools/ou_vpcs
+    permissions:
+      contents: write
