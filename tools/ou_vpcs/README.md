@@ -70,14 +70,14 @@ Logs and the summary go to stderr; the rows go to stdout.
 | `ou_path` | e.g. `Root/Prod/Web`. The JSON also has `ou_id` |
 | `account`, `account_name` | Owner account and its name in Organizations |
 | `region`, `vpc_id`, `name` | Region, VPC ID and `Name` tag |
-| `cidrs` | Associated IPv4 CIDRs, primary first. The JSON also has `cidr` (primary) and `state` |
+| `cidrs` | Associated IPv4 CIDRs, primary first, the rest sorted. The JSON also has `cidr` (primary) and `state` |
 | `is_default` | Default VPC |
 
 Exit codes: `0` all accounts and Regions scanned, `1` Organizations error, `2` bad input, `3` some accounts or Regions skipped (rows for the rest are still printed and saved).
 
 ## VPC owner map
 
-Each VPC is stored under `<region>/<vpc-id>` with its owner `account`, `source: "ou_vpcs"`, the date it was last changed (`seen`), and `account_name`, `ou_id`, `ou_path`, `name` and `cidrs`. `phz_review` reads the `account` field and keeps the rest when it adds its own entries. Entries never expire; an entry is only rewritten when something about the VPC changed.
+Each VPC is stored under `<region>/<vpc-id>` with its owner `account`, `source: "ou_vpcs"`, the date it was last changed (`seen`), and `account_name`, `ou_id`, `ou_path`, `name` and `cidrs`. `phz_review` reads the `account` field and keeps the rest when it adds its own entries. Entries never expire. Re-running is idempotent: the same scan prints the same rows, and an entry (and the file) is only rewritten when something about the VPC changed, not when AWS returns things in a different order.
 
 The file is written owner-only (`0600`) outside the repository. `.gitignore` excludes `vpc-owners*.json` in case `--cache` points inside it.
 
