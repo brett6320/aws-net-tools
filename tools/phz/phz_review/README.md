@@ -40,8 +40,8 @@ python phz_review.py <subcommand> ... -o html [--out FILE | --reports-dir DIR]
 | `--no-owner-cache` / `--refresh-owner-cache` | Don't read or write the map / resolve every VPC again and update it |
 | `--wide` | `zones`: add VPC list, VPC owner accounts, comment, tags |
 | `-o table\|json\|csv\|html`, `--json` | Output format |
-| `--out FILE` | `html`: write the report here |
-| `--reports-dir DIR` | `html`: reports go to `DIR/<YYYY-MM-DD>/<account>/phz-review_<subcommand>.html` (default `./reports`, env `VPCE_REPORTS_DIR`) |
+| `--out FILE` | `html`: write the report here (overwritten each run), plus a timestamped copy next to it, `<name>_<YYYYMMDD-HHMMSS>.html` |
+| `--reports-dir DIR` | `html`: the current report is `DIR/<account>/phz-review_<subcommand>.html`, overwritten on every run, and each run also keeps a timestamped copy in `DIR/<YYYY-MM-DD>/<account>/phz-review_<subcommand>_<HHMMSS>.html` (default `./reports`, env `VPCE_REPORTS_DIR`) |
 | account/profile flags | See the [suite README](../README.md#accounts-and-credentials) |
 
 Account columns: `zones` has `account` (the PHZ owner) and, in `--wide`/JSON, `vpc_owners`; `by-vpc` has `vpc_account` and `zone_owner`; `by-zone` has `zone_owner`, `vpc_owner` and `cross_account` (empty when the VPC owner is unknown).
@@ -88,7 +88,7 @@ python phz_review.py zones --profile hub -o html
 
 ## HTML report
 
-`-o html` writes one self-contained file (no external assets) and prints its path. It has:
+`-o html` writes one self-contained file (no external assets) and prints its path: the current report, which every run overwrites, so the latest is always in the same place. A timestamped copy of each run is kept alongside for history (see `--reports-dir` / `--out`). It has:
 
 - **Summary**: zones, associations, VPCs, accounts, cross-account associations, pending and stale authorizations, VPCs whose owner is unknown.
 - **Private hosted zones**: name, ID, owner account, VPC count, records, comment, tags. Search, filter by owner, click a header to sort (shift-click adds a second sort key). **Use as target** picks the zone in the planner.
