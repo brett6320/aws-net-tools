@@ -42,7 +42,7 @@ from lib.aws_common import (  # noqa: E402
     render,
     validate_account,
 )
-from lib.aws_profiles import exclude_suffixes, profile_accounts  # noqa: E402
+from lib.aws_profiles import exclude_suffixes, priv_profiles, profile_accounts  # noqa: E402
 from lib.vpc_owner_cache import VpcOwnerCache, default_path  # noqa: E402
 from lib.route53_helpers import Zone, list_authorizations, load_tags, load_vpcs, select_zones, zones_by_vpc  # noqa: E402
 from phz_html import render_html  # noqa: E402
@@ -462,6 +462,8 @@ def missing_note(missing: list[dict[str, Any]]) -> str:
 
 
 def write_html(review: Review, args: argparse.Namespace) -> Path:
+    accounts = {z["owner"] for z in review.zones} | {
+        a[k] for a in review.associations for k in ("zone_owner", "vpc_owner")}
     data = {
         "command": args.command,
         "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -471,6 +473,8 @@ def write_html(review: Review, args: argparse.Namespace) -> Path:
         "authorizations_listed": args.command == "zones" or (args.command == "by-zone" and not args.no_authorizations),
         "vpc_counts_complete": args.command != "by-vpc",
         "notes": review.notes + ([missing_note(review.missing_owners)] if review.missing_owners else []),
+        # The planner's default --profile per account: the account's -priv profile in ~/.aws/config
+        "profiles": priv_profiles(a for a in accounts if a.isdigit()),
     }
     path = Path(args.out) if args.out else report_path(review, args.command, args.reports_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
