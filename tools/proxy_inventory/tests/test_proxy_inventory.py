@@ -284,7 +284,7 @@ def test_denied_service_is_listed_not_incomplete(monkeypatch, aws_config):
                 "describe_network_interfaces": {"NetworkInterfaces": []}})
     scan = core.scan_account(ACCT, {REGION: ["vpc-1"]}, lambda p: StubSession({"sts": sts, "ec2": ec2}))
     assert [(i.scope, i.incomplete) for i in scan.issues] == [("Lambda", False)]
-    assert (ACCT, REGION, "Lambda") not in scan.read
+    assert not any(r[3] == "Lambda" for r in scan.read)
 
 
 def test_other_service_errors_are_incomplete_and_contained(monkeypatch, aws_config):
@@ -303,7 +303,7 @@ def test_other_service_errors_are_incomplete_and_contained(monkeypatch, aws_conf
                 "describe_network_interfaces": {"NetworkInterfaces": []}})
     scan = core.scan_account(ACCT, {REGION: ["vpc-1"]}, lambda p: StubSession({"sts": sts, "ec2": ec2}))
     assert [(i.scope, i.incomplete) for i in scan.issues] == [("AppStream", True), ("MWAA", True)]
-    assert scan.read == {(ACCT, REGION, "Glue")}
+    assert scan.read == {(ACCT, REGION, "vpc-1", "Glue")}
 
 
 def test_wrong_account_profile_is_skipped(aws_config):
@@ -334,7 +334,7 @@ def test_classify_enis():
         eni("eni-part", eni_owner=OTHER, instance_id="i-9", instance_owner=OTHER),
         eni("eni-x", description="something new"),
     ]
-    read = {(ACCT, REGION, "Lambda")}
+    read = {(ACCT, REGION, "vpc-1", "Lambda")}
     out = {n["eni_id"]: n["likely"] for n in core.classify_enis(enis, resources, read)}
     assert out == {"eni-branch": "ECS awsvpc trunking / EKS pod security groups",
                    "eni-part": f"attached to i-9 (participant account {OTHER})", "eni-x": ""}

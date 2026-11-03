@@ -156,14 +156,15 @@ def build_rows(scan: core.Scan, vpcs: list[core.Vpc], key_tag: str) -> dict[str,
             "unattributed": sum(1 for n in enis if (n["region"], n["vpc_id"]) == k),
         })
     # An owner account that couldn't be read can also come up as a participant; list it once.
-    seen, issues = set(), []
+    # (A row marked incomplete wins, so the table agrees with the exit code.)
+    merged: dict[tuple, dict] = {}
     for i in scan.issues:
         key = (i.account, i.region, "account" if i.scope == "participant" else i.scope)
-        if key in seen:
-            continue
-        seen.add(key)
-        issues.append({"account": i.account, "account_name": names.get(i.account, ""), "region": i.region or "(all)",
-                       "scope": i.scope, "reason": i.reason, "incomplete": "yes" if i.incomplete else "no"})
+        row = {"account": i.account, "account_name": names.get(i.account, ""), "region": i.region or "(all)",
+               "scope": i.scope, "reason": i.reason, "incomplete": "yes" if i.incomplete else "no"}
+        if key not in merged or (row["incomplete"] == "yes" and merged[key]["incomplete"] == "no"):
+            merged[key] = row
+    issues = list(merged.values())
     return {"resources": resources, "apps": apps, "vpcs": vpc_rows, "enis": enis, "issues": issues}
 
 

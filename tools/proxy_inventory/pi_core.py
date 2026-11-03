@@ -268,7 +268,7 @@ class Scan:
     enis: list[dict[str, Any]] = field(default_factory=list)
     vpcs: list[dict[str, Any]] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
-    read: set[tuple[str, str, str]] = field(default_factory=set)  # (account, Region, collector) read successfully
+    read: set[tuple[str, str, str, str]] = field(default_factory=set)  # (account, Region, VPC, collector) read
 
     def merge(self, other: "Scan") -> None:
         self.resources += other.resources
@@ -584,10 +584,10 @@ GUESS_TYPES = {"Glue": "Glue job", "AppStream": "AppStream fleet", "WorkSpaces":
                "MWAA": "MWAA environment", "App Runner": "App Runner service", "ECS task": "ECS task"}
 
 
-def classify_enis(enis: list[dict], resources: list[dict], read: set[tuple[str, str, str]] = frozenset()) -> list[dict]:
+def classify_enis(enis: list[dict], resources: list[dict], read: set[tuple[str, str, str, str]] = frozenset()) -> list[dict]:
     """The interfaces that belong to no reported resource and no excluded type, with a likely service each.
 
-    ``read``: (account, Region, collector) pairs read successfully. Lambda interfaces (shared by the
+    ``read``: (account, Region, VPC, collector) read successfully. Lambda interfaces (shared by the
     functions of a subnet / security group combination) are only taken as accounted for where Lambda was read.
     """
     by_eni = {e for r in resources for e in r["eni_ids"]}
@@ -597,7 +597,7 @@ def classify_enis(enis: list[dict], resources: list[dict], read: set[tuple[str, 
     out = []
     for n in enis:
         if (n["eni_id"] in by_eni or n["instance_id"] in by_instance
-                or (n["interface_type"] == "lambda" and (n["eni_owner"], n["region"], "Lambda") in read)
+                or (n["interface_type"] == "lambda" and (n["eni_owner"], n["region"], n["vpc_id"], "Lambda") in read)
                 or any((n["vpc_id"], ip) in by_ip for ip in n["private_ips"]) or excluded_as(n)):
             continue
         likely = guess_service(n)
@@ -650,7 +650,7 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
                 for n in enis:
                     n.update(account=account, region=region)
                 scan.enis += enis
-        except (ClientError, BotoCoreError) as e:
+        except Exception as e:  # noqa: BLE001 - skip this Region, keep the rest of the run
             scan.issues.append(Issue(account, region, "region", _error(e)))
             log.warning("Skipping %s in %s: %s", account, region, _error(e))
             continue
@@ -666,7 +666,7 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
                 scan.issues.append(Issue(account, region, label, _error(e), incomplete=not denied))
                 (log.info if denied else log.warning)("%s %s: %s not read: %s", account, region, label, _error(e))
                 continue
-            scan.read.add((account, region, label))
+            scan.read.update((account, region, v, label) for v in wanted)
             for r in rows:
                 r.update(account=account, region=region)
             scan.resources += rows
