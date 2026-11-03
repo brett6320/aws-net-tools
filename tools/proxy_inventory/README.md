@@ -12,7 +12,7 @@ with all of its tags.
    **`-priv`** or **`-cpar`**, and checks it with `sts:GetCallerIdentity`.
 3. **Resources**: each VPC owner account is read for the resource types below, limited to its VPCs. Every network
    interface in those VPCs is listed too.
-4. **Shared VPCs**: interfaces owned by other accounts show that those accounts run workloads in the VPC (RAM-shared subnets).
+4. **Shared VPCs**: interfaces owned by other accounts (other than excluded types) show that those accounts run workloads in the VPC (RAM-shared subnets).
    Those participant accounts are then read with their own profiles, limited to the shared VPCs. Turn this off with `--no-participants`.
 
 The tool is **read-only**: it never changes AWS resources. Python 3.11+ / boto3.
@@ -98,7 +98,7 @@ The report has these tables:
 | **Resources** | Every resource: AppCatID and where it came from, type, ID, name, state, account, VPC, subnets, private IPs, details and **all tags**. A tag-key filter finds resources carrying a given tag |
 | **VPCs read** | Every selected VPC: the VPC's own AppCatID tag, resource count, AppCatIDs, unattributed interfaces, and `gone` for VPCs no longer in AWS |
 | **Unattributed network interfaces** | See above |
-| **Not read** | Accounts, Regions and services that couldn't be read. A denied service (e.g. WorkSpaces blocked by an SCP) is listed but doesn't count as incomplete |
+| **Not read** | Accounts, Regions and services that couldn't be read. A denied service (e.g. WorkSpaces blocked by an SCP) is listed but doesn't count as incomplete, because its interfaces still show as unattributed. Any other error (throttling, an unexpected response) does count |
 
 The AppCatID tag is matched in any case (`AppCatID`, `appcatid` ...). An ECS service or task without the tag takes its
 cluster's, shown as `inherited from ECS cluster`.
@@ -108,8 +108,11 @@ downloads the filtered rows as CSV. **Download HTML (this view)** saves a copy o
 current filters, search and sort of every table. The copy keeps all the data, so the recipient can clear the filters.
 Filters are also kept in the URL, so a view can be bookmarked.
 
-Exit codes: `0` everything read, `2` bad input (no owner map, no VPC matches), `3` some accounts, Regions or participant
-accounts couldn't be read (the report covers the rest).
+Exit codes: `0` everything read, `2` bad input (no owner map, no VPC matches), `3` some accounts, Regions, participant
+accounts or services couldn't be read for a reason other than access denied (the report covers the rest).
+
+`-v` shows this tool's debug logging only: AWS SDK logging stays at warnings, because it would print whole API
+responses (Lambda environment variables, for example).
 
 ## Configuration
 

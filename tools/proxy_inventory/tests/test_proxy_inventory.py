@@ -89,6 +89,12 @@ def moto_eni_vpc_filter(monkeypatch):
     monkeypatch.setitem(utils.filter_dict_attribute_mapping, "network-interface.vpc-id", "vpc_id")
 
 
+@pytest.fixture
+def moto_collectors(monkeypatch):
+    # moto doesn't implement AppStream, MWAA or App Runner (404); those collectors are tested with stubs below.
+    monkeypatch.setattr(core, "COLLECTORS", tuple(c for c in core.COLLECTORS if c[0] not in ("AppStream", "MWAA", "App Runner")))
+
+
 def _setup_aws():
     ec2 = boto3.client("ec2", region_name=REGION)
     vpc = ec2.create_vpc(CidrBlock="10.0.0.0/16", TagSpecifications=[
@@ -132,7 +138,7 @@ def _setup_aws():
 
 
 @mock_aws
-def test_end_to_end(tmp_path, aws_config):
+def test_end_to_end(tmp_path, aws_config, moto_collectors):
     ids = _setup_aws()
     aws_config({"prod-app": ACCT})
     cache = write_cache(tmp_path / "c.json", {
@@ -174,7 +180,7 @@ def test_end_to_end(tmp_path, aws_config):
 
 
 @mock_aws
-def test_reports_dir_and_unreadable_account(tmp_path, aws_config, monkeypatch, capsys):
+def test_reports_dir_and_unreadable_account(tmp_path, aws_config, moto_collectors, monkeypatch, capsys):
     ids = _setup_aws()
     aws_config({"prod-app": ACCT})
     cache = write_cache(tmp_path / "c.json", {f"{REGION}/{ids['vpc']}": entry(),
@@ -278,6 +284,26 @@ def test_denied_service_is_listed_not_incomplete(monkeypatch, aws_config):
                 "describe_network_interfaces": {"NetworkInterfaces": []}})
     scan = core.scan_account(ACCT, {REGION: ["vpc-1"]}, lambda p: StubSession({"sts": sts, "ec2": ec2}))
     assert [(i.scope, i.incomplete) for i in scan.issues] == [("Lambda", False)]
+    assert (ACCT, REGION, "Lambda") not in scan.read
+
+
+def test_other_service_errors_are_incomplete_and_contained(monkeypatch, aws_config):
+    aws_config({"a": ACCT})
+
+    def throttled(*a):
+        raise ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow down"}}, "DescribeFleets")
+
+    def broken(*a):
+        raise KeyError("Fleets")
+
+    monkeypatch.setattr(core, "COLLECTORS", (("AppStream", "appstream", throttled), ("MWAA", "mwaa", broken),
+                                             ("Glue", "glue", lambda *a: [])))
+    sts = Stub({"get_caller_identity": {"Account": ACCT}})
+    ec2 = Stub({"describe_subnets": {"Subnets": []}, "describe_vpcs": {"Vpcs": []},
+                "describe_network_interfaces": {"NetworkInterfaces": []}})
+    scan = core.scan_account(ACCT, {REGION: ["vpc-1"]}, lambda p: StubSession({"sts": sts, "ec2": ec2}))
+    assert [(i.scope, i.incomplete) for i in scan.issues] == [("AppStream", True), ("MWAA", True)]
+    assert scan.read == {(ACCT, REGION, "Glue")}
 
 
 def test_wrong_account_profile_is_skipped(aws_config):
@@ -308,9 +334,20 @@ def test_classify_enis():
         eni("eni-part", eni_owner=OTHER, instance_id="i-9", instance_owner=OTHER),
         eni("eni-x", description="something new"),
     ]
-    out = {n["eni_id"]: n["likely"] for n in core.classify_enis(enis, resources)}
+    read = {(ACCT, REGION, "Lambda")}
+    out = {n["eni_id"]: n["likely"] for n in core.classify_enis(enis, resources, read)}
     assert out == {"eni-branch": "ECS awsvpc trunking / EKS pod security groups",
                    "eni-part": f"attached to i-9 (participant account {OTHER})", "eni-x": ""}
+    # Lambda wasn't read: its interfaces are not taken as accounted for
+    assert "eni-lambda" in {n["eni_id"] for n in core.classify_enis(enis, resources)}
+
+
+def test_managed_interfaces_of_reported_services_are_accounted_for():
+    resources = [{"type": "Glue job", "id": "j1", "vpc_id": "vpc-1", "private_ips": [], "eni_ids": [], "account": ACCT}]
+    enis = [eni("eni-glue", description="Attached to Glue using role"),
+            eni("eni-glue-other-vpc", vpc_id="vpc-2", description="Attached to Glue using role"),
+            eni("eni-mwaa", description="MWAA environment")]
+    assert [n["eni_id"] for n in core.classify_enis(enis, resources)] == ["eni-glue-other-vpc", "eni-mwaa"]
 
 
 def test_participants_are_scanned(monkeypatch):
@@ -328,6 +365,13 @@ def test_participants_are_scanned(monkeypatch):
     core.scan(vpcs, lambda p: None, workers=1)
     assert calls == [(ACCT, {REGION: ["vpc-1"]}, True, "account"),
                      (OTHER, {REGION: ["vpc-1"]}, False, "participant")]
+    # attachment owners (often AWS service accounts) and excluded interfaces don't make participants
+    calls.clear()
+    monkeypatch.setattr(core, "scan_account", lambda *a, owner=True, **kw: (calls.append(a[0]), core.Scan(enis=[
+        eni("eni-eks", instance_owner="999999999999"), eni("eni-vpce", eni_owner=OTHER, interface_type="vpc_endpoint")]
+        if owner else []))[1])
+    core.scan(vpcs, lambda p: None, workers=1)
+    assert calls == [ACCT]
     calls.clear()
     core.scan(vpcs, lambda p: None, workers=1, participants=False)
     assert len(calls) == 1

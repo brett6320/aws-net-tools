@@ -34,6 +34,7 @@ Table spec (dict):
   order     {key: [values in sort order]} (e.g. severity)
   sort      initial sort, [[key, 1 | -1], ...]
   hide      {"key": k, "values": [...], "label": "show info"}: hidden until ticked
+  labels    [[key, label], ...] for filter keys that aren't columns
   by        {"key": k, "label": "By code", "badge": key shown as badge or None}
   collapsed True: the table starts folded under its heading (click to open); the
             open/closed state is kept in the URL fragment like the filters
@@ -96,10 +97,11 @@ app.innerHTML = `<h1>${esc(D.title)}</h1>` + (D.meta || []).map(m => `<div class
   `<div class="cards">${(D.cards || []).map(([v, l]) => card(v, l)).join("")}</div>` + (D.extra_html || "");
 // A copy saved by "Download HTML (this view)" carries its view; an explicit fragment wins.
 const VIEW = document.getElementById("view");
+let saved = "";
 if (!location.hash.slice(1) && VIEW) {
-  try { history.replaceState(null, "", "#" + JSON.parse(VIEW.textContent)); } catch (err) { /* keep the default view */ }
+  try { saved = JSON.parse(VIEW.textContent); } catch (err) { saved = ""; }
 }
-const H = new URLSearchParams(location.hash.slice(1));
+const H = new URLSearchParams(location.hash.slice(1) || saved);
 function exportHtml() {
   const doc = document.documentElement.cloneNode(true);
   doc.querySelector("#app").innerHTML = "";
@@ -125,7 +127,7 @@ function saveHash() {
 function makeTable(t) {
   const sec = document.createElement("section");
   app.appendChild(sec);
-  const LABEL = Object.fromEntries(t.columns);
+  const LABEL = Object.fromEntries(t.columns.concat(t.labels || []));
   const filters = t.filters || [], wrap = t.wrap || [], badges = t.badges || {}, order = t.order || {};
   const lines = t.lines || [];
   const hide = t.hide, P = t.id + ".";

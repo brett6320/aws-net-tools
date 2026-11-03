@@ -258,11 +258,8 @@ class Issue:
     region: str
     scope: str  # "account", "region", a service name, or "participant"
     reason: str
-
-    @property
-    def incomplete(self) -> bool:
-        """Account / Region / participant skips make the inventory incomplete; service denials are listed only."""
-        return self.scope in ("account", "region", "participant")
+    # Resources may be missing. False only for a denied service: its interfaces still show as unattributed.
+    incomplete: bool = True
 
 
 @dataclass
@@ -271,12 +268,14 @@ class Scan:
     enis: list[dict[str, Any]] = field(default_factory=list)
     vpcs: list[dict[str, Any]] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
+    read: set[tuple[str, str, str]] = field(default_factory=set)  # (account, Region, collector) read successfully
 
     def merge(self, other: "Scan") -> None:
         self.resources += other.resources
         self.enis += other.enis
         self.vpcs += other.vpcs
         self.issues += other.issues
+        self.read |= other.read
 
 
 def resource(rtype: str, rid: str, vpc_id: str, *, name: str = "", state: str = "", subnets: Iterable[str] = (),
@@ -349,7 +348,7 @@ def lambda_functions(session, region, account, vpc_ids, subnet_vpc) -> list[dict
         if vpc not in vpc_ids:
             continue
         tags = lam.list_tags(Resource=f["FunctionArn"]).get("Tags") or {}
-        rows.append(resource("Lambda function", f["FunctionName"], vpc, name=f["FunctionName"], state=f.get("State", ""),
+        rows.append(resource("Lambda function", f["FunctionName"], vpc, name=f["FunctionName"],
                              subnets=cfg.get("SubnetIds") or [], detail=[f.get("Runtime") or f.get("PackageType", "")],
                              tags=tags, arn=f["FunctionArn"]))
     return rows
@@ -579,20 +578,34 @@ def guess_service(eni: dict) -> str:
     return ""
 
 
-def classify_enis(enis: list[dict], resources: list[dict]) -> list[dict]:
-    """The interfaces that belong to no reported resource and no excluded type, with a likely service each."""
+# Likely service -> resource type, for managed interfaces that carry no resource ID: such an interface is
+# accounted for when its owner account has a resource of that type in the same VPC.
+GUESS_TYPES = {"Glue": "Glue job", "AppStream": "AppStream fleet", "WorkSpaces": "WorkSpace",
+               "MWAA": "MWAA environment", "App Runner": "App Runner service", "ECS task": "ECS task"}
+
+
+def classify_enis(enis: list[dict], resources: list[dict], read: set[tuple[str, str, str]] = frozenset()) -> list[dict]:
+    """The interfaces that belong to no reported resource and no excluded type, with a likely service each.
+
+    ``read``: (account, Region, collector) pairs read successfully. Lambda interfaces (shared by the
+    functions of a subnet / security group combination) are only taken as accounted for where Lambda was read.
+    """
     by_eni = {e for r in resources for e in r["eni_ids"]}
     by_instance = {r["id"] for r in resources if r["type"] == "EC2 instance"}
     by_ip = {(r["vpc_id"], ip) for r in resources for ip in r["private_ips"]}
+    by_type = {(r["account"], r["vpc_id"], r["type"]) for r in resources if "account" in r}
     out = []
     for n in enis:
-        if (n["eni_id"] in by_eni or n["instance_id"] in by_instance or n["interface_type"] == "lambda"
+        if (n["eni_id"] in by_eni or n["instance_id"] in by_instance
+                or (n["interface_type"] == "lambda" and (n["eni_owner"], n["region"], "Lambda") in read)
                 or any((n["vpc_id"], ip) in by_ip for ip in n["private_ips"]) or excluded_as(n)):
             continue
         likely = guess_service(n)
-        other = next((a for a in (n["instance_owner"], n["eni_owner"]) if a and a != n.get("account")), "")
-        if other:  # shared VPC: the workload lives in a participant account that couldn't be read
-            likely = f"{likely} (participant account {other})".strip()
+        if (n["eni_owner"], n["vpc_id"], GUESS_TYPES.get(likely)) in by_type:
+            continue
+        if n["eni_owner"] and n["eni_owner"] != n.get("account"):
+            # shared VPC: the workload lives in a participant account that couldn't be read
+            likely = f"{likely} (participant account {n['eni_owner']})".strip()
         out.append({**n, "likely": likely})
     return out
 
@@ -600,10 +613,12 @@ def classify_enis(enis: list[dict], resources: list[dict]) -> list[dict]:
 # --------------------------------------------------------------------------- scanning
 
 
-def _session_for_account(account: str, session_for: Callable[[str], Any], overrides, preferred) -> tuple[Any, str]:
+def _session_for_account(account: str, session_for: Callable[[str], Any], overrides, preferred,
+                         region: str) -> tuple[Any, str]:
     profile = resolve_profile(account, overrides, preferred)
     session = session_for(profile)
-    actual = session.client("sts", config=BOTO_CONFIG).get_caller_identity()["Account"]
+    # A Regional STS endpoint, so GovCloud and China profiles work too.
+    actual = session.client("sts", region_name=region, config=BOTO_CONFIG).get_caller_identity()["Account"]
     if actual != account:
         raise PermissionError(f"profile {profile} authenticates as {actual}")
     return session, profile
@@ -619,7 +634,7 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
     """
     scan = Scan()
     try:
-        session, profile = _session_for_account(account, session_for, overrides, preferred)
+        session, profile = _session_for_account(account, session_for, overrides, preferred, min(by_region))
     except (LookupError, PermissionError, ClientError, BotoCoreError) as e:
         scan.issues.append(Issue(account, "", scope, _error(e)))
         log.warning("Skipping account %s: %s", account, _error(e))
@@ -646,15 +661,12 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
                 continue
             try:
                 rows = collect(session, region, account, wanted, subnets)
-            except ClientError as e:
-                code = e.response.get("Error", {}).get("Code", "")
-                scan.issues.append(Issue(account, region, label, _error(e)))
-                (log.info if code in DENIED_CODES else log.warning)("%s %s: %s not read: %s", account, region, label, _error(e))
+            except Exception as e:  # noqa: BLE001 - one service failing must not lose the rest of the run
+                denied = isinstance(e, ClientError) and e.response.get("Error", {}).get("Code", "") in DENIED_CODES
+                scan.issues.append(Issue(account, region, label, _error(e), incomplete=not denied))
+                (log.info if denied else log.warning)("%s %s: %s not read: %s", account, region, label, _error(e))
                 continue
-            except BotoCoreError as e:
-                scan.issues.append(Issue(account, region, label, _error(e)))
-                log.warning("%s %s: %s not read: %s", account, region, label, _error(e))
-                continue
+            scan.read.add((account, region, label))
             for r in rows:
                 r.update(account=account, region=region)
             scan.resources += rows
@@ -690,10 +702,12 @@ def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str
     run(owners)
     if participants:
         shared: dict[str, dict[str, set[str]]] = {}
+        # A participant owns the interfaces of its workloads; the attachment's instance owner can be an AWS
+        # service account (e.g. the EKS control plane), so it isn't used.
         for n in total.enis:
-            for other in (n["eni_owner"], n["instance_owner"]):
-                if ACCOUNT_RE.match(other or "") and other != n["account"]:
-                    shared.setdefault(other, {}).setdefault(n["region"], set()).add(n["vpc_id"])
+            other = n["eni_owner"]
+            if ACCOUNT_RE.match(other or "") and other != n["account"] and not excluded_as(n):
+                shared.setdefault(other, {}).setdefault(n["region"], set()).add(n["vpc_id"])
         if shared:
             log.info("Shared VPCs: %d participant account(s) to read", len(shared))
             run({a: {r: sorted(v) for r, v in regs.items()} for a, regs in shared.items()}, owner=False, scope="participant")

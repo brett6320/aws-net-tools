@@ -52,9 +52,9 @@ def configure_logging(verbose: bool = False, quiet: bool = False) -> None:
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
                         datefmt="%Y-%m-%dT%H:%M:%S", stream=sys.stderr)
     logging.getLogger().setLevel(level)
-    if not verbose:
-        for noisy in ("botocore", "boto3", "urllib3"):
-            logging.getLogger(noisy).setLevel(logging.WARNING)
+    # Never DEBUG, even with -v: botocore would log whole responses, e.g. Lambda environment variables.
+    for noisy in ("botocore", "boto3", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,7 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
                         f"(default: {core.DEFAULT_KEY_TAG}; env PROXY_INV_KEY_TAG)")
     p.add_argument("--no-participants", action="store_true",
                    help="Don't read other accounts with interfaces in shared VPCs (their workloads then show as unattributed)")
-    p.add_argument("--workers", type=int, default=int(env("PROXY_INV_WORKERS") or 4),
+    workers = env("PROXY_INV_WORKERS", "")
+    p.add_argument("--workers", type=int, default=int(workers) if workers.isdigit() and int(workers) > 0 else 4,
                    help="Accounts read in parallel (default: 4; env PROXY_INV_WORKERS)")
     p.add_argument("--reports-dir", default=env("PROXY_INV_REPORTS_DIR", "reports"), metavar="DIR",
                    help="Reports root: current report in DIR/<scope>/, timestamped copies in DIR/<YYYY-MM-DD>/<scope>/ "
@@ -136,7 +137,7 @@ def build_rows(scan: core.Scan, vpcs: list[core.Vpc], key_tag: str) -> dict[str,
         "resource_ids": [f"{r['type']}: {r['id']}" for r in rs],
     } for (region, vpc_id, app), rs in groups.items()]
 
-    unattributed = core.classify_enis(scan.enis, scan.resources)
+    unattributed = core.classify_enis(scan.enis, scan.resources, scan.read)
     enis = [{**{k: n[k] for k in ("eni_id", "likely", "interface_type", "description", "requester", "eni_owner",
                                   "instance_id", "private_ips", "status", "subnet")},
              "region": n["region"], **vpc_cols(n["region"], n["vpc_id"]), "tags": tag_list(n["tags"])}
@@ -154,9 +155,15 @@ def build_rows(scan: core.Scan, vpcs: list[core.Vpc], key_tag: str) -> dict[str,
             "resources": len(rs), "appcatids": sorted({r["appcatid"] for r in rs}),
             "unattributed": sum(1 for n in enis if (n["region"], n["vpc_id"]) == k),
         })
-    issues = [{"account": i.account, "account_name": names.get(i.account, ""), "region": i.region or "(all)",
-               "scope": i.scope, "reason": i.reason, "incomplete": "yes" if i.incomplete else "no"}
-              for i in scan.issues]
+    # An owner account that couldn't be read can also come up as a participant; list it once.
+    seen, issues = set(), []
+    for i in scan.issues:
+        key = (i.account, i.region, "account" if i.scope == "participant" else i.scope)
+        if key in seen:
+            continue
+        seen.add(key)
+        issues.append({"account": i.account, "account_name": names.get(i.account, ""), "region": i.region or "(all)",
+                       "scope": i.scope, "reason": i.reason, "incomplete": "yes" if i.incomplete else "no"})
     return {"resources": resources, "apps": apps, "vpcs": vpc_rows, "enis": enis, "issues": issues}
 
 
@@ -194,6 +201,7 @@ def render_report(rows: dict[str, list[dict]], *, title: str, key_tag: str, meta
          "rows": [{k: v for k, v in r.items() if k != "all_tags"} for r in res],
          "filters": ["appcatid", "type", "account", "vpc_id", "region", "ou_path", "state", "appcatid_source", "tag_keys"],
          "uniq": [["appcatid", f"{key_tag}s"], ["vpc_id", "VPCs"], ["account", "Accounts"]],
+         "labels": [["tag_keys", "Has tag key"]],
          "lines": ["tags", "private_ips", "subnets"], "wrap": ["tags", "detail"], "badges": badge,
          "sort": [["vpc_id", 1], ["appcatid", 1], ["type", 1]]},
         {"id": "vpcs", "title": "VPCs read", "row_label": "VPCs", "collapsed": True,
@@ -212,7 +220,8 @@ def render_report(rows: dict[str, list[dict]], *, title: str, key_tag: str, meta
          "lines": ["tags"], "wrap": ["description", "tags"], "sort": [["vpc_id", 1], ["likely", 1]]},
         {"id": "issues", "title": "Not read", "row_label": "issues", "collapsed": not incomplete,
          "note": "Accounts, Regions or services that couldn't be read. incomplete = yes means resources may be missing "
-                 "from this report; a denied service (incomplete = no) is often simply unused.",
+                 "from this report. A denied service (incomplete = no) is often simply unused; its interfaces still "
+                 "show as unattributed.",
          "columns": [["account", "Account"], ["account_name", "Account name"], ["region", "Region"], ["scope", "What"],
                      ["incomplete", "Incomplete"], ["reason", "Reason"]],
          "rows": rows["issues"], "filters": ["scope", "account", "region", "incomplete"], "wrap": ["reason"],
@@ -240,12 +249,12 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging(args.verbose, args.quiet)
     cache = Path(args.cache).expanduser() if args.cache else core.default_cache_path()
+    ous = core.split_csv(args.ou or [os.getenv("PROXY_INV_OU", "")])
+    regions = core.split_csv(args.regions or [os.getenv("PROXY_INV_REGIONS", "")])
     try:
         overrides = core.parse_account_profiles(args.account_profile)
-        vpcs = core.select_vpcs(core.load_vpcs(cache), ous=core.split_csv(args.ou or [os.getenv("PROXY_INV_OU", "")]),
-                                accounts=core.split_csv(args.account),
-                                regions=core.split_csv(args.regions or [os.getenv("PROXY_INV_REGIONS", "")]),
-                                vpc_ids=core.split_csv(args.vpc))
+        vpcs = core.select_vpcs(core.load_vpcs(cache), ous=ous, accounts=core.split_csv(args.account),
+                                regions=regions, vpc_ids=core.split_csv(args.vpc))
     except (ValueError, FileNotFoundError) as e:
         log.error("%s", e)
         return 2
@@ -262,12 +271,12 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     now = dt.datetime.now().astimezone()
     owners = sorted({v.account for v in vpcs})
     scope = owners[0] if len(owners) == 1 else "multi-account"
-    filters = [f"{n} {', '.join(v)}" for n, v in (("OU", core.split_csv(args.ou)), ("account", core.split_csv(args.account)),
-                                                   ("Region", core.split_csv(args.regions)), ("VPC", core.split_csv(args.vpc))) if v]
+    filters = [f"{n} {', '.join(v)}" for n, v in (("OU", ous), ("account", core.split_csv(args.account)),
+                                                   ("Region", regions), ("VPC", core.split_csv(args.vpc))) if v]
     meta = [f"Generated {now.astimezone(dt.timezone.utc):%Y-%m-%d %H:%M:%S UTC} from the VPC owner map {cache.name}"
             f"{' (' + '; '.join(filters) + ')' if filters else ''}",
-            f"Application tag: {args.key_tag} (any case). Resources without it may inherit it from their ECS service or "
-            "cluster (shown in the \"from\" column)."]
+            f"Application tag: {args.key_tag} (any case). ECS services and tasks without it inherit their cluster's "
+            "(shown in the \"from\" column)."]
     page = render_report(rows, title=args.title or f"Proxy-capable resources by {args.key_tag}", key_tag=args.key_tag, meta=meta)
     path = Path(args.out) if args.out else report_path(scope, args.reports_dir)
     copy = history_path(path, None if args.out else args.reports_dir, now)
