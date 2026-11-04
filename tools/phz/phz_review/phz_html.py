@@ -30,7 +30,7 @@ CSS = """
 @media print{:root,:root[data-theme]{LIGHT}.themebtn{display:none}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-main{max-width:1400px;margin:0 auto;padding:24px 16px 64px}
+main{max-width:none;margin:0 auto;padding:24px 16px 64px}
 h1{font-size:22px;margin:0 0 4px}h3{font-size:16px;margin:0 0 8px}h4{font-size:13px;margin:14px 0 6px}
 code,pre{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 code{background:var(--code);padding:1px 5px;border-radius:4px}
