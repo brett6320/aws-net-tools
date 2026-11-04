@@ -72,6 +72,21 @@ def test_resolve_profile(aws_config):
         core.resolve_profile("333333333333")
 
 
+def test_resolve_profile_prefix(aws_config):
+    aws_config({"app": ACCT, "hcli-app": ACCT, "two-ro": OTHER, "hcli-two": OTHER, "hcli-two-ro": OTHER,
+                "x-a": "111111111111", "x-b": "111111111111", "hcli-only": "222222222222"})
+    assert core.resolve_profile(ACCT) == "hcli-app"
+    assert core.resolve_profile(ACCT, preferred="app") == "app"
+    with pytest.raises(LookupError, match="several"):
+        core.resolve_profile(ACCT, prefix="")  # turned off
+    assert core.resolve_profile(OTHER) == "hcli-two-ro"  # several hcli-: the read-only one of those
+    assert core.resolve_profile(OTHER, prefix="two") == "two-ro"
+    assert core.resolve_profile("222222222222", prefix="zzz") == "hcli-only"  # not ambiguous
+    with pytest.raises(LookupError, match="several"):
+        core.resolve_profile("111111111111")
+    assert core.resolve_profile("111111111111", prefix="x-b") == "x-b"
+
+
 def test_tags():
     assert core.tag_dict([{"Key": "a", "Value": "1"}]) == {"a": "1"}
     assert core.tag_dict([{"key": "a", "value": "1"}]) == {"a": "1"}
@@ -391,7 +406,8 @@ def test_managed_interfaces_of_reported_services_are_accounted_for():
 def test_participants_are_scanned(monkeypatch):
     calls = []
 
-    def fake(account, by_region, session_for, overrides=None, preferred=None, *, owner=True, scope="account", include=frozenset()):
+    def fake(account, by_region, session_for, overrides=None, preferred=None, *, owner=True, scope="account", include=frozenset(),
+             prefix=core.DEFAULT_PROFILE_PREFIX):
         calls.append((account, by_region, owner, scope))
         s = core.Scan()
         if owner:
@@ -529,3 +545,32 @@ def test_rerender_rejects_other_files(tmp_path):
     (tmp_path / "x.html").write_text("<html>not a report</html>")
     assert pi.main(["--rerender", str(tmp_path / "x.html"), "-q"]) == 2
     assert pi.main(["--rerender", str(tmp_path / "missing.html"), "-q"]) == 2
+
+
+def test_retry_throttled(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(core.time, "sleep", sleeps.append)
+
+    def failing(code, times, status=400):
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) <= times:
+                raise ClientError({"Error": {"Code": code, "Message": "m"},
+                                   "ResponseMetadata": {"HTTPStatusCode": status}}, "Op")
+            return "ok"
+        return fn, calls
+
+    fn, calls = failing("ThrottlingException", 2)
+    assert core._retry_throttled(fn, "t") == "ok" and len(calls) == 3 and len(sleeps) == 2
+    fn, calls = failing("Whatever", 1, status=429)
+    assert core._retry_throttled(fn, "t") == "ok"
+    fn, calls = failing("RequestLimitExceeded", core.THROTTLE_ATTEMPTS)
+    with pytest.raises(ClientError):
+        core._retry_throttled(fn, "t")
+    assert len(calls) == core.THROTTLE_ATTEMPTS
+    fn, calls = failing("AccessDenied", 5)
+    with pytest.raises(ClientError):
+        core._retry_throttled(fn, "t")
+    assert len(calls) == 1
