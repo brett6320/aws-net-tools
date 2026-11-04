@@ -147,10 +147,11 @@ def test_end_to_end(tmp_path, aws_config, moto_collectors):
     })
     out = tmp_path / "r" / "inv.html"
     js = tmp_path / "inv.json"
-    rc = pi.main(["--cache", str(cache), "--out", str(out), "--json-out", str(js), "--workers", "2", "-q"],
+    rc = pi.main(["--cache", str(cache), "--out", str(out), "--json-out", str(js), "--workers", "2", "--include", "glue", "-q"],
                  session_for=lambda profile: boto3.Session(region_name=REGION))
     assert rc == 0
     data = json.loads(js.read_text())
+    assert data["services_not_read"] == ["App Runner"]
     res = {r["id"]: r for r in data["resources"]}
     assert set(res) >= {ids["tagged"], ids["untagged"], ids["stopped"], "fn-in-vpc", "c1/svc"}
     assert ids["gone"] not in res and "fn-no-vpc" not in res
@@ -190,6 +191,7 @@ def test_reports_dir_and_unreadable_account(tmp_path, aws_config, moto_collector
     assert rc == pi.INCOMPLETE_EXIT  # OTHER has no profile
     path = Path(capsys.readouterr().out.strip())
     assert path == Path("reports") / "multi-account" / "proxy-inventory.html" and path.exists()
+    assert "Not read (opt-in with --include): Glue, App Runner." in path.read_text()
     assert len(list(Path("reports").glob("*-*-*/multi-account/proxy-inventory_*.html"))) == 1
 
 
@@ -301,9 +303,35 @@ def test_other_service_errors_are_incomplete_and_contained(monkeypatch, aws_conf
     sts = Stub({"get_caller_identity": {"Account": ACCT}})
     ec2 = Stub({"describe_subnets": {"Subnets": []}, "describe_vpcs": {"Vpcs": []},
                 "describe_network_interfaces": {"NetworkInterfaces": []}})
-    scan = core.scan_account(ACCT, {REGION: ["vpc-1"]}, lambda p: StubSession({"sts": sts, "ec2": ec2}))
+    scan = core.scan_account(ACCT, {REGION: ["vpc-1"]}, lambda p: StubSession({"sts": sts, "ec2": ec2}),
+                             include=frozenset({"Glue"}))
     assert [(i.scope, i.incomplete) for i in scan.issues] == [("AppStream", True), ("MWAA", True)]
     assert scan.read == {(ACCT, REGION, "vpc-1", "Glue")}
+
+
+def test_opt_in_collectors_are_skipped_by_default(monkeypatch, aws_config):
+    aws_config({"a": ACCT})
+    called = []
+
+    def collector(label):
+        return lambda *a: called.append(label) or []
+
+    monkeypatch.setattr(core, "COLLECTORS", tuple((label, "ec2", collector(label)) for label in ("EC2", "Glue", "App Runner")))
+    sts = Stub({"get_caller_identity": {"Account": ACCT}})
+    ec2 = Stub({"describe_subnets": {"Subnets": []}, "describe_vpcs": {"Vpcs": []},
+                "describe_network_interfaces": {"NetworkInterfaces": []}})
+    session_for = lambda p: StubSession({"sts": sts, "ec2": ec2})  # noqa: E731
+    vpcs = [core.Vpc(REGION, "vpc-1", ACCT)]
+    core.scan(vpcs, session_for, workers=1)
+    assert called == ["EC2"]
+    called.clear()
+    core.scan(vpcs, session_for, workers=1, include=frozenset({"App Runner"}))
+    assert called == ["EC2", "App Runner"]
+
+
+def test_include_rejects_unknown_service(tmp_path):
+    cache = write_cache(tmp_path / "c.json", {f"{REGION}/vpc-1": entry()})
+    assert pi.main(["--cache", str(cache), "--include", "glue,lambda", "-q"]) == 2
 
 
 def test_wrong_account_profile_is_skipped(aws_config):
@@ -353,7 +381,7 @@ def test_managed_interfaces_of_reported_services_are_accounted_for():
 def test_participants_are_scanned(monkeypatch):
     calls = []
 
-    def fake(account, by_region, session_for, overrides=None, preferred=None, *, owner=True, scope="account"):
+    def fake(account, by_region, session_for, overrides=None, preferred=None, *, owner=True, scope="account", include=frozenset()):
         calls.append((account, by_region, owner, scope))
         s = core.Scan()
         if owner:

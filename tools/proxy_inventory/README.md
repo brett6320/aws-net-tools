@@ -26,9 +26,9 @@ The tool is **read-only**: it never changes AWS resources. Python 3.11+ / boto3.
 | ECS services and standalone tasks | `awsvpc` networking (Fargate or EC2). Bridge or host-mode tasks are covered by their EC2 hosts |
 | WorkSpaces | `DescribeWorkspaces`, by subnet |
 | AppStream fleets | `DescribeFleets`, by VPC config |
-| Glue jobs | jobs using a Glue connection in the VPC (connections are listed with `HidePassword`) |
+| Glue jobs (opt-in: `--include glue`) | jobs using a Glue connection in the VPC (connections are listed with `HidePassword`) |
 | MWAA environments | `GetEnvironment` network config |
-| App Runner services | services whose egress goes through a VPC connector in the VPC |
+| App Runner services (opt-in: `--include apprunner`) | services whose egress goes through a VPC connector in the VPC |
 
 Excluded, because they don't originate traffic that a proxy would carry: VPC endpoints, NAT and transit gateways, load
 balancers, RDS, ElastiCache, Redshift, OpenSearch, EFS, FSx, MSK, MQ, DMS, Route 53 Resolver endpoints, the EKS control plane
@@ -37,6 +37,10 @@ and Directory Service.
 **Unattributed interfaces**: interfaces in the VPCs that belong to no listed resource and to no excluded type are shown
 in their own table, with a likely service guessed from their description (EKS pods, CodeBuild, SageMaker, workloads in a
 participant account that couldn't be read ...). This makes sure nothing is silently missed.
+
+**Opt-in services**: Glue and App Runner are read only with `--include glue,apprunner`, because finding their VPCs
+takes `glue:GetConnections` and `apprunner:ListVpcConnectors`. Without them, their interfaces are listed as unattributed
+(likely service `Glue` / `App Runner`), and the report's header says which services weren't read.
 
 Services that aren't offered in a Region (e.g. App Runner in `ca-central-1`) are skipped without a call.
 
@@ -59,6 +63,9 @@ python tools/proxy_inventory/proxy_inventory.py
 # Only the Prod OU and the OUs below it, in us-east-1
 python tools/proxy_inventory/proxy_inventory.py --ou Root/Prod --regions us-east-1
 
+# Also read Glue jobs and App Runner services
+python tools/proxy_inventory/proxy_inventory.py --include glue,apprunner
+
 # One VPC, written to a chosen file, plus JSON with every tag
 python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --out vpc.html --json-out vpc.json
 ```
@@ -73,6 +80,7 @@ python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --ou
 | `--profile` | `AWS_PROFILE` | Preferred profile when several map to an account |
 | `--account-profile ACCOUNT=PROFILE` | | Profile for an account when none or several map to it; repeat or comma-separate |
 | `--key-tag TAG` | `PROXY_INV_KEY_TAG` | The application tag, matched in any case (default `AppCatID`) |
+| `--include SERVICE` | `PROXY_INV_INCLUDE` | Also read these opt-in services: `glue`, `apprunner`; repeat or comma-separate |
 | `--no-participants` | | Don't read participant accounts of shared VPCs |
 | `--workers N` | `PROXY_INV_WORKERS` | Accounts read in parallel (default 4) |
 | `--reports-dir DIR` | `PROXY_INV_REPORTS_DIR` | Reports root (default `./reports`) |
@@ -108,7 +116,7 @@ downloads the filtered rows as CSV. **Download HTML (this view)** saves a copy o
 current filters, search and sort of every table. The copy keeps all the data, so the recipient can clear the filters.
 Filters are also kept in the URL, so a view can be bookmarked.
 
-Exit codes: `0` everything read, `2` bad input (no owner map, no VPC matches), `3` some accounts, Regions, participant
+Exit codes: `0` everything read, `2` bad input (no owner map, no VPC matches, unknown `--include` service), `3` some accounts, Regions, participant
 accounts or services couldn't be read for a reason other than access denied (the report covers the rest).
 
 `-v` shows this tool's debug logging only: AWS SDK logging stays at warnings, because it would print whole API
@@ -134,14 +142,15 @@ Read-only, in every account read:
       "ecs:ListClusters", "ecs:DescribeClusters", "ecs:ListServices", "ecs:DescribeServices", "ecs:ListTasks", "ecs:DescribeTasks",
       "workspaces:DescribeWorkspaces", "workspaces:DescribeTags",
       "appstream:DescribeFleets", "appstream:ListTagsForResource",
-      "glue:GetConnections", "glue:GetJobs", "glue:GetTags",
-      "airflow:ListEnvironments", "airflow:GetEnvironment",
-      "apprunner:ListVpcConnectors", "apprunner:ListServices", "apprunner:DescribeService", "apprunner:ListTagsForResource"
+      "airflow:ListEnvironments", "airflow:GetEnvironment"
     ],
     "Resource": "*"
   }]
 }
 ```
+
+Only with `--include glue`: `glue:GetConnections`, `glue:GetJobs`, `glue:GetTags`. Only with `--include apprunner`:
+`apprunner:ListVpcConnectors`, `apprunner:ListServices`, `apprunner:DescribeService`, `apprunner:ListTagsForResource`.
 
 A missing service permission only leaves that service out, and the report's "Not read" table lists it.
 

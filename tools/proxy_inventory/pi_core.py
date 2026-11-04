@@ -8,8 +8,8 @@ being read too, limited to the shared VPCs. No role is assumed; nothing is chang
 
 Resource types (each limited to the selected VPCs):
   EC2 instances (also EKS, ECS, EMR and Batch nodes), Lambda functions, ECS services and
-  standalone tasks with awsvpc networking, WorkSpaces, AppStream fleets, Glue jobs (through
-  their connections), MWAA environments, App Runner services (through VPC connectors).
+  standalone tasks with awsvpc networking, WorkSpaces, AppStream fleets, MWAA environments;
+  opt-in (``OPT_IN``): Glue jobs (through their connections), App Runner services (through VPC connectors).
 Interfaces that belong to none of these and to no excluded type (endpoints, NAT and transit
 gateways, load balancers, databases ...) are listed as unattributed, so nothing is missed.
 """
@@ -509,6 +509,9 @@ COLLECTORS: tuple[tuple[str, str, Callable], ...] = (
     ("MWAA", "mwaa", mwaa_environments),
     ("App Runner", "apprunner", apprunner_services),
 )
+# Collectors read only when opted in (--include): option name -> label. Glue needs glue:GetConnections and
+# App Runner apprunner:ListVpcConnectors to find their VPCs; without them, their interfaces show as unattributed.
+OPT_IN = {"glue": "Glue", "apprunner": "App Runner"}
 
 
 # --------------------------------------------------------------------------- network interfaces
@@ -626,10 +629,11 @@ def _session_for_account(account: str, session_for: Callable[[str], Any], overri
 
 def scan_account(account: str, by_region: dict[str, list[str]], session_for: Callable[[str], Any],
                  overrides: dict[str, str] | None = None, preferred: str | None = None, *,
-                 owner: bool = True, scope: str = "account") -> Scan:
+                 owner: bool = True, scope: str = "account", include: frozenset[str] = frozenset()) -> Scan:
     """Read one account: every collector in each Region, limited to ``by_region``'s VPC IDs.
 
     ``owner``: the account owns these VPCs, so also list their interfaces and VPC tags.
+    ``include``: labels of the opt-in collectors (``OPT_IN``) to read.
     A new boto3 Session is made here, so accounts can be scanned in parallel threads.
     """
     scan = Scan()
@@ -656,6 +660,8 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
             continue
         wanted = set(vpc_ids)
         for label, service, collect in COLLECTORS:
+            if label in OPT_IN.values() and label not in include:
+                continue
             if not available(session, service, region):
                 log.debug("%s %s: %s isn't offered in this Region", account, region, label)
                 continue
@@ -685,8 +691,12 @@ def vpc_details(ec2: Any, account: str, region: str, vpc_ids: list[str]) -> list
 
 
 def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str, str] | None = None,
-         preferred: str | None = None, workers: int = 4, participants: bool = True) -> Scan:
-    """Scan the VPC owners, then (``participants``) the other accounts with interfaces in their VPCs."""
+         preferred: str | None = None, workers: int = 4, participants: bool = True,
+         include: frozenset[str] = frozenset()) -> Scan:
+    """Scan the VPC owners, then (``participants``) the other accounts with interfaces in their VPCs.
+
+    ``include``: labels of the opt-in collectors (``OPT_IN``) to read.
+    """
     owners: dict[str, dict[str, list[str]]] = {}
     for v in vpcs:
         owners.setdefault(v.account, {}).setdefault(v.region, []).append(v.vpc_id)
@@ -694,7 +704,7 @@ def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str
 
     def run(jobs: dict[str, dict[str, list[str]]], **kw) -> None:
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-            futures = [pool.submit(scan_account, a, regions, session_for, overrides, preferred, **kw)
+            futures = [pool.submit(scan_account, a, regions, session_for, overrides, preferred, include=include, **kw)
                        for a, regions in sorted(jobs.items())]
             for f in futures:
                 total.merge(f.result())

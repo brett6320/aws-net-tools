@@ -78,6 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
                         f"(default: {core.DEFAULT_KEY_TAG}; env PROXY_INV_KEY_TAG)")
     p.add_argument("--no-participants", action="store_true",
                    help="Don't read other accounts with interfaces in shared VPCs (their workloads then show as unattributed)")
+    p.add_argument("--include", action="append", metavar="SERVICE",
+                   help=f"Also read these opt-in services: {', '.join(core.OPT_IN)} (they need glue:GetConnections / "
+                        "apprunner:ListVpcConnectors); repeat or comma-separate (env PROXY_INV_INCLUDE)")
     workers = env("PROXY_INV_WORKERS", "")
     p.add_argument("--workers", type=int, default=int(workers) if workers.isdigit() and int(workers) > 0 else 4,
                    help="Accounts read in parallel (default: 4; env PROXY_INV_WORKERS)")
@@ -252,7 +255,10 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     cache = Path(args.cache).expanduser() if args.cache else core.default_cache_path()
     ous = core.split_csv(args.ou or [os.getenv("PROXY_INV_OU", "")])
     regions = core.split_csv(args.regions or [os.getenv("PROXY_INV_REGIONS", "")])
+    include = [s.lower() for s in core.split_csv(args.include or [os.getenv("PROXY_INV_INCLUDE", "")])]
     try:
+        if unknown := sorted(set(include) - set(core.OPT_IN)):
+            raise ValueError(f"--include / PROXY_INV_INCLUDE: unknown service(s) {', '.join(unknown)} (choose from {', '.join(core.OPT_IN)})")
         overrides = core.parse_account_profiles(args.account_profile)
         vpcs = core.select_vpcs(core.load_vpcs(cache), ous=ous, accounts=core.split_csv(args.account),
                                 regions=regions, vpc_ids=core.split_csv(args.vpc))
@@ -266,7 +272,7 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
 
     session_for = session_for or (lambda profile: boto3.Session(profile_name=profile))
     scan = core.scan(vpcs, session_for, overrides, preferred=args.profile, workers=args.workers,
-                     participants=not args.no_participants)
+                     participants=not args.no_participants, include=frozenset(core.OPT_IN[s] for s in include))
     rows = build_rows(scan, vpcs, args.key_tag)
 
     now = dt.datetime.now().astimezone()
@@ -278,6 +284,9 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
             f"{' (' + '; '.join(filters) + ')' if filters else ''}",
             f"Application tag: {args.key_tag} (any case). ECS services and tasks without it inherit their cluster's "
             "(shown in the \"from\" column)."]
+    if skipped := [label for name, label in core.OPT_IN.items() if name not in include]:
+        meta.append(f"Not read (opt-in with --include): {', '.join(skipped)}. "
+                    "Their network interfaces show as unattributed.")
     page = render_report(rows, title=args.title or f"Proxy-capable resources by {args.key_tag}", key_tag=args.key_tag, meta=meta)
     path = Path(args.out) if args.out else report_path(scope, args.reports_dir)
     copy = history_path(path, None if args.out else args.reports_dir, now)
@@ -286,7 +295,7 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
         p.write_text(page, encoding="utf-8")
     log.info("Report history copy: %s", copy)
     if args.json_out:
-        out = {"generated_at": now.isoformat(), "key_tag": args.key_tag, "cache": str(cache),
+        out = {"generated_at": now.isoformat(), "key_tag": args.key_tag, "cache": str(cache), "services_not_read": skipped,
                "resources": [{**{k: v for k, v in r.items() if k not in ("tags", "tag_keys")}, "tags": r["all_tags"]}
                              for r in rows["resources"]],
                "apps": rows["apps"], "vpcs": rows["vpcs"], "unattributed_enis": rows["enis"], "issues": rows["issues"]}
