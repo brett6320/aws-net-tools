@@ -6,6 +6,8 @@ Shows which applications (by their **AppCatID** tag) live in which VPC, so you k
 before you change a VPC. It lists every resource in each VPC that could send traffic through an egress proxy,
 with all of its tags.
 
+![Proxy inventory HTML report: AppCatIDs by VPC](docs/images/report.png)
+
 1. **VPCs**: read from the local VPC owner map that [`ou_vpcs`](../ou_vpcs/README.md) writes
    (`~/.cache/aws-net-tools/vpc-owners.json`). Run `ou_vpcs` first, then narrow the VPCs with `--ou`, `--account`, `--exclude-account`, `--regions` or `--vpc`.
 2. **Account → profile**: the same as `ou_vpcs`. It uses the profile in `~/.aws/config` that maps to the account ID, never one ending in
@@ -116,6 +118,10 @@ The report has these tables:
 The AppCatID tag is matched in any case (`AppCatID`, `appcatid` ...). An ECS service or task without the tag takes its
 cluster's, shown as `inherited from ECS cluster`.
 
+![Resources table filtered to one VPC](docs/images/resources.png)
+
+![Unattributed network interfaces](docs/images/unattributed.png)
+
 Every table sorts (click a header, shift-click for a secondary sort), filters (search box, dropdowns, or click a cell) and
 downloads the filtered rows as CSV. **Download HTML (this view)** saves a copy of the whole report that opens on the
 current filters, search and sort of every table. The copy keeps all the data, so the recipient can clear the filters.
@@ -178,3 +184,15 @@ cd tools/proxy_inventory && python -m pytest
 
 The tests use `moto` for EC2, Lambda and ECS, and stub clients for WorkSpaces, AppStream, Glue, MWAA and App Runner.
 They never read your AWS config or your VPC owner map.
+
+## Regenerating screenshots
+
+```bash
+cd tools/proxy_inventory
+python docs/make_screenshots.py            # all
+python docs/make_screenshots.py resources  # one
+```
+
+The images in `docs/images/` are headless-Chrome captures of a made-up inventory (invented accounts, VPCs and
+resources) rendered by the tool's own report code. `report-light.png` is the same page in the light color scheme.
+This needs macOS and Google Chrome.
