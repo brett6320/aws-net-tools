@@ -82,8 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-participants", action="store_true",
                    help="Don't read other accounts with interfaces in shared VPCs (their workloads then show as unattributed)")
     p.add_argument("--include", action="append", metavar="SERVICE",
-                   help=f"Also read these opt-in services: {', '.join(core.OPT_IN)} (they need glue:GetConnections / "
-                        "apprunner:ListVpcConnectors); repeat or comma-separate (env PROXY_INV_INCLUDE)")
+                   help=f"Also read these opt-in services: {', '.join(core.OPT_IN)} (they need workspaces:DescribeWorkspaces / "
+                        "glue:GetConnections / airflow:GetEnvironment / apprunner:ListVpcConnectors); repeat or comma-separate (env PROXY_INV_INCLUDE)")
     workers = env("PROXY_INV_WORKERS", "")
     p.add_argument("--workers", type=int, default=int(workers) if workers.isdigit() and int(workers) > 0 else 4,
                    help="Accounts read in parallel (default: 4; env PROXY_INV_WORKERS)")
