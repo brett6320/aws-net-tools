@@ -255,7 +255,7 @@ HTML_CSS = """
   --card:#161d23; --error:#ff8a80; --error-bg:#3d1714; --warn:#f2c14e; --warn-bg:#3a2e0e;
   --info:#8ab4f8; --info-bg:#14243b; --ok:#6fdc8c; --ok-bg:#12321e; } }
 body { background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",
-  Roboto,sans-serif; margin:0 auto; padding:24px 16px; max-width:1400px; }
+  Roboto,sans-serif; margin:0 auto; padding:24px 16px; max-width:none; }
 h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:18px; margin:32px 0 8px; }
 h3 { font-size:15px; margin:20px 0 6px; } .muted { color:var(--muted); }
 code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
