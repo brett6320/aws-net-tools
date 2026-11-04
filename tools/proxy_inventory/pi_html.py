@@ -30,6 +30,7 @@ Table spec (dict):
   uniq      [[key, label], ...] columns to count unique values of
   wrap      keys whose text wraps (others stay on one line)
   lines     keys whose list values show one item per line (default: comma-separated)
+  fold      {key: noun}: list values of more than one item start collapsed as "N <noun>" (click to open)
   badges    {key: {value: css class}}; classes: error, warn, info, ok
   order     {key: [values in sort order]} (e.g. severity)
   sort      initial sort, [[key, 1 | -1], ...]
@@ -82,6 +83,7 @@ td.nw { white-space:nowrap; } td.f { cursor:pointer; } td.f:hover { text-decorat
 .info { color:var(--info); background:var(--info-bg); } .ok { color:var(--ok); background:var(--ok-bg); }
 details.fold > summary { cursor:pointer; margin:32px 0 6px; } details.fold > summary h2 { display:inline; margin:0; }
 details.fold > summary span { margin-left:8px; }
+details.cell > summary { cursor:pointer; color:var(--muted); }
 </style></head><body>
 <div id="app"></div>
 <script id="data" type="application/json">__DATA__</script>
@@ -129,7 +131,7 @@ function makeTable(t) {
   app.appendChild(sec);
   const LABEL = Object.fromEntries(t.columns.concat(t.labels || []));
   const filters = t.filters || [], wrap = t.wrap || [], badges = t.badges || {}, order = t.order || {};
-  const lines = t.lines || [];
+  const lines = t.lines || [], fold = t.fold || {};
   const hide = t.hide, P = t.id + ".";
   const st = {q: "", show: false, f: {}, sort: (t.sort || []).map(x => [...x])};
   filters.forEach(k => { if (H.get(P + k)) st.f[k] = H.get(P + k); });
@@ -196,8 +198,10 @@ function makeTable(t) {
   const cell = (k, v) => {
     const vs = vals(v), f = filters.includes(k) && vs.length === 1;
     const cls = [wrap.includes(k) ? "" : "nw", f ? "f" : ""].filter(Boolean).join(" ");
+    const body = Array.isArray(v) ? v.map(x => badge(k, String(x))).join(lines.includes(k) ? "<br>" : ", ") : badge(k, txt(v));
     return `<td class="${cls}"${f ? ` data-k="${esc(k)}" data-v="${esc(vs[0])}"` : ""}>` +
-      (Array.isArray(v) ? v.map(x => badge(k, String(x))).join(lines.includes(k) ? "<br>" : ", ") : badge(k, txt(v))) + `</td>`;
+      (fold[k] && Array.isArray(v) && v.length > 1
+        ? `<details class="cell"><summary>${v.length} ${esc(fold[k])}</summary>${body}</details>` : body) + `</td>`;
   };
   function render() {
     saveHash();

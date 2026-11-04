@@ -196,7 +196,7 @@ def render_report(rows: dict[str, list[dict]], *, title: str, key_tag: str, meta
                      ["resource_ids", "Resource IDs"]],
          "rows": apps, "filters": ["appcatid", "vpc_id", "region", "vpc_owner", "ou_path", "types"],
          "uniq": [["appcatid", f"{key_tag}s"], ["vpc_id", "VPCs"], ["vpc_owner", "VPC owners"]],
-         "lines": ["resource_ids"], "wrap": ["resource_ids", "types"], "badges": badge,
+         "lines": ["resource_ids"], "fold": {"resource_ids": "resources"}, "wrap": ["resource_ids", "types"], "badges": badge,
          "sort": [["vpc_id", 1], ["appcatid", 1]],
          "by": {"key": "appcatid", "label": f"VPCs per {key_tag}", "badge": None}},
         {"id": "res", "title": "Resources", "row_label": "resources",
