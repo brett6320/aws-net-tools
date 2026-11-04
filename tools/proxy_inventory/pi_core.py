@@ -19,7 +19,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -37,6 +39,7 @@ DEFAULT_KEY_TAG = "AppCatID"
 MISSING = "(missing)"
 DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
+DEFAULT_PROFILE_PREFIX = "hcli-"
 CACHE_FILENAME = "vpc-owners.json"
 
 ACCOUNT_RE = re.compile(r"^\d{12}$")
@@ -45,6 +48,14 @@ VPC_RE = re.compile(r"^vpc-[0-9a-f]{8,17}$")
 OU_ID_RE = re.compile(r"^(?:ou-[0-9a-z]{4,32}-[0-9a-z]{8,32}|r-[0-9a-z]{4,32})$")
 _ROLE_ARN_ACCOUNT = re.compile(r"^arn:[^:]+:iam::(\d{12}):")
 
+# Rate limit errors, retried with backoff (``_retry_throttled``) after botocore's own retries run out.
+THROTTLE_CODES = frozenset({
+    "Throttling", "ThrottlingException", "ThrottledException", "RequestThrottled", "RequestThrottledException",
+    "RequestLimitExceeded", "TooManyRequestsException", "TooManyRequests", "SlowDown", "RequestLimitExceededException",
+    "BandwidthLimitExceeded", "LimitExceededException", "ProvisionedThroughputExceededException", "EC2ThrottledException",
+})
+THROTTLE_ATTEMPTS = 4
+THROTTLE_BASE_DELAY = 2.0
 # Error codes meaning "this principal may not call this service here" (vary by service).
 DENIED_CODES = frozenset({
     "AccessDenied", "AccessDeniedException", "UnauthorizedOperation", "UnauthorizedException", "AuthFailure",
@@ -173,8 +184,12 @@ def profile_accounts() -> dict[str, str]:
     return {name: acct for name, cfg in profiles.items() if (acct := profile_account(cfg))}
 
 
-def resolve_profile(account: str, overrides: dict[str, str] | None = None, preferred: str | None = None) -> str:
-    """The profile to read ``account`` with. Raises LookupError when there's none or several."""
+def resolve_profile(account: str, overrides: dict[str, str] | None = None, preferred: str | None = None, *,
+                    prefix: str = DEFAULT_PROFILE_PREFIX) -> str:
+    """The profile to read ``account`` with. Raises LookupError when there's none or several.
+
+    When several profiles map to it, the one starting with ``prefix`` is used, then the read-only one.
+    """
     if overrides and account in overrides:
         return overrides[account]
     excluded = exclude_suffixes()
@@ -183,6 +198,10 @@ def resolve_profile(account: str, overrides: dict[str, str] | None = None, prefe
         raise LookupError("no profile in ~/.aws/config maps to it")
     if preferred in cands:
         return preferred
+    if len(cands) > 1 and prefix:
+        if len(pre := [c for c in cands if c.startswith(prefix)]) == 1:
+            return pre[0]
+        cands = pre or cands
     if len(cands) > 1:
         ro = [c for c in cands if c.endswith(READ_ONLY_SUFFIXES)]
         if len(ro) == 1:
@@ -199,6 +218,26 @@ def _error(e: Exception) -> str:
         err = e.response.get("Error", {})
         return f"{err.get('Code')}: {err.get('Message')}"
     return str(e)
+
+
+def _throttled(e: Exception) -> bool:
+    if not isinstance(e, ClientError):
+        return False
+    return (e.response.get("Error", {}).get("Code", "") in THROTTLE_CODES
+            or e.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 429)
+
+
+def _retry_throttled(fn: Callable[[], Any], what: str) -> Any:
+    """``fn()``, called again with exponential backoff and jitter while it fails with a rate limit error."""
+    for attempt in range(1, THROTTLE_ATTEMPTS + 1):
+        try:
+            return fn()
+        except ClientError as e:
+            if attempt == THROTTLE_ATTEMPTS or not _throttled(e):
+                raise
+            delay = THROTTLE_BASE_DELAY * 2 ** (attempt - 1) * random.uniform(0.5, 1.5)
+            log.info("%s: rate limited (%s); retrying in %.1fs", what, _error(e), delay)
+            time.sleep(delay)
 
 
 def _chunks(items: list, n: int) -> Iterator[list]:
@@ -623,11 +662,12 @@ def classify_enis(enis: list[dict], resources: list[dict], read: set[tuple[str, 
 
 
 def _session_for_account(account: str, session_for: Callable[[str], Any], overrides, preferred,
-                         region: str) -> tuple[Any, str]:
-    profile = resolve_profile(account, overrides, preferred)
+                         region: str, prefix: str = DEFAULT_PROFILE_PREFIX) -> tuple[Any, str]:
+    profile = resolve_profile(account, overrides, preferred, prefix=prefix)
     session = session_for(profile)
     # A Regional STS endpoint, so GovCloud and China profiles work too.
-    actual = session.client("sts", region_name=region, config=BOTO_CONFIG).get_caller_identity()["Account"]
+    sts = session.client("sts", region_name=region, config=BOTO_CONFIG)
+    actual = _retry_throttled(sts.get_caller_identity, f"{account} sts")["Account"]
     if actual != account:
         raise PermissionError(f"profile {profile} authenticates as {actual}")
     return session, profile
@@ -635,16 +675,18 @@ def _session_for_account(account: str, session_for: Callable[[str], Any], overri
 
 def scan_account(account: str, by_region: dict[str, list[str]], session_for: Callable[[str], Any],
                  overrides: dict[str, str] | None = None, preferred: str | None = None, *,
-                 owner: bool = True, scope: str = "account", include: frozenset[str] = frozenset()) -> Scan:
+                 owner: bool = True, scope: str = "account", include: frozenset[str] = frozenset(),
+                 prefix: str = DEFAULT_PROFILE_PREFIX) -> Scan:
     """Read one account: every collector in each Region, limited to ``by_region``'s VPC IDs.
 
     ``owner``: the account owns these VPCs, so also list their interfaces and VPC tags.
     ``include``: labels of the opt-in collectors (``OPT_IN``) to read.
+    ``prefix``: profile name prefix preferred when several profiles map to the account.
     A new boto3 Session is made here, so accounts can be scanned in parallel threads.
     """
     scan = Scan()
     try:
-        session, profile = _session_for_account(account, session_for, overrides, preferred, min(by_region))
+        session, profile = _session_for_account(account, session_for, overrides, preferred, min(by_region), prefix)
     except (LookupError, PermissionError, ClientError, BotoCoreError) as e:
         scan.issues.append(Issue(account, "", scope, _error(e)))
         log.warning("Skipping account %s: %s", account, _error(e))
@@ -653,10 +695,10 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
     for region, vpc_ids in sorted(by_region.items()):
         try:
             ec2 = session.client("ec2", region_name=region, config=BOTO_CONFIG)
-            subnets = subnet_map(ec2, vpc_ids)
+            subnets = _retry_throttled(lambda: subnet_map(ec2, vpc_ids), f"{account} {region} subnets")
             if owner:
-                scan.vpcs += vpc_details(ec2, account, region, vpc_ids)
-                enis = eni_rows(ec2, vpc_ids)
+                scan.vpcs += _retry_throttled(lambda: vpc_details(ec2, account, region, vpc_ids), f"{account} {region} VPCs")
+                enis = _retry_throttled(lambda: eni_rows(ec2, vpc_ids), f"{account} {region} interfaces")
                 for n in enis:
                     n.update(account=account, region=region)
                 scan.enis += enis
@@ -672,7 +714,8 @@ def scan_account(account: str, by_region: dict[str, list[str]], session_for: Cal
                 log.debug("%s %s: %s isn't offered in this Region", account, region, label)
                 continue
             try:
-                rows = collect(session, region, account, wanted, subnets)
+                rows = _retry_throttled(lambda: collect(session, region, account, wanted, subnets),
+                                        f"{account} {region} {label}")
             except Exception as e:  # noqa: BLE001 - one service failing must not lose the rest of the run
                 denied = isinstance(e, ClientError) and e.response.get("Error", {}).get("Code", "") in DENIED_CODES
                 scan.issues.append(Issue(account, region, label, _error(e), incomplete=not denied))
@@ -698,11 +741,13 @@ def vpc_details(ec2: Any, account: str, region: str, vpc_ids: list[str]) -> list
 
 def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str, str] | None = None,
          preferred: str | None = None, workers: int = 4, participants: bool = True,
-         include: frozenset[str] = frozenset(), exclude_accounts: frozenset[str] = frozenset()) -> Scan:
+         include: frozenset[str] = frozenset(), exclude_accounts: frozenset[str] = frozenset(),
+         prefix: str = DEFAULT_PROFILE_PREFIX) -> Scan:
     """Scan the VPC owners, then (``participants``) the other accounts with interfaces in their VPCs.
 
     ``include``: labels of the opt-in collectors (``OPT_IN``) to read.
     ``exclude_accounts``: never read as participants (their interfaces stay unattributed).
+    ``prefix``: profile name prefix preferred when several profiles map to an account.
     """
     owners: dict[str, dict[str, list[str]]] = {}
     for v in vpcs:
@@ -711,7 +756,8 @@ def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str
 
     def run(jobs: dict[str, dict[str, list[str]]], **kw) -> None:
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-            futures = [pool.submit(scan_account, a, regions, session_for, overrides, preferred, include=include, **kw)
+            futures = [pool.submit(scan_account, a, regions, session_for, overrides, preferred, include=include,
+                                   prefix=prefix, **kw)
                        for a, regions in sorted(jobs.items())]
             for f in futures:
                 total.merge(f.result())

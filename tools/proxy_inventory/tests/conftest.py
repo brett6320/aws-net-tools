@@ -17,7 +17,8 @@ def aws_env(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
     for k in ("AWS_PROFILE", "PROXY_INV_CACHE", "OU_VPCS_CACHE", "PROXY_INV_OU", "PROXY_INV_REGIONS",
-              "PROXY_INV_KEY_TAG", "PROXY_INV_INCLUDE", "PROXY_INV_EXCLUDE_ACCOUNTS", "PROXY_INV_WORKERS", "PROXY_INV_REPORTS_DIR", "PROXY_INV_PROFILE_EXCLUDE_SUFFIXES"):
+              "PROXY_INV_KEY_TAG", "PROXY_INV_INCLUDE", "PROXY_INV_EXCLUDE_ACCOUNTS", "PROXY_INV_WORKERS", "PROXY_INV_REPORTS_DIR", "PROXY_INV_PROFILE_EXCLUDE_SUFFIXES",
+              "PROXY_INV_PROFILE_PREFIX"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")

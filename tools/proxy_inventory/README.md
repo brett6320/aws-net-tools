@@ -10,7 +10,8 @@ with all of its tags.
 
 1. **VPCs**: read from the local VPC owner map that [`ou_vpcs`](../ou_vpcs/README.md) writes
    (`~/.cache/aws-net-tools/vpc-owners.json`). Run `ou_vpcs` first, then narrow the VPCs with `--ou`, `--account`, `--exclude-account`, `--regions` or `--vpc`.
-2. **Account → profile**: the same as `ou_vpcs`. It uses the profile in `~/.aws/config` that maps to the account ID, never one ending in
+2. **Account → profile**: as in `ou_vpcs`, except that among several it prefers one starting with `hcli-` (see
+   [Usage](#usage)). It uses the profile in `~/.aws/config` that maps to the account ID, never one ending in
    **`-priv`** or **`-cpar`**, and checks it with `sts:GetCallerIdentity`.
 3. **Resources**: each VPC owner account is read for the resource types below, limited to its VPCs. Every network
    interface in those VPCs is listed too.
@@ -89,6 +90,7 @@ python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --ou
 | `--vpc VPC_ID` | | Only these VPCs |
 | `--profile` | `AWS_PROFILE` | Preferred profile when several map to an account |
 | `--account-profile ACCOUNT=PROFILE` | | Profile for an account when none or several map to it; repeat or comma-separate |
+| `--profile-prefix PREFIX` | `PROXY_INV_PROFILE_PREFIX` | When several profiles map to an account, use the one starting with this (default `hcli-`; empty turns it off) |
 | `--key-tag TAG` | `PROXY_INV_KEY_TAG` | The application tag, matched in any case (default `AppCatID`) |
 | `--include SERVICE` | `PROXY_INV_INCLUDE` | Also read these opt-in services: `workspaces`, `glue`, `mwaa`, `apprunner`; repeat or comma-separate |
 | `--no-participants` | | Don't read participant accounts of shared VPCs |
@@ -100,8 +102,14 @@ python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --ou
 | `--rerender FILE` | | Rebuild an existing report from the data embedded in it, with the current layout and a new timestamp, without any AWS call (see below) |
 | `-v` / `-q` | | Debug logging / warnings only |
 
-Profiles for each account are chosen in the same way as in [`ou_vpcs`](../ou_vpcs/README.md#profiles-for-member-accounts).
+Profiles for each account are chosen as in [`ou_vpcs`](../ou_vpcs/README.md#profiles-for-member-accounts), except for
+the `--profile-prefix` rule below.
 `PROXY_INV_PROFILE_EXCLUDE_SUFFIXES` overrides `-priv,-cpar`.
+When several profiles still map to an account, the order is: `--account-profile`, then `--profile`, then the one
+starting with `--profile-prefix` (`hcli-` by default; if several do, the read-only one of those), then the read-only one.
+
+Rate limit errors (throttling, HTTP 429) are retried by botocore (adaptive mode, 5 attempts); a read that still fails
+with one is retried up to 3 more times with exponential backoff before it is reported as not read.
 
 ## Output
 

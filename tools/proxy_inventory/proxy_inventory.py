@@ -83,6 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Preferred profile when several map to an account (default: AWS_PROFILE)")
     p.add_argument("--account-profile", action="append", metavar="ACCOUNT=PROFILE",
                    help="Profile to use for an account (when several or none map to it); repeat or comma-separate")
+    p.add_argument("--profile-prefix", default=env("PROXY_INV_PROFILE_PREFIX", core.DEFAULT_PROFILE_PREFIX),
+                   metavar="PREFIX",
+                   help="When several profiles map to an account, use the one starting with this "
+                        f"(default: {core.DEFAULT_PROFILE_PREFIX}; empty to turn off; env PROXY_INV_PROFILE_PREFIX)")
     p.add_argument("--key-tag", default=env("PROXY_INV_KEY_TAG") or core.DEFAULT_KEY_TAG,
                    help="Tag that identifies the application, matched without regard to case "
                         f"(default: {core.DEFAULT_KEY_TAG}; env PROXY_INV_KEY_TAG)")
@@ -394,7 +398,7 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     session_for = session_for or (lambda profile: boto3.Session(profile_name=profile))
     scan = core.scan(vpcs, session_for, overrides, preferred=args.profile, workers=args.workers,
                      participants=not args.no_participants, include=frozenset(core.OPT_IN[s] for s in include),
-                     exclude_accounts=frozenset(excluded))
+                     exclude_accounts=frozenset(excluded), prefix=args.profile_prefix)
     rows = build_rows(scan, vpcs, args.key_tag)
 
     now = dt.datetime.now().astimezone()
