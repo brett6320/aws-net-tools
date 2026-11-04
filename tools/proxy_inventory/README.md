@@ -94,7 +94,7 @@ python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --ou
 | `--no-participants` | | Don't read participant accounts of shared VPCs |
 | `--workers N` | `PROXY_INV_WORKERS` | Accounts read in parallel (default 4) |
 | `--reports-dir DIR` | `PROXY_INV_REPORTS_DIR` | Reports root (default `./reports`) |
-| `--out FILE` | | Write the report here instead, plus a timestamped copy next to it |
+| `--out FILE` | | Write the report here instead and the summary as `<name>-summary.html`, each plus a timestamped copy next to it |
 | `--json-out FILE` | | Also write every row, with all tags as a dict, as JSON |
 | `--title` | | Report title |
 | `--rerender FILE` | | Rebuild an existing report from the data embedded in it, with the current layout and a new timestamp, without any AWS call (see below) |
@@ -108,6 +108,11 @@ Profiles for each account are chosen in the same way as in [`ou_vpcs`](../ou_vpc
 The report is written to `reports/<scope>/proxy-inventory.html` and overwritten on every run, with a timestamped copy
 in `reports/<YYYY-MM-DD>/<scope>/proxy-inventory_<HHMMSS>.html`. The scope is the account ID when all VPCs have one
 owner, otherwise `multi-account`. The report's path is printed on stdout, and logs go to stderr.
+
+A **summary report** is written next to it on every run, `proxy-inventory-summary.html` (with its own timestamped
+copies): the same report without individual resources. It has no Resources table and no Resource IDs column, and the
+embedded data leaves them out too, so its CSV and HTML downloads don't carry them either. Use it to share which
+applications sit in which VPC without the resource list.
 
 The report has these tables:
 
@@ -138,7 +143,8 @@ accounts or services couldn't be read for a reason other than access denied (the
 a report picks up layout changes (or gets a fresh timestamp) without reading AWS again. The header then says when the data
 was collected and when it was re-rendered. A current report (`reports/<scope>/proxy-inventory.html`) is overwritten,
 with a timestamped copy as usual; any other file (a history copy, a downloaded view) gets a new timestamped file next to
-it and is left as it is. `--out`, `--json-out` and `--title` apply; the VPC and account filters don't, because nothing is
+it and is left as it is. A full report also rebuilds its summary; a summary rebuilds only itself (it no longer has the
+resources). `--out`, `--json-out` and `--title` apply; the VPC and account filters don't, because nothing is
 read. The exit code follows the "Not read" rows in the data.
 
 `-v` shows this tool's debug logging only: AWS SDK logging stays at warnings, because it would print whole API
