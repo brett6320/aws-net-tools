@@ -14,6 +14,9 @@ the VPCs read, network interfaces no reported resource accounts for, and anythin
 couldn't be read. Tables sort, filter, download as CSV, and the whole report downloads as
 HTML that opens on the current filters. The current report is overwritten on each run;
 a timestamped copy is kept. Logs go to stderr; the report path goes to stdout.
+
+--rerender FILE rebuilds a report from the data embedded in it, with this version's layout
+and a new timestamp, without any AWS call.
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -92,6 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "(default: ./reports; env PROXY_INV_REPORTS_DIR)")
     p.add_argument("--out", metavar="FILE", help="Write the report here instead (plus a timestamped copy next to it)")
     p.add_argument("--json-out", metavar="FILE", help="Also write every row, with all tags, as JSON")
+    p.add_argument("--rerender", metavar="FILE",
+                   help="Rebuild this existing report from the data embedded in it, with the current layout and a new "
+                        "timestamp; no AWS calls. The current report is overwritten (with a timestamped copy); any other "
+                        "file gets a timestamped copy next to it. --out, --json-out and --title apply; filters don't")
     p.add_argument("--title", help="Report title")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     p.add_argument("-q", "--quiet", action="store_true", help="Warnings/errors only")
@@ -181,7 +189,8 @@ VPC_COLS = [["vpc_id", "VPC"], ["vpc_name", "VPC name"], ["region", "Region"], [
             ["vpc_owner_name", "Owner name"], ["ou_path", "OU"]]
 
 
-def render_report(rows: dict[str, list[dict]], *, title: str, key_tag: str, meta: list[str]) -> str:
+def render_report(rows: dict[str, list[dict]], *, title: str, key_tag: str, meta: list[str],
+                  generated_at: str = "") -> str:
     res, apps = rows["resources"], rows["apps"]
     known = {r["appcatid"] for r in res} - {core.MISSING}
     missing = sum(1 for r in res if r["appcatid"] == core.MISSING)
@@ -237,7 +246,9 @@ def render_report(rows: dict[str, list[dict]], *, title: str, key_tag: str, meta
     cards = [(len(rows["vpcs"]), "VPCs"), (len(known), f"{key_tag}s"), (len(res), "resources"),
              (missing, f"without {key_tag}"), (len(rows["enis"]), "unattributed ENIs"),
              (incomplete, "accounts / Regions not read")]
-    return pi_html.render(title, meta=meta, cards=cards, tables=tables, file=REPORT_NAME)
+    # key tag and collection time, so --rerender can rebuild the page from it
+    return pi_html.render(title, meta=meta, cards=cards, tables=tables, file=REPORT_NAME,
+                          extra_data={"key_tag": key_tag, "generated_at": generated_at})
 
 
 def report_path(scope: str, reports_dir: str) -> Path:
@@ -252,9 +263,95 @@ def history_path(current: Path, reports_dir: str | None, now: dt.datetime) -> Pa
     return Path(reports_dir) / now.date().isoformat() / current.parent.name / f"{current.stem}_{now:%H%M%S}{current.suffix}"
 
 
+def write_report(page: str, path: Path, copy: Path) -> None:
+    for p in (copy, path):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(page, encoding="utf-8")
+    log.info("Report history copy: %s", copy)
+
+
+def write_json(path: str, rows: dict[str, list[dict]], **header: Any) -> None:
+    out = {**header,
+           "resources": [{**{k: v for k, v in r.items() if k not in ("tags", "tag_keys")}, "tags": r["all_tags"]}
+                         for r in rows["resources"]],
+           "apps": rows["apps"], "vpcs": rows["vpcs"], "unattributed_enis": rows["enis"], "issues": rows["issues"]}
+    Path(path).write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+    log.info("Wrote JSON %s", path)
+
+
+# --------------------------------------------------------------------------- --rerender
+
+DATA_RE = re.compile(r'<script id="data" type="application/json">(.*?)</script>', re.S)
+EXTRA_RE = re.compile(r'<script id="extra-data" type="application/json">(.*?)</script>', re.S)
+TABLE_ROWS = {"apps": "apps", "res": "resources", "vpcs": "vpcs", "eni": "enis", "issues": "issues"}
+
+
+def load_report(path: Path) -> tuple[dict[str, Any], dict[str, list[dict]], dict[str, Any]]:
+    """(page data, report rows, extra data) of a report written by this tool."""
+    try:
+        html = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise ValueError(f"--rerender: can't read {path}: {e.strerror or e}") from e
+    m = DATA_RE.search(html)
+    data = json.loads(m.group(1)) if m else {}
+    tables = {t.get("id"): t for t in data.get("tables", [])}
+    if set(TABLE_ROWS) - set(tables):
+        raise ValueError(f"--rerender: {path} isn't a {REPORT_NAME} report (no embedded report data)")
+    rows = {name: tables[tid]["rows"] for tid, name in TABLE_ROWS.items()}
+    for r in rows["resources"]:  # the JSON output wants tags as a dict; the page has them as key=value
+        r.setdefault("all_tags", dict(t.split("=", 1) for t in r.get("tags") or [] if "=" in t))
+    x = EXTRA_RE.search(html)
+    extra = json.loads(x.group(1)) if x else {}
+    return data, rows, extra
+
+
+def rerendered_meta(meta: list[str], source: str, now: dt.datetime) -> list[str]:
+    """The header lines with "Generated ..." turned into when the data was collected plus when it was re-rendered."""
+    stamp = f"re-rendered {now.astimezone(dt.timezone.utc):%Y-%m-%d %H:%M:%S UTC} from {source} (no AWS calls)"
+    first = re.sub(r"^Generated ", "Data collected ", re.sub(r"; re-rendered .*$", "", meta[0])) if meta else ""
+    return [f"{first}; {stamp}" if first else stamp[0].upper() + stamp[1:], *meta[1:]]
+
+
+def rerender(args: argparse.Namespace) -> int:
+    src = Path(args.rerender)
+    try:
+        data, rows, extra = load_report(src)
+    except (ValueError, json.JSONDecodeError) as e:
+        log.error("%s", e)
+        return 2
+    now = dt.datetime.now().astimezone()
+    key_tag = extra.get("key_tag") or rows_key_tag(data)
+    page = render_report(rows, title=args.title or data.get("title") or f"Proxy-capable resources by {key_tag}",
+                         key_tag=key_tag, meta=rerendered_meta(data.get("meta") or [], src.name, now),
+                         generated_at=extra.get("generated_at", ""))
+    reports = Path(args.reports_dir)
+    if args.out:
+        path, copy = Path(args.out), history_path(Path(args.out), None, now)
+    elif src.name == f"{REPORT_NAME}.html" and src.resolve().parent.parent == reports.resolve():
+        path, copy = src, history_path(src, args.reports_dir, now)  # the current report of a scope
+    else:
+        path = copy = history_path(src, None, now)  # never overwrite a history copy or another file
+    write_report(page, path, copy)
+    if args.json_out:
+        write_json(args.json_out, rows, generated_at=extra.get("generated_at", ""), rerendered_at=now.isoformat(),
+                   key_tag=key_tag, source=str(src))
+    print(path)
+    return INCOMPLETE_EXIT if any(i.get("incomplete") == "yes" for i in rows["issues"]) else 0
+
+
+def rows_key_tag(data: dict[str, Any]) -> str:
+    """The key tag of a report written before it was embedded: the first column of the first table."""
+    try:
+        return data["tables"][0]["columns"][0][1]
+    except (KeyError, IndexError, TypeError):
+        return core.DEFAULT_KEY_TAG
+
+
 def main(argv: list[str] | None = None, session_for=None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging(args.verbose, args.quiet)
+    if args.rerender:
+        return rerender(args)
     cache = Path(args.cache).expanduser() if args.cache else core.default_cache_path()
     ous = core.split_csv(args.ou or [os.getenv("PROXY_INV_OU", "")])
     regions = core.split_csv(args.regions or [os.getenv("PROXY_INV_REGIONS", "")])
@@ -293,21 +390,13 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     if skipped := [label for name, label in core.OPT_IN.items() if name not in include]:
         meta.append(f"Not read (opt-in with --include): {', '.join(skipped)}. "
                     "Their network interfaces show as unattributed.")
-    page = render_report(rows, title=args.title or f"Proxy-capable resources by {args.key_tag}", key_tag=args.key_tag, meta=meta)
+    page = render_report(rows, title=args.title or f"Proxy-capable resources by {args.key_tag}", key_tag=args.key_tag,
+                         meta=meta, generated_at=now.isoformat())
     path = Path(args.out) if args.out else report_path(scope, args.reports_dir)
-    copy = history_path(path, None if args.out else args.reports_dir, now)
-    for p in (copy, path):
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(page, encoding="utf-8")
-    log.info("Report history copy: %s", copy)
+    write_report(page, path, history_path(path, None if args.out else args.reports_dir, now))
     if args.json_out:
-        out = {"generated_at": now.isoformat(), "key_tag": args.key_tag, "cache": str(cache), "services_not_read": skipped,
-               "excluded_accounts": excluded,
-               "resources": [{**{k: v for k, v in r.items() if k not in ("tags", "tag_keys")}, "tags": r["all_tags"]}
-                             for r in rows["resources"]],
-               "apps": rows["apps"], "vpcs": rows["vpcs"], "unattributed_enis": rows["enis"], "issues": rows["issues"]}
-        Path(args.json_out).write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
-        log.info("Wrote JSON %s", args.json_out)
+        write_json(args.json_out, rows, generated_at=now.isoformat(), key_tag=args.key_tag, cache=str(cache),
+                   services_not_read=skipped, excluded_accounts=excluded)
     print(path)
 
     apps = {r["appcatid"] for r in rows["resources"]} - {core.MISSING}

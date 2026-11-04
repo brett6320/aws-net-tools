@@ -72,6 +72,9 @@ python tools/proxy_inventory/proxy_inventory.py --exclude-account 111111111111,2
 # Also read every opt-in service
 python tools/proxy_inventory/proxy_inventory.py --include workspaces,glue,mwaa,apprunner
 
+# Rebuild the current report with this version's layout and a new timestamp, from the data in it (no AWS calls)
+python tools/proxy_inventory/proxy_inventory.py --rerender reports/multi-account/proxy-inventory.html
+
 # One VPC, written to a chosen file, plus JSON with every tag
 python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --out vpc.html --json-out vpc.json
 ```
@@ -94,6 +97,7 @@ python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --ou
 | `--out FILE` | | Write the report here instead, plus a timestamped copy next to it |
 | `--json-out FILE` | | Also write every row, with all tags as a dict, as JSON |
 | `--title` | | Report title |
+| `--rerender FILE` | | Rebuild an existing report from the data embedded in it, with the current layout and a new timestamp, without any AWS call (see below) |
 | `-v` / `-q` | | Debug logging / warnings only |
 
 Profiles for each account are chosen in the same way as in [`ou_vpcs`](../ou_vpcs/README.md#profiles-for-member-accounts).
@@ -129,6 +133,13 @@ Filters are also kept in the URL, so a view can be bookmarked.
 
 Exit codes: `0` everything read, `2` bad input (no owner map, no VPC matches, unknown `--include` service), `3` some accounts, Regions, participant
 accounts or services couldn't be read for a reason other than access denied (the report covers the rest).
+
+**Re-rendering**: `--rerender FILE` reads the data a report embeds and writes it again with this version's layout, so
+a report picks up layout changes (or gets a fresh timestamp) without reading AWS again. The header then says when the data
+was collected and when it was re-rendered. A current report (`reports/<scope>/proxy-inventory.html`) is overwritten,
+with a timestamped copy as usual; any other file (a history copy, a downloaded view) gets a new timestamped file next to
+it and is left as it is. `--out`, `--json-out` and `--title` apply; the VPC and account filters don't, because nothing is
+read. The exit code follows the "Not read" rows in the data.
 
 `-v` shows this tool's debug logging only: AWS SDK logging stays at warnings, because it would print whole API
 responses (Lambda environment variables, for example).

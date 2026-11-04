@@ -432,3 +432,73 @@ def test_html_escapes_data_and_embeds_export():
     assert "<script>alert(1)" not in html
     assert "T &lt;/title>" in html
     assert '"file": "inv"' in html and 'getElementById("view")' in html
+
+
+# --------------------------------------------------------------------------- --rerender
+
+
+def _report(tmp_path, *, generated_at="2026-11-01T09:00:00+00:00", extra=True):
+    """A report as a scan writes it, under tmp_path/reports/<account>/."""
+    r = {**core.resource("EC2 instance", "i-1", "vpc-1", tags={"AppCatID": "APP-1", "Team": "a=b"}),
+         "account": ACCT, "region": REGION}
+    scan = core.Scan(resources=[r], issues=[core.Issue(OTHER, REGION, "participant", "no profile")])
+    rows = pi.build_rows(scan, [core.Vpc(REGION, "vpc-1", ACCT)], "AppCatID")
+    page = pi.render_report(rows, title="Old title", key_tag="AppCatID",
+                            meta=["Generated 2026-11-01 09:00:00 UTC from the VPC owner map c.json", "Application tag"],
+                            generated_at=generated_at)
+    if not extra:  # a report written before the key tag and time were embedded
+        page = pi.EXTRA_RE.sub("", page)
+    path = tmp_path / "reports" / ACCT / "proxy-inventory.html"
+    path.parent.mkdir(parents=True)
+    path.write_text(page, encoding="utf-8")
+    return path
+
+
+def _data(path):
+    return json.loads(pi.DATA_RE.search(path.read_text()).group(1))
+
+
+def test_rerender_current_report_in_place(tmp_path, capsys):
+    src = _report(tmp_path)
+    js = tmp_path / "r.json"
+
+    def no_aws(profile):
+        raise AssertionError("--rerender must not call AWS")
+
+    rc = pi.main(["--rerender", str(src), "--reports-dir", str(tmp_path / "reports"), "--json-out", str(js), "-q"],
+                 session_for=no_aws)
+    assert rc == pi.INCOMPLETE_EXIT  # the participant issue in the data is still incomplete
+    assert Path(capsys.readouterr().out.strip()) == src
+    meta = _data(src)["meta"]
+    assert meta[0].startswith("Data collected 2026-11-01 09:00:00 UTC from the VPC owner map c.json; re-rendered ")
+    assert meta[0].endswith("from proxy-inventory.html (no AWS calls)") and meta[1] == "Application tag"
+    copies = list((tmp_path / "reports").glob(f"*-*-*/{ACCT}/proxy-inventory_*.html"))
+    assert len(copies) == 1 and copies[0].read_text() == src.read_text()
+    data = json.loads(js.read_text())
+    assert data["generated_at"] == "2026-11-01T09:00:00+00:00" and data["key_tag"] == "AppCatID"
+    assert data["resources"][0]["tags"] == {"AppCatID": "APP-1", "Team": "a=b"}
+
+    # re-rendering again replaces the stamp instead of adding another
+    assert pi.main(["--rerender", str(src), "--reports-dir", str(tmp_path / "reports"), "-q"]) == pi.INCOMPLETE_EXIT
+    assert _data(src)["meta"][0].count("re-rendered") == 1
+
+
+def test_rerender_other_file_writes_a_new_copy(tmp_path):
+    src = _report(tmp_path, extra=False)
+    other = tmp_path / "saved.html"
+    other.write_text(src.read_text())
+    before = other.read_text()
+    assert pi.main(["--rerender", str(other), "--title", "New", "-q"]) == pi.INCOMPLETE_EXIT
+    assert other.read_text() == before
+    (copy,) = tmp_path.glob("saved_*.html")
+    d = _data(copy)
+    assert d["title"] == "New" and d["tables"][0]["columns"][0][1] == "AppCatID"
+    out = tmp_path / "x" / "out.html"
+    assert pi.main(["--rerender", str(other), "--out", str(out), "-q"]) == pi.INCOMPLETE_EXIT
+    assert out.exists() and len(list(out.parent.glob("out_*.html"))) == 1
+
+
+def test_rerender_rejects_other_files(tmp_path):
+    (tmp_path / "x.html").write_text("<html>not a report</html>")
+    assert pi.main(["--rerender", str(tmp_path / "x.html"), "-q"]) == 2
+    assert pi.main(["--rerender", str(tmp_path / "missing.html"), "-q"]) == 2
