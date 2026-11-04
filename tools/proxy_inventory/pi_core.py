@@ -8,8 +8,9 @@ being read too, limited to the shared VPCs. No role is assumed; nothing is chang
 
 Resource types (each limited to the selected VPCs):
   EC2 instances (also EKS, ECS, EMR and Batch nodes), Lambda functions, ECS services and
-  standalone tasks with awsvpc networking, WorkSpaces, AppStream fleets, MWAA environments;
-  opt-in (``OPT_IN``): Glue jobs (through their connections), App Runner services (through VPC connectors).
+  standalone tasks with awsvpc networking, AppStream fleets;
+  opt-in (``OPT_IN``): WorkSpaces, Glue jobs (through their connections), MWAA environments,
+  App Runner services (through VPC connectors).
 Interfaces that belong to none of these and to no excluded type (endpoints, NAT and transit
 gateways, load balancers, databases ...) are listed as unattributed, so nothing is missed.
 """
@@ -513,9 +514,10 @@ COLLECTORS: tuple[tuple[str, str, Callable], ...] = (
     ("MWAA", "mwaa", mwaa_environments),
     ("App Runner", "apprunner", apprunner_services),
 )
-# Collectors read only when opted in (--include): option name -> label. Glue needs glue:GetConnections and
-# App Runner apprunner:ListVpcConnectors to find their VPCs; without them, their interfaces show as unattributed.
-OPT_IN = {"glue": "Glue", "apprunner": "App Runner"}
+# Collectors read only when opted in (--include): option name -> label. Each needs a call that is skipped
+# by default to find its VPCs (workspaces:DescribeWorkspaces, glue:GetConnections, airflow:GetEnvironment,
+# apprunner:ListVpcConnectors); without them, their interfaces show as unattributed.
+OPT_IN = {"workspaces": "WorkSpaces", "glue": "Glue", "mwaa": "MWAA", "apprunner": "App Runner"}
 
 
 # --------------------------------------------------------------------------- network interfaces
