@@ -124,14 +124,17 @@ def _ou_match(v: Vpc, ous: list[str]) -> bool:
 
 
 def select_vpcs(vpcs: Iterable[Vpc], ous: list[str] | None = None, accounts: list[str] | None = None,
-                regions: list[str] | None = None, vpc_ids: list[str] | None = None) -> list[Vpc]:
+                regions: list[str] | None = None, vpc_ids: list[str] | None = None,
+                exclude_accounts: list[str] | None = None) -> list[Vpc]:
     """VPCs matching every filter given. An --ou is an OU ID (exact) or OU path (it and every OU below it).
 
     OU IDs match the OU a VPC's account sits in directly; use a path for "this OU and below".
+    VPCs owned by ``exclude_accounts`` are left out.
     """
-    for a in accounts or []:
-        if not ACCOUNT_RE.match(a):
-            raise ValueError(f"--account: '{a}' is not a 12-digit account ID")
+    for flag, ids in (("--account", accounts), ("--exclude-account", exclude_accounts)):
+        for a in ids or []:
+            if not ACCOUNT_RE.match(a):
+                raise ValueError(f"{flag}: '{a}' is not a 12-digit account ID")
     for r in regions or []:
         if not REGION_RE.match(r):
             raise ValueError(f"--regions: '{r}' is not a Region name")
@@ -140,6 +143,7 @@ def select_vpcs(vpcs: Iterable[Vpc], ous: list[str] | None = None, accounts: lis
             raise ValueError(f"--vpc: '{v}' is not a VPC ID")
     return [v for v in vpcs
             if (not ous or _ou_match(v, ous)) and (not accounts or v.account in accounts)
+            and v.account not in (exclude_accounts or [])
             and (not regions or v.region in regions) and (not vpc_ids or v.vpc_id in vpc_ids)]
 
 
@@ -692,10 +696,11 @@ def vpc_details(ec2: Any, account: str, region: str, vpc_ids: list[str]) -> list
 
 def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str, str] | None = None,
          preferred: str | None = None, workers: int = 4, participants: bool = True,
-         include: frozenset[str] = frozenset()) -> Scan:
+         include: frozenset[str] = frozenset(), exclude_accounts: frozenset[str] = frozenset()) -> Scan:
     """Scan the VPC owners, then (``participants``) the other accounts with interfaces in their VPCs.
 
     ``include``: labels of the opt-in collectors (``OPT_IN``) to read.
+    ``exclude_accounts``: never read as participants (their interfaces stay unattributed).
     """
     owners: dict[str, dict[str, list[str]]] = {}
     for v in vpcs:
@@ -716,7 +721,8 @@ def scan(vpcs: list[Vpc], session_for: Callable[[str], Any], overrides: dict[str
         # service account (e.g. the EKS control plane), so it isn't used.
         for n in total.enis:
             other = n["eni_owner"]
-            if ACCOUNT_RE.match(other or "") and other != n["account"] and not excluded_as(n):
+            if (ACCOUNT_RE.match(other or "") and other != n["account"] and other not in exclude_accounts
+                    and not excluded_as(n)):
                 shared.setdefault(other, {}).setdefault(n["region"], set()).add(n["vpc_id"])
         if shared:
             log.info("Shared VPCs: %d participant account(s) to read", len(shared))

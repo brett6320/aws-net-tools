@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Only VPCs of accounts in this OU: an OU ID (that OU only) or an OU path such as Root/Prod "
                         "(that OU and every OU below it); repeat or comma-separate (env PROXY_INV_OU)")
     p.add_argument("--account", action="append", metavar="ID", help="Only VPCs owned by this account; repeat or comma-separate")
+    p.add_argument("--exclude-account", action="append", metavar="ID",
+                   help="Never read this account: neither its VPCs nor as a shared-VPC participant (its interfaces in "
+                        "other VPCs show as unattributed); repeat or comma-separate (env PROXY_INV_EXCLUDE_ACCOUNTS)")
     p.add_argument("--regions", action="append", help="Only VPCs in these Regions; repeat or comma-separate (env PROXY_INV_REGIONS)")
     p.add_argument("--vpc", action="append", metavar="VPC_ID", help="Only these VPCs; repeat or comma-separate")
     p.add_argument("--profile", default=env("AWS_PROFILE"),
@@ -256,12 +259,13 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     ous = core.split_csv(args.ou or [os.getenv("PROXY_INV_OU", "")])
     regions = core.split_csv(args.regions or [os.getenv("PROXY_INV_REGIONS", "")])
     include = [s.lower() for s in core.split_csv(args.include or [os.getenv("PROXY_INV_INCLUDE", "")])]
+    excluded = core.split_csv(args.exclude_account or [os.getenv("PROXY_INV_EXCLUDE_ACCOUNTS", "")])
     try:
         if unknown := sorted(set(include) - set(core.OPT_IN)):
             raise ValueError(f"--include / PROXY_INV_INCLUDE: unknown service(s) {', '.join(unknown)} (choose from {', '.join(core.OPT_IN)})")
         overrides = core.parse_account_profiles(args.account_profile)
         vpcs = core.select_vpcs(core.load_vpcs(cache), ous=ous, accounts=core.split_csv(args.account),
-                                regions=regions, vpc_ids=core.split_csv(args.vpc))
+                                regions=regions, vpc_ids=core.split_csv(args.vpc), exclude_accounts=excluded)
     except (ValueError, FileNotFoundError) as e:
         log.error("%s", e)
         return 2
@@ -272,14 +276,16 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
 
     session_for = session_for or (lambda profile: boto3.Session(profile_name=profile))
     scan = core.scan(vpcs, session_for, overrides, preferred=args.profile, workers=args.workers,
-                     participants=not args.no_participants, include=frozenset(core.OPT_IN[s] for s in include))
+                     participants=not args.no_participants, include=frozenset(core.OPT_IN[s] for s in include),
+                     exclude_accounts=frozenset(excluded))
     rows = build_rows(scan, vpcs, args.key_tag)
 
     now = dt.datetime.now().astimezone()
     owners = sorted({v.account for v in vpcs})
     scope = owners[0] if len(owners) == 1 else "multi-account"
     filters = [f"{n} {', '.join(v)}" for n, v in (("OU", ous), ("account", core.split_csv(args.account)),
-                                                   ("Region", regions), ("VPC", core.split_csv(args.vpc))) if v]
+                                                   ("Region", regions), ("VPC", core.split_csv(args.vpc)),
+                                                   ("excluding account", excluded)) if v]
     meta = [f"Generated {now.astimezone(dt.timezone.utc):%Y-%m-%d %H:%M:%S UTC} from the VPC owner map {cache.name}"
             f"{' (' + '; '.join(filters) + ')' if filters else ''}",
             f"Application tag: {args.key_tag} (any case). ECS services and tasks without it inherit their cluster's "
@@ -296,6 +302,7 @@ def main(argv: list[str] | None = None, session_for=None) -> int:
     log.info("Report history copy: %s", copy)
     if args.json_out:
         out = {"generated_at": now.isoformat(), "key_tag": args.key_tag, "cache": str(cache), "services_not_read": skipped,
+               "excluded_accounts": excluded,
                "resources": [{**{k: v for k, v in r.items() if k not in ("tags", "tag_keys")}, "tags": r["all_tags"]}
                              for r in rows["resources"]],
                "apps": rows["apps"], "vpcs": rows["vpcs"], "unattributed_enis": rows["enis"], "issues": rows["issues"]}

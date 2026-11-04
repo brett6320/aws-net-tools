@@ -7,7 +7,7 @@ before you change a VPC. It lists every resource in each VPC that could send tra
 with all of its tags.
 
 1. **VPCs**: read from the local VPC owner map that [`ou_vpcs`](../ou_vpcs/README.md) writes
-   (`~/.cache/aws-net-tools/vpc-owners.json`). Run `ou_vpcs` first, then narrow the VPCs with `--ou`, `--account`, `--regions` or `--vpc`.
+   (`~/.cache/aws-net-tools/vpc-owners.json`). Run `ou_vpcs` first, then narrow the VPCs with `--ou`, `--account`, `--exclude-account`, `--regions` or `--vpc`.
 2. **Account → profile**: the same as `ou_vpcs`. It uses the profile in `~/.aws/config` that maps to the account ID, never one ending in
    **`-priv`** or **`-cpar`**, and checks it with `sts:GetCallerIdentity`.
 3. **Resources**: each VPC owner account is read for the resource types below, limited to its VPCs. Every network
@@ -63,6 +63,9 @@ python tools/proxy_inventory/proxy_inventory.py
 # Only the Prod OU and the OUs below it, in us-east-1
 python tools/proxy_inventory/proxy_inventory.py --ou Root/Prod --regions us-east-1
 
+# Every VPC except those of two accounts
+python tools/proxy_inventory/proxy_inventory.py --exclude-account 111111111111,222222222222
+
 # Also read Glue jobs and App Runner services
 python tools/proxy_inventory/proxy_inventory.py --include glue,apprunner
 
@@ -75,6 +78,7 @@ python tools/proxy_inventory/proxy_inventory.py --vpc vpc-0abc12345def67890 --ou
 | `--cache FILE` | `PROXY_INV_CACHE`, then `OU_VPCS_CACHE` | VPC owner map (default `~/.cache/aws-net-tools/vpc-owners.json`, `%LOCALAPPDATA%\aws-net-tools\` on Windows) |
 | `--ou OU` | `PROXY_INV_OU` | An OU ID (exactly that OU) or an OU path such as `Root/Prod` (that OU and every OU below it); repeat or comma-separate |
 | `--account ID` | | Only VPCs owned by these accounts |
+| `--exclude-account ID` | `PROXY_INV_EXCLUDE_ACCOUNTS` | Never read these accounts: neither their VPCs nor as shared-VPC participants (their interfaces in other VPCs show as unattributed); repeat or comma-separate |
 | `--regions` | `PROXY_INV_REGIONS` | Only VPCs in these Regions |
 | `--vpc VPC_ID` | | Only these VPCs |
 | `--profile` | `AWS_PROFILE` | Preferred profile when several map to an account |

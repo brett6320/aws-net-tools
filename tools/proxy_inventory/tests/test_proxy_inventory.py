@@ -45,7 +45,8 @@ def test_load_and_select(tmp_path):
     assert [v.vpc_id for v in core.select_vpcs(vpcs, regions=["ca-central-1"])] == ["vpc-00000003"]
     assert [v.vpc_id for v in core.select_vpcs(vpcs, accounts=[OTHER])] == ["vpc-00000003"]
     assert [v.vpc_id for v in core.select_vpcs(vpcs, vpc_ids=["vpc-00000004"])] == ["vpc-00000004"]
-    for bad in ({"accounts": ["123"]}, {"regions": ["useast1"]}, {"vpc_ids": ["subnet-1"]}):
+    assert [v.vpc_id for v in core.select_vpcs(vpcs, ous=["Root/Prod"], exclude_accounts=[OTHER])] == ["vpc-00000001"]
+    for bad in ({"accounts": ["123"]}, {"regions": ["useast1"]}, {"vpc_ids": ["subnet-1"]}, {"exclude_accounts": ["x"]}):
         with pytest.raises(ValueError):
             core.select_vpcs(vpcs, **bad)
 
@@ -55,6 +56,7 @@ def test_missing_cache_is_bad_input(tmp_path):
     cache = write_cache(tmp_path / "c.json", {"us-east-1/vpc-00000001": entry()})
     assert pi.main(["--cache", str(cache), "--account", "999999999999", "-q"]) == 2
     assert pi.main(["--cache", str(cache), "--account-profile", "nope", "-q"]) == 2
+    assert pi.main(["--cache", str(cache), "--exclude-account", ACCT, "-q"]) == 2  # nothing left
 
 
 def test_resolve_profile(aws_config):
@@ -147,11 +149,13 @@ def test_end_to_end(tmp_path, aws_config, moto_collectors):
     })
     out = tmp_path / "r" / "inv.html"
     js = tmp_path / "inv.json"
-    rc = pi.main(["--cache", str(cache), "--out", str(out), "--json-out", str(js), "--workers", "2", "--include", "glue", "-q"],
+    rc = pi.main(["--cache", str(cache), "--out", str(out), "--json-out", str(js), "--workers", "2", "--include", "glue",
+                  "--exclude-account", OTHER, "-q"],
                  session_for=lambda profile: boto3.Session(region_name=REGION))
     assert rc == 0
     data = json.loads(js.read_text())
     assert data["services_not_read"] == ["App Runner"]
+    assert data["excluded_accounts"] == [OTHER]
     res = {r["id"]: r for r in data["resources"]}
     assert set(res) >= {ids["tagged"], ids["untagged"], ids["stopped"], "fn-in-vpc", "c1/svc"}
     assert ids["gone"] not in res and "fn-no-vpc" not in res
@@ -177,6 +181,7 @@ def test_end_to_end(tmp_path, aws_config, moto_collectors):
 
     html = out.read_text()
     assert "APP-100" in html and "Download HTML (this view)" in html
+    assert f"excluding account {OTHER}" in html
     assert len(list(out.parent.glob("inv_*.html"))) == 1  # timestamped copy next to --out
 
 
@@ -403,6 +408,11 @@ def test_participants_are_scanned(monkeypatch):
     calls.clear()
     core.scan(vpcs, lambda p: None, workers=1, participants=False)
     assert len(calls) == 1
+    # an excluded account isn't read as a participant
+    calls.clear()
+    monkeypatch.setattr(core, "scan_account", fake)
+    core.scan(vpcs, lambda p: None, workers=1, exclude_accounts=frozenset({OTHER}))
+    assert [c[0] for c in calls] == [ACCT]
 
 
 def test_available_regions():
