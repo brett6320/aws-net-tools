@@ -183,6 +183,8 @@ def test_end_to_end(tmp_path, aws_config, moto_collectors):
     assert "APP-100" in html and "Download HTML (this view)" in html
     assert f"excluding account {OTHER}" in html
     assert len(list(out.parent.glob("inv_*.html"))) == 1  # timestamped copy next to --out
+    summary = out.with_name("inv-summary.html").read_text()
+    assert "APP-100" in summary and len(list(out.parent.glob("inv-summary_*.html"))) == 1
 
 
 @mock_aws
@@ -198,6 +200,8 @@ def test_reports_dir_and_unreadable_account(tmp_path, aws_config, moto_collector
     assert path == Path("reports") / "multi-account" / "proxy-inventory.html" and path.exists()
     assert "Not read (opt-in with --include): WorkSpaces, Glue, MWAA, App Runner." in path.read_text()
     assert len(list(Path("reports").glob("*-*-*/multi-account/proxy-inventory_*.html"))) == 1
+    assert path.with_name("proxy-inventory-summary.html").exists()
+    assert len(list(Path("reports").glob("*-*-*/multi-account/proxy-inventory-summary_*.html"))) == 1
 
 
 # --------------------------------------------------------------------------- collectors with stub clients
@@ -496,6 +500,29 @@ def test_rerender_other_file_writes_a_new_copy(tmp_path):
     out = tmp_path / "x" / "out.html"
     assert pi.main(["--rerender", str(other), "--out", str(out), "-q"]) == pi.INCOMPLETE_EXIT
     assert out.exists() and len(list(out.parent.glob("out_*.html"))) == 1
+    assert (out.parent / "out-summary.html").exists()
+    assert len(list(tmp_path.glob("saved-summary_*.html"))) == 1  # from the first re-render; --out wrote to x/
+
+
+def test_summary_has_no_individual_resources(tmp_path):
+    src = _report(tmp_path)
+    reports = tmp_path / "reports"
+    assert pi.main(["--rerender", str(src), "--reports-dir", str(reports), "-q"]) == pi.INCOMPLETE_EXIT
+    summary = pi.summary_path(src)
+    d = _data(summary)
+    assert d["title"] == "Old title (summary)" and d["file"] == "proxy-inventory-summary"
+    assert [t["id"] for t in d["tables"]] == ["apps", "vpcs", "eni", "issues"]
+    apps = d["tables"][0]
+    assert "resource_ids" not in {k for k, _ in apps["columns"]} and "resource_ids" not in apps["rows"][0]
+    assert "i-1" not in summary.read_text() and "i-1" in src.read_text()
+    assert ["1", "resources"] in [[str(n), label] for n, label in d["cards"]]
+    assert len(list(reports.glob(f"*-*-*/{ACCT}/proxy-inventory-summary_*.html"))) == 1
+
+    # a summary re-renders in place as a summary, without "(summary)" twice
+    assert pi.main(["--rerender", str(summary), "--reports-dir", str(reports), "-q"]) == pi.INCOMPLETE_EXIT
+    d = _data(summary)
+    assert d["title"] == "Old title (summary)" and [t["id"] for t in d["tables"]] == ["apps", "vpcs", "eni", "issues"]
+    assert "Old title" in _data(src)["title"] and "(summary)" not in _data(src)["title"]
 
 
 def test_rerender_rejects_other_files(tmp_path):
