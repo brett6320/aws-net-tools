@@ -109,7 +109,7 @@ The report has these tables:
 
 | Table | Contents |
 |---|---|
-| **AppCatIDs by VPC** | One row per AppCatID per VPC: resource count, types, accounts and IDs. Shows whom to contact before changing a VPC. `(missing)` gathers the resources without the tag. A summary lists the VPCs per AppCatID |
+| **AppCatIDs by VPC** | One row per AppCatID per VPC: resource count, types, accounts and IDs (folded to "N resources" when there are several; click to open). Shows whom to contact before changing a VPC. `(missing)` gathers the resources without the tag. A summary lists the VPCs per AppCatID |
 | **Resources** | Every resource: AppCatID and where it came from, type, ID, name, state, account, VPC, subnets, private IPs, details and **all tags**. A tag-key filter finds resources carrying a given tag |
 | **VPCs read** | Every selected VPC: the VPC's own AppCatID tag, resource count, AppCatIDs, unattributed interfaces, and `gone` for VPCs no longer in AWS |
 | **Unattributed network interfaces** | See above |
