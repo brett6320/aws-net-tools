@@ -1,0 +1,16 @@
+# Alarm names for cw_alarm_history --alarms-file, one per line.
+# Blank lines and lines starting with # are ignored. Names are exact (case-sensitive);
+# use --alarm-prefix on the command line to match by prefix instead.
+# Keep your own lists in alarm_sets/ (git-ignored).
+
+# Direct Connect
+net-dx-bgp-down-dxcon-abc123
+net-dx-bgp-down-dxcon-def456
+net-dx-connection-state-dxcon-abc123
+
+# Transit Gateway
+net-tgw-packet-drops-blackhole
+net-tgw-packet-drops-no-route
+
+# VPN
+net-vpn-tunnel-status-vpn-0123456789abcdef0
