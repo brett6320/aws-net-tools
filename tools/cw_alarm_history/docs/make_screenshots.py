@@ -23,7 +23,7 @@ import cw_alarm_history as cwah  # noqa: E402
 from fake_cloudwatch import ACCOUNT, NOW, T0, FakeCloudWatch  # noqa: E402
 
 IMAGES = HERE / "images"
-WIDTH, HEIGHT = 1300, 1150
+WIDTH, HEIGHT = 1300, 1500
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 SHOTS = [("report", "dark"), ("report-light", "light")]
 
@@ -33,8 +33,9 @@ def main() -> int:
     p.add_argument("--chrome", default=CHROME)
     args = p.parse_args()
     report = cwah.collect_alarm_history(
-        alarms=["net-dx-bgp-down", "net-tgw-packet-drops", "net-vpn-tunnel-status", "net-quiet"],
+        alarms=["net-dx-bgp-down", "net-tgw-packet-drops", "net-vpn-tunnel-status", "net-quiet", "net-stuck-alarm"],
         start=T0, end=NOW, cw=FakeCloudWatch(), account=ACCOUNT, now=NOW)
+    report.overlap_threshold = 2
     IMAGES.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         for name, theme in SHOTS:

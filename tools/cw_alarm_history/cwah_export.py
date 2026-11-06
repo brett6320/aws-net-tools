@@ -7,6 +7,8 @@ report renders the same way. Layout:
   summary cards: alarms, transitions, times into ALARM, time in ALARM, period length
   alarms: one row per alarm with its state at the start of the period and now,
           transition counts and time in ALARM (including time before the first transition)
+  concurrent ALARM intervals: pick alarms and a threshold (default: all of them) to list
+          the spans when at least that many were in ALARM at the same time; CSV export
   transitions: one row per state change, filtered in-page by alarm, from/to state,
           text, time window and (when present) history type; UTC or local time;
           "Export CSV" writes the rows currently shown, with the active filters
@@ -155,6 +157,9 @@ td.reason{max-width:640px}
 tr.extra td{background:var(--code);padding:8px 12px}
 tr.extra pre{margin:0;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow:auto}
 .ongoing{color:var(--muted);font-size:11px;margin-left:4px}
+.filters input[type=number]{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit;width:70px}
+.filters input[type=number]:disabled{opacity:.5}
+td.names{max-width:560px}
 details.raw summary{cursor:pointer;font-weight:600}
 details.raw pre{max-height:480px;overflow:auto;background:var(--code);padding:12px;border-radius:6px;font-size:12px}
 footer{color:var(--muted);font-size:12px;margin-top:24px}
@@ -189,11 +194,51 @@ function fromInput(v){if(!v)return NaN;var m=/^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\
 function fmtDur(s){if(s==null)return '';s=Math.round(s);if(s<60)return s+'s';var out=[],u=[['d',86400],['h',3600],['m',60],['s',1]];
   for(var i=0;i<u.length;i++){if(s>=u[i][1]){out.push(Math.floor(s/u[i][1])+u[i][0]);s%=u[i][1]}}return out.slice(0,2).join(' ')}
 
+/* ---- concurrent ALARM intervals ---- */
+var P0=parseTs(D.start),P1=parseTs(D.end);
+function segments(){var segs={},first={};(D.alarms||[]).forEach(function(a){segs[a.alarm]=[]});
+  T.forEach(function(t){if(t.history_type!=='StateUpdate')return;var ms=parseTs(t.timestamp);if(!(t.alarm in first))first[t.alarm]=ms;
+    if(t.to_state==='ALARM'){(segs[t.alarm]=segs[t.alarm]||[]).push([ms,ms+(t.duration_s||0)*1000])}});
+  (D.alarms||[]).forEach(function(a){if(a.state_at_start==='ALARM')segs[a.alarm].unshift([P0,(a.alarm in first)?first[a.alarm]:P1])});
+  Object.keys(segs).forEach(function(k){segs[k]=segs[k].filter(function(s){return s[1]>s[0]})});return segs}
+var SEGS=segments();
+function overlap(sel,n){if(n<1||n>sel.length)return [];var ev=[];sel.forEach(function(name){(SEGS[name]||[]).forEach(function(s){ev.push([s[0],1,name]);ev.push([s[1],0,name])})});
+  ev.sort(function(a,b){return a[0]-b[0]||a[1]-b[1]});var out=[],active={},cnt=0,cur=null;
+  ev.forEach(function(e){var ts=e[0],name=e[2];if(e[1]===1){if(!active[name])cnt++;active[name]=1;
+      if(!cur&&cnt>=n){cur={start:ts,peak:cnt,alarms:{}};Object.keys(active).forEach(function(k){cur.alarms[k]=1})}
+      else if(cur){cur.alarms[name]=1;cur.peak=Math.max(cur.peak,cnt)}}
+    else{if(active[name]){delete active[name];cnt--}if(cur&&cnt<n){out.push({start:cur.start,end:ts,peak:cur.peak,alarms:Object.keys(cur.alarms).sort()});cur=null}}});
+  return out}
+var ovRows=[];
+function ovSel(){return checked('ov')}
+function ovN(sel){return $('ovall').checked?sel.length:Math.max(1,parseInt($('ovn').value,10)||1)}
+function renderOverlap(){var sel=ovSel(),n=ovN(sel);if($('ovall').checked)$('ovn').value=sel.length||1;
+  ovRows=overlap(sel,n);var tb=$('ovtb'),h='',tot=0;
+  ovRows.forEach(function(iv,i){var d=(iv.end-iv.start)/1000;tot+=d;
+    h+='<tr><td class="n">'+(i+1)+'</td><td class="ts">'+esc(fmt(iv.start))+'</td><td class="ts">'+esc(fmt(iv.end))+(iv.end>=P1?'<span class="ongoing" title="still in effect at the end of the period">+</span>':'')+'</td>'+
+      '<td class="n">'+esc(fmtDur(d))+'</td><td class="n">'+iv.peak+' / '+sel.length+'</td><td class="names">'+iv.alarms.map(function(a){return '<code>'+esc(a)+'</code>'}).join(' ')+'</td></tr>'});
+  tb.innerHTML=h||'<tr><td colspan="6" class="muted">'+(sel.length?(n>sel.length?'Threshold exceeds the number of selected alarms':'No interval with '+n+' of '+sel.length+' selected alarms in ALARM at once'):'No alarms selected')+'</td></tr>';
+  $('ovcnt').textContent=ovRows.length+' interval'+(ovRows.length===1?'':'s')+(ovRows.length?' · '+fmtDur(tot)+' total':'')+' · threshold '+n+' of '+sel.length;
+  document.querySelectorAll('.tzl').forEach(function(e){e.textContent=local()?tzName():'UTC'})}
+function ovDescribe(){var sel=ovSel(),n=ovN(sel);return 'selected='+sel.length+' of '+alarmsAll().length+': '+sel.join(' | ')+'; threshold='+($('ovall').checked?'all ('+n+')':n)+'; time='+(local()?tzName():'UTC')}
+function exportOverlapCsv(){var lines=[],now=new Date(),sel=ovSel(),n=ovN(sel);
+  if($('meta').checked){lines.push('# CloudWatch alarm history: concurrent ALARM intervals');
+    lines.push('# account='+(D.account||'?')+'; region='+(D.region||'')+'; period='+(D.start||'')+' -> '+(D.end||'')+'; generated='+(D.generated_at||''));
+    lines.push('# filters: '+ovDescribe());lines.push('# rows='+ovRows.length+'; exported='+now.toISOString())}
+  lines.push(['n','start_utc','end_utc','start_'+(local()?'local':'utc')+'_display','end_'+(local()?'local':'utc')+'_display','duration_s','duration','ongoing','peak_in_alarm','selected','threshold','alarms','account','region'].map(csvCell).join(','));
+  ovRows.forEach(function(iv,i){var d=(iv.end-iv.start)/1000;lines.push([i+1,new Date(iv.start).toISOString(),new Date(iv.end).toISOString(),fmt(iv.start),fmt(iv.end),Math.round(d),fmtDur(d),iv.end>=P1?'yes':'',iv.peak,sel.length,n,iv.alarms.join(' | '),D.account,D.region].map(csvCell).join(','))});
+  var stamp=now.toISOString().slice(0,16).replace(/[-:]/g,'').replace('T','-');
+  download('alarm_overlap_'+(D.account||'account')+'_'+stamp+'.csv',lines.join('\r\n')+'\r\n')}
+function download(name,text){var blob=new Blob(['\ufeff'+text],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)}
+window.cwahOverlap=function(){return {rows:ovRows,desc:ovDescribe()}};
+
 /* ---- filter state ---- */
 var rows=T.map(function(t,i){return {i:i,t:t,ms:parseTs(t.timestamp),s:[t.alarm,t.from_state,t.to_state,t.reason,t.summary,t.history_type].join(' ').toLowerCase()}});
 var alarms=[];T.forEach(function(t){if(alarms.indexOf(t.alarm)<0)alarms.push(t.alarm)});
 (D.alarms||[]).forEach(function(a){if(alarms.indexOf(a.alarm)<0)alarms.push(a.alarm)});
-alarms.sort();
+alarms.sort();function alarmsAll(){return alarms}
 var htypes=[];T.forEach(function(t){if(htypes.indexOf(t.history_type)<0)htypes.push(t.history_type)});
 var sortKey='ms',sortDir=1;
 
@@ -208,7 +253,7 @@ function allChecked(name){var all=document.querySelectorAll('input[name="'+name+
 function filters(){
   return {q:$('q').value.trim().toLowerCase(),alarms:checked('al'),allAlarms:allChecked('al'),from:checked('fs'),to:checked('ts'),
     ht:htypes.length>1?checked('ht'):htypes,allHt:htypes.length>1?allChecked('ht'):true,
-    ongoing:$('ongoing').checked,winFrom:fromInput($('wfrom').value),winTo:fromInput($('wto').value)}}
+    ongoing:$('ongoing').checked,winFrom:fromInput($('wfrom').value),winTo:fromInput($('wto').value),inOv:$('ovshow').checked}}
 
 function matches(r,f){var t=r.t;
   if(f.alarms.indexOf(t.alarm)<0)return false;
@@ -216,6 +261,7 @@ function matches(r,f){var t=r.t;
   if(t.history_type==='StateUpdate'){if(f.from.indexOf(t.from_state)<0&&STATES.indexOf(t.from_state)>=0)return false;
     if(f.to.indexOf(t.to_state)<0&&STATES.indexOf(t.to_state)>=0)return false;}
   if(f.ongoing&&!t.ongoing)return false;
+  if(f.inOv&&!ovRows.some(function(iv){return r.ms>=iv.start&&r.ms<=iv.end}))return false;
   if(!isNaN(f.winFrom)&&r.ms<f.winFrom)return false;
   if(!isNaN(f.winTo)&&r.ms>f.winTo+59999)return false;
   if(f.q&&r.s.indexOf(f.q)<0)return false;
@@ -223,7 +269,7 @@ function matches(r,f){var t=r.t;
 
 var shown=[];
 function apply(){
-  var f=filters();shown=rows.filter(function(r){return matches(r,f)});
+  renderOverlap();var f=filters();shown=rows.filter(function(r){return matches(r,f)});
   var dir=sortDir;shown.sort(function(a,b){var x=sortVal(a),y=sortVal(b);return (x<y?-1:x>y?1:a.i-b.i)*dir});
   render();describe(f)}
 function sortVal(r){var t=r.t;switch(sortKey){case 'alarm':return t.alarm;case 'from':return t.from_state||'';case 'to':return t.to_state||'';
@@ -260,9 +306,10 @@ function describe(f){
   if(f.ongoing)parts.push('ongoing only');
   if(!isNaN(f.winFrom)||!isNaN(f.winTo))parts.push('window='+(isNaN(f.winFrom)?'…':fmt(f.winFrom))+' → '+(isNaN(f.winTo)?'…':fmt(f.winTo))+' '+(local()?offsetLabel():'UTC'));
   if(f.q)parts.push('text="'+f.q+'"');
+  if(f.inOv)parts.push('inside concurrent-ALARM intervals ('+ovDescribe()+')');
   parts.push('time='+(local()?tzName():'UTC'));
   var s=parts.join('; ');$('fdesc').textContent=s;return s}
-function isFiltered(f){return !f.allAlarms||f.from.length!==STATES.length||f.to.length!==STATES.length||!f.allHt||f.ongoing||f.q||!isNaN(f.winFrom)||!isNaN(f.winTo)}
+function isFiltered(f){return f.inOv||!f.allAlarms||f.from.length!==STATES.length||f.to.length!==STATES.length||!f.allHt||f.ongoing||f.q||!isNaN(f.winFrom)||!isNaN(f.winTo)}
 
 /* ---- CSV export of the rows on screen ---- */
 function csvCell(v){v=v==null?'':String(v);if(/^[=+\-@]/.test(v))v="'"+v;return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
@@ -282,14 +329,14 @@ function buildCsv(){
   var name='alarm_history_'+(D.account||'account')+'_'+stamp+(isFiltered(f)?'_filtered':'')+'.csv';
   return {name:name,text:lines.join('\r\n')+'\r\n'}}
 window.cwahCsv=buildCsv; /* same text the Export button saves; handy for scripting and tests */
-function exportCsv(){
-  var out=buildCsv(),name=out.name;
-  var blob=new Blob(['\ufeff'+out.text],{type:'text/csv;charset=utf-8'});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
-  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)}
+function exportCsv(){var out=buildCsv();download(out.name,out.text)}
 
 /* ---- wire up ---- */
 buildMenu('almenu',alarms,'al');
+buildMenu('ovmenu',alarms,'ov');
+if(D.overlap_threshold&&D.overlap_threshold!=='all'){$('ovall').checked=false;$('ovn').disabled=false;$('ovn').value=D.overlap_threshold}
+$('ovall').addEventListener('change',function(){$('ovn').disabled=$('ovall').checked;apply()});
+$('ovn').addEventListener('input',apply);$('ovshow').addEventListener('change',apply);$('ovexport').addEventListener('click',exportOverlapCsv);
 if(htypes.length>1){$('htwrap').style.display='';buildMenu('htmenu',htypes,'ht')}
 ['q','ongoing'].forEach(function(id){$(id).addEventListener('input',apply);$(id).addEventListener('change',apply)});
 document.querySelectorAll('input[name="fs"],input[name="ts"]').forEach(function(c){c.addEventListener('change',apply)});
@@ -298,8 +345,8 @@ $('local').addEventListener('change',function(){
   /* keep the window at the same instants when the display zone changes: read the inputs in the old zone */
   var on=$('local').checked;$('local').checked=!on;var a=fromInput($('wfrom').value),b=fromInput($('wto').value);$('local').checked=on;
   $('wfrom').value=isNaN(a)?'':toInput(a);$('wto').value=isNaN(b)?'':toInput(b);apply()});
-$('reset').addEventListener('click',function(){$('q').value='';$('ongoing').checked=false;$('wfrom').value='';$('wto').value='';
-  document.querySelectorAll('.menu input,input[name="fs"],input[name="ts"]').forEach(function(c){c.checked=true});sortKey='ms';sortDir=1;apply()});
+$('reset').addEventListener('click',function(){$('q').value='';$('ongoing').checked=false;$('ovshow').checked=false;$('wfrom').value='';$('wto').value='';
+  document.querySelectorAll('#almenu input,#htmenu input,input[name="fs"],input[name="ts"]').forEach(function(c){c.checked=true});sortKey='ms';sortDir=1;apply()});
 $('export').addEventListener('click',exportCsv);
 document.querySelectorAll('th[data-sort]').forEach(function(th){th.addEventListener('click',function(){
   if(sortKey===th.dataset.sort)sortDir=-sortDir;else{sortKey=th.dataset.sort;sortDir=1}apply()})});
@@ -336,6 +383,19 @@ when that state began before the period, else unknown. Time in ALARM includes ti
 <div class="tw"><table class="grid" id="alarms"><thead><tr><th>Alarm</th><th>Type</th><th>At start</th><th>Now</th>
 <th class="n">Transitions</th><th class="n">Into ALARM</th><th class="n">Time in ALARM</th><th>Last state change</th></tr></thead>
 <tbody>{_alarm_rows(d)}</tbody></table></div></div>
+<div class="card"><h3>Concurrent ALARM intervals</h3>
+<p class="muted">Spans when at least the threshold number of the selected alarms were in ALARM at the same time. An alarm in
+ALARM at the start of the period counts from the period start. Back-to-back spans (one alarm clearing as another fires) do not overlap.</p>
+<div class="filters">
+<details class="dd"><summary>Alarms ▾</summary><div class="menu" id="ovmenu"></div></details>
+<label><input type="checkbox" id="ovall" checked> All selected</label>
+<label>At least <input type="number" id="ovn" min="1" step="1" value="1" disabled> in ALARM</label>
+<label><input type="checkbox" id="ovshow"> Only transitions inside these intervals</label>
+<button type="button" class="btn" id="ovexport">⬇ Export intervals CSV</button>
+<span class="muted" id="ovcnt"></span></div>
+<div class="tw"><table class="grid" id="ov"><thead><tr><th>#</th><th>Start (<span class="tzl">UTC</span>)</th><th>End (<span class="tzl">UTC</span>)</th>
+<th class="n">Duration</th><th class="n">Peak in ALARM</th><th>Alarms in ALARM during the interval</th></tr></thead><tbody id="ovtb"></tbody></table></div>
+</div>
 <div class="card"><h3>Transitions</h3>
 <div class="filters">
 <input type="search" id="q" placeholder="Filter: alarm, state, reason">

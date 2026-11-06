@@ -213,6 +213,7 @@ class HistoryReport:
     transitions: list[Transition]
     alarms_not_found: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    overlap_threshold: int | str | None = None  # --overlap: N, "all", or None (not computed)
 
     @property
     def date(self) -> str:
@@ -240,7 +241,74 @@ class HistoryReport:
             "transitions": [t.to_dict() for t in self.transitions],
             "alarms_not_found": list(self.alarms_not_found),
             "errors": list(self.errors),
+            "overlap_threshold": self.overlap_threshold,
+            "overlap": overlap_intervals(self, threshold=self.overlap_threshold) if self.overlap_threshold else [],
         }
+
+
+# --------------------------------------------------------------------------- #
+# Concurrent ALARM intervals
+# --------------------------------------------------------------------------- #
+def alarm_segments(report: HistoryReport) -> dict[str, list[tuple[datetime, datetime]]]:
+    """Per alarm, the [start, end) spans inside the period during which it was in ALARM.
+
+    An alarm in ALARM at the period start contributes a span from the period start to its first
+    transition (or the period end). Each transition into ALARM contributes a span of its duration.
+    """
+    start, end = _from_iso(report.start), _from_iso(report.end)
+    segs: dict[str, list[tuple[datetime, datetime]]] = {a.alarm: [] for a in report.alarms}
+    first: dict[str, datetime] = {}
+    for t in report.state_transitions:
+        ts = _from_iso(t.timestamp)
+        first.setdefault(t.alarm, ts)
+        if t.to_state == "ALARM":
+            segs.setdefault(t.alarm, []).append((ts, ts + timedelta(seconds=t.duration_s or 0)))
+    for a in report.alarms:
+        if a.state_at_start == "ALARM":
+            segs[a.alarm].insert(0, (start, first.get(a.alarm, end)))
+    return {k: [(x, y) for x, y in v if y > x] for k, v in segs.items()}
+
+
+def overlap_intervals(report: HistoryReport, alarms: Iterable[str] | None = None,
+                      threshold: int | str | None = "all") -> list[dict]:
+    """Intervals during which at least ``threshold`` of ``alarms`` (default: all alarms in the
+    report) were in ALARM at the same time. ``threshold`` is a count or ``"all"``.
+
+    Each interval: start, end (ISO), duration_s, duration, peak (most alarms in ALARM at once),
+    alarms (every selected alarm that was in ALARM at some point in the interval).
+    """
+    selected = sorted(set(alarms)) if alarms is not None else [a.alarm for a in report.alarms]
+    n = len(selected) if threshold in (None, "all") else int(threshold)
+    if n < 1 or n > len(selected):
+        return []
+    segs = alarm_segments(report)
+    # Sweep: ends before starts at the same instant, so back-to-back spans do not overlap.
+    events: list[tuple[datetime, int, str]] = []
+    for name in selected:
+        for x, y in segs.get(name, []):
+            events.append((x, 1, name))
+            events.append((y, 0, name))
+    events.sort(key=lambda e: (e[0], e[1]))
+    out: list[dict] = []
+    active: set[str] = set()
+    cur: dict | None = None
+    for ts, kind, name in events:
+        if kind == 1:
+            active.add(name)
+            if cur is None and len(active) >= n:
+                cur = {"start": ts, "peak": len(active), "alarms": set(active)}
+            elif cur is not None:
+                cur["alarms"].add(name)
+                cur["peak"] = max(cur["peak"], len(active))
+        else:
+            active.discard(name)
+            if cur is not None and len(active) < n:
+                dur = (ts - cur["start"]).total_seconds()
+                out.append({"start": _iso(cur["start"]), "end": _iso(ts), "duration_s": dur,
+                            "duration": fmt_duration(dur), "peak": cur["peak"], "alarms": sorted(cur["alarms"]),
+                            "selected": len(selected), "threshold": n})
+                cur = None
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -536,6 +604,12 @@ def print_summary(report: HistoryReport) -> None:
             continue
         print(f"{a.alarm[:50]:<50} {(a.alarm_type or '?')[:10]:<10} {(a.current_state or '?'):<17} "
               f"{(a.state_at_start or '?'):<17} {a.transitions:>5} {a.into_alarm:>6}  {fmt_duration(a.seconds_in_alarm)}")
+    if report.overlap_threshold:
+        ivs = d["overlap"]
+        n = report.overlap_threshold
+        print(f"\nintervals with {'all' if n == 'all' else f'at least {n}'} of {len(report.alarms)} alarms in ALARM: {len(ivs)}")
+        for iv in ivs:
+            print(f"  {iv['start'][:19]} → {iv['end'][:19]}  {iv['duration']:>9}  peak {iv['peak']}  {', '.join(iv['alarms'])}")
     if report.transitions:
         print()
         hdr = f"{'TIMESTAMP (UTC)':<21} {'ALARM':<40} {'FROM':<17} {'TO':<17} {'FOR':>9}  REASON"
@@ -596,6 +670,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Comma-separated report formats to write: html (default), csv, json")
     p.add_argument("--theme", default=os.getenv("CWAH_THEME", "dark"),
                    help="HTML report theme: dark (default), light, or auto (follow the OS); toggle in-page")
+    p.add_argument("--overlap", default=os.getenv("CWAH_OVERLAP"), metavar="N|all",
+                   help="Also report intervals when at least N (or all) of the alarms were in ALARM at once")
     p.add_argument("--json", action="store_true", help="Print the JSON report to stdout instead of the table")
     p.add_argument("--no-write", action="store_true", help="Do not write report files")
     p.add_argument("-v", "--verbose", "--debug", action="store_true", help="Debug logging, including botocore")
@@ -635,6 +711,11 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"unknown format(s) {', '.join(bad) or '(none)'}; choose from {', '.join(REPORT_FORMATS)}")
         if args.theme not in THEMES:
             raise ValueError(f"unknown theme {args.theme!r}; choose from {', '.join(THEMES)}")
+        overlap: int | str | None = None
+        if args.overlap:
+            overlap = "all" if args.overlap.strip().lower() == "all" else int(args.overlap)
+            if overlap != "all" and overlap < 1:
+                raise ValueError("--overlap must be a positive count or 'all'")
         _canon(history_types, HISTORY_TYPES, "history type")
         _canon(_split_csv([args.alarm_types]), ALARM_TYPES, "alarm type")
         if not alarms and not args.alarm_prefix:
@@ -645,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
             history_types=history_types, alarm_types=_split_csv([args.alarm_types]),
             region=args.region, profile=args.profile,
         )
+        report.overlap_threshold = overlap
     except ValueError as e:
         log.error("%s", e)
         return 2
@@ -655,13 +737,17 @@ def main(argv: list[str] | None = None) -> int:
         log.error("AWS error: %s", e)
         return 1
 
+    paths: list[Path] = []
     if not args.no_write:
-        for path in write_report(report, Path(args.out_dir), formats, args.theme):
+        paths = write_report(report, Path(args.out_dir), formats, args.theme)
+        for path in paths:
             log.info("Report written to %s", path)
     if args.json:
         print(render_json(report))
     else:
         print_summary(report)
+        for path in paths:
+            print(f"Report: {path}")
     if report.errors:
         log.warning("%d alarm(s) could not be read; see errors", len(report.errors))
         return 1

@@ -15,7 +15,7 @@ Captures every state transition of a list of CloudWatch alarms over a time perio
 2. Calls `DescribeAlarms` for the named alarms and every alarm matching an `--alarm-prefix`, to get each alarm's type, current state and when that state began. Named alarms that no longer exist are still queried, since CloudWatch keeps history for deleted alarms; a prefix only matches alarms that exist today.
 3. Calls `DescribeAlarmHistory` once per alarm for the period (`StateUpdate` items by default; `ConfigurationUpdate` and `Action` on request), oldest first, and parses the old and new state, reason and evaluation data from each item.
 4. Computes how long each new state lasted (until the alarm's next transition, or the end of the period, which marks the row as still in effect), the state at the start of the period (what the first transition left; with no transitions, the current state if it began before the period, else unknown) and per-alarm totals: transitions, times into ALARM, and time in ALARM including the time before the first transition.
-5. Writes the HTML report (and CSV / JSON when asked) and prints a summary table.
+5. Writes the HTML report (and CSV / JSON when asked), prints a summary table and, with `--overlap`, the intervals when at least that many alarms were in ALARM together, then the report file names.
 
 CloudWatch keeps alarm history for 30 days. A start older than that is accepted but logged as a warning; the history simply comes back empty. An end in the future is capped at now.
 
@@ -88,6 +88,7 @@ python tools/cw_alarm_history/cw_alarm_history.py --alarms-file alarm_sets/netwo
 | `--out-dir DIR` | Report root (default `reports`); files land in `DIR/<date>/<account>/` |
 | `--formats LIST` | Formats to write: `html` (default), `csv`, `json` |
 | `--theme THEME` | HTML theme: `dark` (default), `light`, or `auto` (follow the OS); toggle in-page |
+| `--overlap N\|all` | Also report the intervals when at least `N` (or all) of the alarms were in ALARM at the same time, in the summary and JSON; the HTML page starts with this threshold |
 | `--json` | Print the JSON report instead of the summary table |
 | `--no-write` | Skip writing report files |
 | `-v` / `--debug` | Debug logging, including botocore |
@@ -98,8 +99,9 @@ Exit code: `0` ok, `1` at least one alarm's history could not be read (AWS error
 ## The HTML report
 
 - **Alarms**: one row per alarm with its type, state at the start of the period, current state and when it began, transition counts and time in ALARM. Named alarms that no longer exist are marked `deleted` when they still have history, else `not found`; both are also listed above the cards.
+- **Concurrent ALARM intervals**: pick alarms (its own multi-select) and a threshold, either "all selected" or "at least N", and the table lists every span when that many of them were in ALARM at the same time: start, end, duration, peak number in ALARM, and which alarms. An alarm in ALARM at the period start counts from the period start. Back-to-back spans (one alarm clearing as another fires) do not overlap, and adjacent spans are not merged. "Only transitions inside these intervals" narrows the transitions table to those spans. **Export intervals CSV** writes the table with the selection and threshold in `#` lines. `window.cwahOverlap()` returns the rows from the console.
 - **Transitions**: one row per state change with the reason CloudWatch gave. The `…` button on a row shows the evaluation data (threshold, datapoints, query date). Columns sort on click. "In new state" is the time until the alarm's next change; `+` marks rows still in effect at the end of the period.
-- **Filters**: free text, alarm (multi-select), from-state, to-state, "still in state at period end", a time window, and history type (when more than one was collected). Times show in UTC or local time; the window inputs follow the same choice. "Reset filters" clears everything.
+- **Filters**: free text, alarm (multi-select), from-state, to-state, "still in state at period end", a time window, the concurrent-ALARM intervals, and history type (when more than one was collected). Times show in UTC or local time; the window inputs follow the same choice. "Reset filters" clears everything.
 - **Export CSV** writes the rows currently shown, in the current sort order, as `alarm_history_<account>_<timestamp>[_filtered].csv`. When "Include filter summary in CSV" is on (the default), the file starts with `#` lines recording the account, Region, period, every active filter, the row count and the export time, so a filtered extract is self-describing. Columns: `alarm, alarm_type, timestamp_utc, timestamp_<utc|local>_display, from_state, to_state, duration_s, duration, ongoing, reason, account, region, history_type, summary`. `window.cwahCsv()` returns the same name and text (`{name, text}`) from the browser console; the download adds a byte-order mark so Excel reads it as UTF-8.
 - The raw report JSON is at the bottom. The page has no external resources, so it can be attached to a ticket as is.
 
