@@ -3,7 +3,7 @@
 [![CodeQL](https://github.com/brett6320/aws-net-tools/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/codeql.yml) [![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ftotal-tests.json)](#tests-and-ci) [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ftotal-coverage.json)](#tests-and-ci) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white) [![License: custom](https://img.shields.io/badge/license-custom-lightgrey)](LICENSE) ![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)
 
 Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, showing which
-Direct Connect path AWS prefers, backing up Direct Connect configuration, reviewing firewall policy, security groups, NACLs and prefix lists, running centralized VPC endpoints, and finding which applications live in each VPC. All but the
+Direct Connect path AWS prefers, backing up Direct Connect configuration, reviewing firewall policy, security groups, NACLs and prefix lists, running centralized VPC endpoints, finding which applications live in each VPC, and capturing CloudWatch alarm state history. All but the
 `vpce`, `ou_vpcs` and `phz_assoc` tools write self-contained HTML reports you can share or attach to a ticket (`phz_review` with `-o html`).
 
 ## Tools
@@ -32,6 +32,12 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 |---|---|---|
 | [`vpce`](tools/vpce/) | VPC endpoints, Route 53 | List VPC endpoints with their private hosted zones (`vpce_list`) |
 | [`phz`](tools/phz/) (suite of 2) | Route 53 private hosted zones | Review PHZ to VPC associations in either direction with owner accounts, as a table or an interactive HTML report with a planner for moving VPCs to another PHZ (`phz_review`), and generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`) |
+
+**Monitoring**
+
+| Tool | AWS service | What it does |
+|---|---|---|
+| [`cw_alarm_history`](tools/cw_alarm_history/) | CloudWatch | Every state transition of a list of alarms (or a name prefix) over a period: when, from and to which state, why, and how long the new state lasted, with per-alarm time in ALARM. The HTML report filters by alarm, state, text and time window, and its CSV export honours those filters |
 
 The tools work well together. For example:
 - Use `ipam_locate` to find who owns an unknown address, then `reachability_trace` to check whether traffic
@@ -90,6 +96,7 @@ Where each tool writes, and what it expects:
 | `dx_backup` | JSON backups in `backups/<account>/<timestamp>/`; diff HTML in `reports/<date>/<account>/`; restore plan: shell script | `DXB_` | 0 ok, 1 error, 2 changes found |
 | `firewall/*` | HTML, CSV and JSON in `reports/<tool>/<date>/` | `FMM_`, `SG_`, `PL_` | 0 nothing found, 1 findings, 2 fatal |
 | `pl_review` | HTML, JSON, Markdown and CSV in `reports/<date>/` | `PL_REVIEW_` | 0 ok, 1 at risk, 2 fatal, 3 partly evaluated |
+| `cw_alarm_history` | HTML (CSV and JSON on request) in `reports/<date>/<account>/` | `CWAH_` | 0 ok, 1 some alarms not read, 2 bad input |
 | `ou_vpcs` | stdout: table, JSON or CSV; VPC owner map in `~/.cache/aws-net-tools/` | `OU_VPCS_` | 0 ok, 1 error, 2 bad input, 3 accounts skipped |
 | `proxy_inventory` | HTML in `reports/<scope>/` (latest), with timestamped copies in `reports/<date>/<scope>/`; optional JSON | `PROXY_INV_` | 0 ok, 2 bad input, 3 accounts skipped |
 | `vpce/*` | stdout: table, JSON or CSV | `VPCE_` | 0 ok, 1 error, 2 bad input |
@@ -114,6 +121,7 @@ pull request and weekly, and Dependabot proposes dependency updates weekly.
 | [`dx_backup`](tools/dx_backup/) | [![dx_backup tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_backup.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-dx_backup.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_backup-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fdx_backup-coverage.json) |
 | [`firewall`](tools/firewall/) | [![firewall tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-firewall.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Ffirewall-coverage.json) |
 | [`pl_review`](tools/pl_review/) | [![pl_review tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-pl_review.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fpl_review-coverage.json) |
+| [`cw_alarm_history`](tools/cw_alarm_history/) | [![cw_alarm_history tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-cw_alarm_history.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-cw_alarm_history.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fcw_alarm_history-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fcw_alarm_history-coverage.json) |
 | [`vpce`](tools/vpce/) | [![vpce tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-vpce.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fvpce-coverage.json) |
 | [`phz`](tools/phz/) | [![phz tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-phz.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-phz.yml) | ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fphz-tests.json) | ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fphz-coverage.json) |
 
