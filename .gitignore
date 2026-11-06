@@ -22,3 +22,5 @@ junit.xml
 stats.json
 # phz_review local VPC owner map (kept in ~/.cache by default)
 vpc-owners*.json
+# local alarm name lists for cw_alarm_history --alarms-file
+alarm_sets/
