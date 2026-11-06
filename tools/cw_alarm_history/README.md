@@ -31,7 +31,7 @@ python tools/cw_alarm_history/cw_alarm_history.py --alarm-prefix net- \
     --start 2026-11-01T00:00Z --end 2026-11-03T00:00Z --formats html,csv,json
 
 # alarms from a file, the 48 hours before yesterday noon, including actions and config changes
-python tools/cw_alarm_history/cw_alarm_history.py --alarms-file alarms.txt \
+python tools/cw_alarm_history/cw_alarm_history.py --alarms-file alarm_sets/network.txt \
     --end 2026-11-05T12:00 --last 48h --history-types all
 ```
 
@@ -47,6 +47,28 @@ report = collect_alarm_history(alarms=["net-dx-bgp-down"], prefixes=["net-tgw-"]
                                profile="hcli-network-ro", region="us-east-1")
 for t in report.transitions:
     print(t.timestamp, t.alarm, t.from_state, "->", t.to_state, t.duration)
+```
+
+### Alarm list file
+
+`--alarms-file` takes one alarm name per line. Blank lines and `#` comments are ignored; names are exact and case-sensitive. A copy of this example is in [`alarms.example.txt`](alarms.example.txt); keep your own lists in `alarm_sets/`, which is git-ignored.
+
+```text
+# Direct Connect
+net-dx-bgp-down-dxcon-abc123
+net-dx-bgp-down-dxcon-def456
+net-dx-connection-state-dxcon-abc123
+
+# Transit Gateway
+net-tgw-packet-drops-blackhole
+net-tgw-packet-drops-no-route
+
+# VPN
+net-vpn-tunnel-status-vpn-0123456789abcdef0
+```
+
+```bash
+python tools/cw_alarm_history/cw_alarm_history.py --alarms-file alarm_sets/network.txt --last 7d
 ```
 
 ### Options
