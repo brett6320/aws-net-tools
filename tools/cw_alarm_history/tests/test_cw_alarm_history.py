@@ -344,3 +344,77 @@ def test_main_error_exit(monkeypatch, clean_env):
                         lambda **kw: orig(**{**kw, "cw": FakeCloudWatch(deny={"net-quiet"}),
                                              "account": ACCOUNT, "now": NOW}))
     assert cwah.main(["--alarm", "net-quiet", "--no-write", "-q"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# concurrent ALARM intervals
+# --------------------------------------------------------------------------- #
+FIVE = ["net-dx-bgp-down", "net-tgw-packet-drops", "net-vpn-tunnel-status", "net-quiet", "net-stuck-alarm"]
+
+
+def test_alarm_segments():
+    r = collect(alarms=FIVE)
+    segs = cwah.alarm_segments(r)
+    assert segs["net-stuck-alarm"] == [(T0, NOW)]  # in ALARM all period, no transitions
+    assert segs["net-dx-bgp-down"] == [(T0 + 2 * H, T0 + 2 * H + timedelta(minutes=15)), (T0 + 30 * H, T0 + 31 * H)]
+    assert segs["net-tgw-packet-drops"] == [(T0 + 100 * H, NOW)]
+    assert segs["net-quiet"] == [] and segs["net-vpn-tunnel-status"] == []
+    # in ALARM at period start, clears at its first transition
+    r2 = collect(alarms=["net-deleted"])
+    assert cwah.alarm_segments(r2)["net-deleted"] == [(T0, T0 + 5 * H)]
+
+
+def test_overlap_intervals_thresholds():
+    r = collect(alarms=FIVE)
+    assert cwah.overlap_intervals(r, threshold="all") == []
+    assert cwah.overlap_intervals(r, threshold=3) == []
+    two = cwah.overlap_intervals(r, threshold=2)
+    assert [(i["start"][:16], i["end"][5:16], i["peak"], i["alarms"]) for i in two] == [
+        ("2026-11-01T02:00", "11-01T02:15", 2, ["net-dx-bgp-down", "net-stuck-alarm"]),
+        ("2026-11-02T06:00", "11-02T07:00", 2, ["net-dx-bgp-down", "net-stuck-alarm"]),
+        ("2026-11-05T04:00", "11-06T12:00", 2, ["net-stuck-alarm", "net-tgw-packet-drops"]),
+    ]
+    assert two[0]["duration_s"] == 900 and two[0]["duration"] == "15m" and two[0]["threshold"] == 2 and two[0]["selected"] == 5
+    one = cwah.overlap_intervals(r, threshold=1)
+    assert len(one) == 1 and one[0]["start"] == r.start and one[0]["end"] == r.end and one[0]["peak"] == 2
+    assert set(one[0]["alarms"]) == {"net-dx-bgp-down", "net-stuck-alarm", "net-tgw-packet-drops"}
+    # selection restricts the alarms considered; "all" means all selected
+    sel = cwah.overlap_intervals(r, alarms=["net-dx-bgp-down", "net-stuck-alarm"], threshold="all")
+    assert [i["duration"] for i in sel] == ["15m", "1h"]
+    assert cwah.overlap_intervals(r, alarms=["net-quiet"], threshold=1) == []
+    assert cwah.overlap_intervals(r, threshold=0) == [] and cwah.overlap_intervals(r, threshold=9) == []
+
+
+def test_overlap_back_to_back_does_not_overlap():
+    t = T0 + H
+    hist = [_state_item("a", "MetricAlarm", t, "OK", "ALARM"), _state_item("a", "MetricAlarm", t + H, "ALARM", "OK"),
+            _state_item("b", "MetricAlarm", t + H, "OK", "ALARM"), _state_item("b", "MetricAlarm", t + 2 * H, "ALARM", "OK")]
+    r = collect(alarms=["a", "b"], cw=FakeCloudWatch(history=hist, alarms={}))
+    assert cwah.overlap_intervals(r, threshold=2) == []
+    # adjacent intervals are reported separately, not merged
+    assert [i["duration"] for i in cwah.overlap_intervals(r, threshold=1)] == ["1h", "1h"]
+
+
+def test_overlap_in_json_and_summary(capsys):
+    r = collect(alarms=FIVE)
+    assert r.to_dict()["overlap"] == [] and r.to_dict()["overlap_threshold"] is None
+    r.overlap_threshold = 2
+    d = json.loads(cwah.render_json(r))
+    assert len(d["overlap"]) == 3 and d["overlap_threshold"] == 2
+    cwah.print_summary(r)
+    out = capsys.readouterr().out
+    assert "at least 2 of 5 alarms in ALARM: 3" in out and "peak 2" in out
+    page = cwah.render_html_report(r)
+    assert 'id="ovmenu"' in page and 'id="ovn"' in page and "Export intervals CSV" in page
+
+
+def test_main_overlap_option_and_report_paths(monkeypatch, tmp_path, capsys, clean_env):
+    monkeypatch.setattr(cwah, "collect_alarm_history",
+                        lambda **kw: REAL_COLLECT(**{**kw, "cw": FakeCloudWatch(), "account": ACCOUNT, "now": NOW,
+                                                     "start": T0, "end": NOW}))
+    assert cwah.main(["--alarm", ",".join(FIVE), "--overlap", "2", "--out-dir", str(tmp_path), "--formats", "html,csv"]) == 0
+    out = capsys.readouterr().out
+    assert "in ALARM: 3" in out
+    assert out.count("Report: ") == 2 and str(tmp_path) in out  # file names printed at the end
+    assert cwah.main(["--alarm", "x", "--overlap", "0", "--no-write"]) == 2
+    assert cwah.main(["--alarm", "x", "--overlap", "lots", "--no-write"]) == 2
