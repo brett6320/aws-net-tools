@@ -64,16 +64,23 @@ def actions(p):
     return [(s["phase"], s["action"], s["account"], s["zone_id"], s["vpc_id"], bool(s["skipped"])) for s in p["steps"]]
 
 
-def test_cross_account_different_name_associates_before_disassociating():
-    p = run(base_data(), [pick(OLD, "vpc-b")], target={"zone_id": ALT, "name": "new.internal", "owner": OTHER})
+def test_cross_account_different_name_disassociates_right_before_associating():
+    p = run(base_data(), [pick(OLD, "vpc-b"), pick(OLD, "vpc-c")], target={"zone_id": ALT, "name": "new.internal", "owner": OTHER})
     assert not p["errors"]
     assert actions(p) == [
         (1, "create-vpc-association-authorization", OTHER, ALT, "vpc-b", False),
+        (1, "create-vpc-association-authorization", OTHER, ALT, "vpc-c", False),
+        (2, "disassociate-vpc-from-hosted-zone", SPOKE, OLD, "vpc-b", False),
         (2, "associate-vpc-with-hosted-zone", SPOKE, ALT, "vpc-b", False),
-        (3, "disassociate-vpc-from-hosted-zone", SPOKE, OLD, "vpc-b", False),
+        (2, "disassociate-vpc-from-hosted-zone", SPOKE, OLD, "vpc-c", False),
+        (2, "associate-vpc-with-hosted-zone", SPOKE, ALT, "vpc-c", False),
         (4, "delete-vpc-association-authorization", OTHER, ALT, "vpc-b", False),
+        (4, "delete-vpc-association-authorization", OTHER, ALT, "vpc-c", False),
     ]
-    assert any("Cross-account" in w for w in p["warnings"])
+    assert any("Cross-account" in w for w in p["warnings"]) and any("back to back" in w for w in p["warnings"])
+    assert not any("Same-name" in w for w in p["warnings"])
+    script = p["script"]
+    assert script.count("# ===== Step") == 3  # each pair sits under one VPC-owner step, not split across steps
     script = p["script"]
     assert "run as PHZ owner account 333333333333" in script and "run as VPC owner account 222222222222" in script
     assert "account 222222222222" in script and "# Target PHZ: Z0NEW" not in script
@@ -87,7 +94,7 @@ def test_same_name_disassociates_first_back_to_back():
         ("disassociate-vpc-from-hosted-zone", "vpc-b"), ("associate-vpc-with-hosted-zone", "vpc-b"),
         ("disassociate-vpc-from-hosted-zone", "vpc-c"), ("associate-vpc-with-hosted-zone", "vpc-c"),
     ]
-    assert any("Same-name" in w for w in p["warnings"])
+    assert any("Same-name moves need this order" in w for w in p["warnings"])
 
 
 def test_same_name_requires_disassociation():
@@ -122,7 +129,7 @@ def test_same_name_last_vpc_blocks_the_move():
 
 def test_same_account_needs_no_authorization_and_existing_ones_are_reused():
     p = run(base_data(), [pick(OLD, "vpc-a")], target={"zone_id": OLD.replace("OLD", "HUB"), "name": "x.internal", "owner": HUB})
-    assert [s["action"] for s in p["steps"]] == ["associate-vpc-with-hosted-zone", "disassociate-vpc-from-hosted-zone"]
+    assert [s["action"] for s in p["steps"]] == ["disassociate-vpc-from-hosted-zone", "associate-vpc-with-hosted-zone"]
 
     d = base_data()
     d["associations"].append(assoc(ALT, "new.internal", OTHER, "vpc-b", SPOKE, status="authorized-pending"))
@@ -157,6 +164,20 @@ def test_incomplete_data_warns():
     d = base_data(vpc_counts_complete=False, authorizations_listed=False)
     p = run(d, [pick(OLD, "vpc-b")], target={"zone_id": ALT, "name": "new.internal", "owner": OTHER})
     assert any("last VPC" in w for w in p["warnings"]) and any("weren't listed" in w for w in p["warnings"])
+
+
+def defaults(data, selected):
+    js = phz_html.PLANNER_JS + f"process.stdout.write(JSON.stringify(sourceDefaults({json.dumps(data)}, {json.dumps(selected)})));"
+    return json.loads(subprocess.run([NODE, "-e", js], capture_output=True, text=True, check=True).stdout)
+
+
+def test_target_defaults_to_the_old_phz_name_and_owner():
+    d = base_data()
+    d["associations"][0]["zone_name"] = "Corp.Internal."
+    assert defaults(d, [pick(OLD, "vpc-a"), pick(OLD, "vpc-b")]) == {"name": "corp.internal", "owner": HUB}
+    # old PHZs that disagree leave the field blank; here both are owned by OTHER
+    assert defaults(d, [pick(NEW, "vpc-n"), pick(ALT, "vpc-n")]) == {"name": "", "owner": OTHER}
+    assert defaults(d, []) == {"name": "", "owner": ""}
 
 
 def match(data, text):
