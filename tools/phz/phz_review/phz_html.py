@@ -7,8 +7,8 @@ Layout:
                (associated, authorized-pending, authorized = stale); rows can be selected
   Migration planner: move the selected VPCs to another PHZ. Builds the AWS CLI commands
                grouped by the account that must run them, in order: authorizations (target
-               PHZ owner), associations (VPC owner), disassociations from the old PHZs, then
-               authorization cleanup. It is never run from the page.
+               PHZ owner), then per VPC the old PHZ's disassociation immediately followed by the new
+               association, then authorization cleanup. It is never run from the page.
 
 Inline CSS and JS only; no external resources. Dark by default with an in-page toggle.
 The planner logic (PLANNER_JS) has no DOM access so it can be tested on its own.
@@ -75,7 +75,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 PLANNER_JS = r"""
 var CREATE_AUTH = "create-vpc-association-authorization", ASSOCIATE = "associate-vpc-with-hosted-zone",
     DELETE_AUTH = "delete-vpc-association-authorization", DISASSOCIATE = "disassociate-vpc-from-hosted-zone";
-var PHASES = {1: "Authorize the VPC owner(s)", 2: "Associate with the new PHZ", 3: "Disassociate from the old PHZ(s)",
+var PHASES = {1: "Authorize the VPC owner(s)", 2: "Move to the new PHZ",
               4: "Clean up authorizations"};
 
 function isAcct(a) { return /^\d{12}$/.test(a || ""); }
@@ -121,7 +121,7 @@ function planMigration(data, selected, opts) {
     if (byVpc[k].sources.indexOf(s.zone_id) < 0) byVpc[k].sources.push(s.zone_id);
   });
 
-  var anyCross = false, anyConflict = false, anyPhzSide = false;
+  var anyCross = false, anyConflict = false, anyGap = false, anyPhzSide = false;
   order.forEach(function (k) {
     var v = byVpc[k], vpc = v.vpc_id, region = v.vpc_region;
     var known = assoc.filter(function (a) { return a.vpc_id === vpc && isAcct(a.vpc_owner); })[0];
@@ -146,7 +146,6 @@ function planMigration(data, selected, opts) {
       return;
     }
     var conflicts = srcs.filter(function (z) { return zname(zoneName(z)) === tname; });
-    var rest = srcs.filter(function (z) { return conflicts.indexOf(z) < 0; });
     if (conflicts.length && !opts.disassociate) {
       errors.push(vpc + ": the old PHZ has the same name as the target, so it must be disassociated first. " +
         "Tick \u201cdisassociate from the old PHZ\u201d.");
@@ -169,7 +168,10 @@ function planMigration(data, selected, opts) {
       return true;
     }
 
+    // Each old PHZ is disassociated right before the new one is associated, back to back per VPC: a same-name
+    // target requires it (ConflictingDomainExists), and doing it the same way for every move keeps the order uniform.
     if (has(t.zone_id, region, vpc, ["associated"])) {
+      if (opts.disassociate) srcs.forEach(function (z) { disassociate(z, 2, "the VPC is already associated with the target"); });
       step(2, owner, "vpc", ASSOCIATE, t.zone_id, "", "already associated with the target");
       if (cross && opts.deleteTargetAuth && has(t.zone_id, region, vpc, ["authorized"]))
         step(4, t.owner, "phz", DELETE_AUTH, t.zone_id, "stale authorization from an earlier association");
@@ -182,10 +184,12 @@ function planMigration(data, selected, opts) {
           step(1, t.owner, "phz", CREATE_AUTH, t.zone_id, "allow account " + owner + " to associate " + vpc);
       }
       var blocked = false;
-      conflicts.forEach(function (z) {
-        anyConflict = true;
-        if (!disassociate(z, 2, "same name as the target, so it must go first; " + tname +
-                          " does not resolve in this VPC until the next command completes")) blocked = true;
+      if (opts.disassociate) srcs.forEach(function (z) {
+        var same = conflicts.indexOf(z) >= 0;
+        anyConflict = anyConflict || same;
+        var done = disassociate(z, 2, (same ? "same name as the target; " + tname : zoneName(z) + " stops resolving and " + tname) +
+                                " resolves once the next command completes, so run them back to back");
+        if (done) anyGap = true; else if (same) blocked = true;
       });
       if (blocked) {
         step(2, owner, "vpc", ASSOCIATE, t.zone_id, "", "blocked: the same-name old PHZ can't be disassociated");
@@ -197,7 +201,6 @@ function planMigration(data, selected, opts) {
           step(4, t.owner, "phz", DELETE_AUTH, t.zone_id, "no longer needed once associated");
       }
     }
-    if (opts.disassociate) rest.forEach(function (z) { disassociate(z, 3, "after the new association is in place"); });
     if (opts.cleanupSourceAuth) srcs.forEach(function (z) {
       if (has(z, region, vpc, ["authorized", "authorized-pending"])) {
         var zo = zoneOwner(z);
@@ -208,15 +211,17 @@ function planMigration(data, selected, opts) {
 
   if (anyCross) warnings.push("Cross-account: the target PHZ owner must create each authorization (step 1) before the VPC owner " +
     "associates. Run the steps in order; if different teams own the accounts, hand each team its step.");
-  if (anyConflict) warnings.push("Same-name migration: Route 53 doesn't allow two PHZs with the same name on one VPC, so the old PHZ " +
-    "is removed just before the new one is added. Records in that name don't resolve in the VPC between the two commands; " +
-    "run them back to back, in a change window.");
+  if (anyGap) warnings.push("Each VPC's old PHZ is disassociated right before the new PHZ is associated, back to back. The VPC " +
+    "resolves neither zone's records between the two commands; run each pair together, in a change window. If an " +
+    "association fails, re-associate the old PHZ (associate-vpc-with-hosted-zone, as the VPC owner) to restore it." +
+    (anyConflict ? " Same-name moves need this order: Route 53 doesn't allow two PHZs with the same name on one VPC." : ""));
   if (opts.disassociate && !data.vpc_counts_complete) warnings.push("This report doesn't hold every VPC on the old PHZs, so " +
     "it can't check whether a disassociation removes a PHZ's last VPC (Route 53 rejects that). Check with phz_review by-zone.");
   if (cross_any_unknown_auth(data, anyCross)) warnings.push("Existing authorizations weren't listed in this report, so step 1 " +
     "may recreate one that exists already.");
   if (anyPhzSide) warnings.push("Disassociating as the PHZ owner works only for PHZs it owns; VPCs shared through RAM are still " +
-    "associated by their owner account.");
+    "associated by their owner account. Each VPC's disassociation and association then run in different accounts, so the " +
+    "steps alternate per VPC: run them strictly in order, not grouped by team.");
   steps.sort(function (a, b) { return a.phase - b.phase; });
   return {steps: steps, errors: errors, warnings: warnings};
 }
@@ -252,6 +257,21 @@ function matchPasted(data, text) {
   });
   accounts.forEach(function (acct) { add(acct, function (a) { return a.vpc_owner === acct; }); });
   return {rows: rows, unmatched: unmatched};
+}
+
+// The old PHZs' name and owner account, each only when every selected association agrees on it: the defaults for a
+// target entered by hand, which is usually a same-name PHZ in the same account.
+function sourceDefaults(data, selected) {
+  var names = {}, owners = {};
+  selected.forEach(function (s) {
+    data.associations.forEach(function (a) {
+      if (a.zone_id !== s.zone_id) return;
+      if (a.zone_name) names[zname(a.zone_name)] = 1;
+      if (isAcct(a.zone_owner)) owners[a.zone_owner] = 1;
+    });
+  });
+  function one(o) { var k = Object.keys(o); return k.length === 1 ? k[0] : ""; }
+  return {name: one(names), owner: one(owners)};
 }
 
 function cliFor(s, profile) {
@@ -483,15 +503,30 @@ UI_JS = r"""
   function setTarget(zid) {
     tsel.value = zid;
     var z = D.zones.filter(function (x) { return x.zone_id === zid; })[0];
-    if (z) { $("t-id").value = z.zone_id; $("t-name").value = z.name; $("t-owner").value = /^\d{12}$/.test(z.owner) ? z.owner : ""; }
+    if (z) {
+      $("t-id").value = z.zone_id; $("t-name").value = z.name; $("t-owner").value = /^\d{12}$/.test(z.owner) ? z.owner : "";
+      auto["t-name"] = auto["t-owner"] = false;  // an unknown owner stays blank for the user to enter, never guessed
+    }
     plan();
   }
+  // A target entered by hand takes the old PHZ's name and owner account until the field is typed in; a field left
+  // empty gets the default back when it loses focus.
+  var auto = {"t-name": true, "t-owner": true};
   tsel.addEventListener("change", function () {
-    if (tsel.value === "__other") { $("t-id").value = ""; $("t-name").value = ""; $("t-owner").value = ""; $("t-id").focus(); plan(); }
+    if (tsel.value === "__other") { $("t-id").value = ""; auto["t-name"] = auto["t-owner"] = true; $("t-id").focus(); plan(); }
     else setTarget(tsel.value);
   });
   ["t-id", "t-name", "t-owner"].forEach(function (id) {
-    $(id).addEventListener("input", function () { if (id !== "t-owner") tsel.value = "__other"; plan(); }); });
+    $(id).addEventListener("input", function () {
+      if (id !== "t-owner") tsel.value = "__other";
+      if (id in auto) auto[id] = false;
+      plan();
+    }); });
+  ["t-name", "t-owner"].forEach(function (id) {
+    $(id).addEventListener("blur", function () {
+      var byHand = tsel.value === "" || tsel.value === "__other";
+      if (byHand && !$(id).value.trim()) { auto[id] = true; plan(); }
+    }); });
   ["o-dis", "o-delauth", "o-srcauth"].forEach(function (id) { $(id).addEventListener("change", plan); });
   $("o-as").addEventListener("change", plan);
 
@@ -515,7 +550,9 @@ UI_JS = r"""
     });
   }
   function plan(keepInputs) {
-    var sel = picks();
+    var sel = picks(), def = sourceDefaults(D, sel);
+    if (auto["t-name"]) $("t-name").value = def.name;
+    if (auto["t-owner"]) $("t-owner").value = def.owner;
     $("sel-count").textContent = sel.length + " association(s) selected";
     var unknown = [];
     sel.forEach(function (s) {
@@ -605,14 +642,14 @@ planner below.</p>
 <div id="assocs"></div></div>
 <div class="card" id="planner"><h3>Migration planner</h3>
 <p class="muted">Prepares the AWS CLI commands to move the selected VPCs to a different PHZ. Nothing runs from this page.
-Order: the target PHZ owner authorizes each VPC from another account, the VPC owner associates it, the old PHZ is
-disassociated, and the authorization is removed. Commands are grouped by the account that has to run them.</p>
+Order: the target PHZ owner authorizes each VPC from another account; then, for each VPC, the old PHZ is disassociated
+and the new one associated right after it, back to back; then the authorization is removed. Commands are grouped by the account that has to run them.</p>
 <div class="grid2"><div>
 <h4>Target PHZ</h4>
 <div class="controls"><label>Zone<select id="t-zone"></select></label></div>
 <div class="kv"><span class="muted">Zone ID</span><input id="t-id" placeholder="Z0123456789ABC">
-<span class="muted">Name</span><input id="t-name" placeholder="example.internal">
-<span class="muted">Owner account</span><input id="t-owner" placeholder="12-digit account" pattern="\\d{{12}}"></div>
+<span class="muted">Name</span><input id="t-name" placeholder="example.internal (default: the old PHZ's)">
+<span class="muted">Owner account</span><input id="t-owner" placeholder="12-digit account (default: the old PHZ's)" pattern="\\d{{12}}"></div>
 <h4>Options</h4>
 <div class="controls">
 <label class="check"><input type="checkbox" id="o-dis" checked> Disassociate from the old PHZ</label>
