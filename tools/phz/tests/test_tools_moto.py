@@ -138,7 +138,7 @@ def test_html_report_from_phz_account(env, no_auths, capsys, tmp_path, argv):
     from lib.aws_profiles import profile_accounts
 
     (tmp_path / "aws_config").write_text(f"[profile net-ro]\nsso_account_id = {ACCT}\n"
-                                         f"[profile net-priv]\nsso_account_id = {ACCT}\n")
+                                         f"[profile net-adm]\nsso_account_id = {ACCT}\n")
     profile_accounts.cache_clear()
     assert pr.main(argv + ["-o", "html", "--reports-dir", str(tmp_path), "-q"]) == 0
     path = Path(capsys.readouterr().out.strip())
@@ -149,7 +149,7 @@ def test_html_report_from_phz_account(env, no_auths, capsys, tmp_path, argv):
     assert d["vpc_counts_complete"] and d["authorizations_listed"]
     assert [(z["zone_id"], z["owner"], z["vpc_count"], z["tags"]) for z in d["zones"]] == [(env["zone"], ACCT, 1, {"Purpose": "vpce"})]
     assert [(a["vpc_id"], a["vpc_owner"], a["zone_owner"], a["status"]) for a in d["associations"]] == [(env["hub"], ACCT, ACCT, "associated")]
-    assert d["profiles"] == {ACCT: "net-priv"}  # the planner's default --profile
+    assert d["profiles"] == {ACCT: "net-adm"}  # the planner's default --profile
 
 
 def test_html_report_by_vpc(env, capsys, tmp_path):

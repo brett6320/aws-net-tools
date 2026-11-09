@@ -83,16 +83,16 @@ def test_session_uses_derived_profile(config):
 
 
 def test_priv_profile(config):
-    assert ap.priv_profile("111111111111") == "net-priv"
-    assert ap.priv_profile("666666666666") == "only-priv-priv"
-    assert ap.priv_profile("222222222222") is None  # -cpar only
+    assert ap.priv_profile("111111111111") == "net-adm"
+    assert ap.priv_profile("222222222222") == "dns-adm"
+    assert ap.priv_profile("666666666666") is None  # -priv only
     assert ap.priv_profile(None) is None
     assert ap.priv_profiles(["222222222222", "111111111111", "666666666666", "111111111111"]) == {
-        "111111111111": "net-priv", "666666666666": "only-priv-priv"}
+        "111111111111": "net-adm", "222222222222": "dns-adm"}
 
 
 def test_priv_profile_ambiguous_or_custom_suffix(config, tmp_path, monkeypatch):
-    (tmp_path / "config").write_text(CONFIG + "[profile net2-priv]\nsso_account_id = 111111111111\n")
+    (tmp_path / "config").write_text(CONFIG + "[profile net2-adm]\nsso_account_id = 111111111111\n")
     ap.profile_accounts.cache_clear()
     assert ap.priv_profile("111111111111") is None
     monkeypatch.setenv("VPCE_PRIV_PROFILE_SUFFIX", "-cpar")

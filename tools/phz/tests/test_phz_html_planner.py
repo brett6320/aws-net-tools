@@ -159,6 +159,44 @@ def test_incomplete_data_warns():
     assert any("last VPC" in w for w in p["warnings"]) and any("weren't listed" in w for w in p["warnings"])
 
 
+def match(data, text):
+    js = phz_html.PLANNER_JS + f"""
+var m = matchPasted({json.dumps(data)}, {json.dumps(text)});
+process.stdout.write(JSON.stringify({{rows: m.rows.map(function (a) {{ return [a.zone_id, a.vpc_id]; }}), unmatched: m.unmatched}}));
+"""
+    out = subprocess.run([NODE, "-e", js], capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+def test_pasted_vpcs_and_accounts_select_associated_rows():
+    d = base_data()
+    d["associations"].append(assoc(ALT, "new.internal", OTHER, "vpc-b", SPOKE, status="authorized-pending"))
+    m = match(d, "VPC-A\n333333333333, vpc-zzz;444444444444")
+    assert m["rows"] == [[OLD, "vpc-a"], [NEW, "vpc-n"], [ALT, "vpc-n"]]
+    assert m["unmatched"] == ["444444444444"]  # vpc-zzz isn't hex, so it isn't a VPC ID
+
+    m = match(d, f"{SPOKE}\t{SPOKE}")
+    assert m["rows"] == [[OLD, "vpc-b"], [OLD, "vpc-c"]] and not m["unmatched"]  # authorized-pending row left out
+
+    m = match(d, "vpc-0dead\n")
+    assert m["rows"] == [] and m["unmatched"] == ["vpc-0dead"]
+
+
+def test_pasted_account_next_to_a_vpc_does_not_widen_the_selection():
+    m = match(base_data(), f"vpc-b\t{SPOKE}\tus-east-1\n{OTHER}")
+    assert m["rows"] == [[OLD, "vpc-b"], [NEW, "vpc-n"], [ALT, "vpc-n"]]  # not vpc-c, which SPOKE also owns
+
+
+def test_pasted_arns_match_vpc_and_region_not_the_arn_account():
+    d = base_data()
+    d["associations"].append(assoc(OLD, "corp.internal", HUB, "vpc-b", SPOKE, region="eu-west-1"))
+    arn = f"arn:aws:ec2:eu-west-1:{HUB}:vpc/vpc-b"
+    m = match(d, arn)
+    assert m["rows"] == [[OLD, "vpc-b"]] and not m["unmatched"]
+    m = match(d, f"arn:aws:ec2:ap-south-1:{SPOKE}:vpc/vpc-c")
+    assert m["rows"] == [] and m["unmatched"] == [f"arn:aws:ec2:ap-south-1:{SPOKE}:vpc/vpc-c"]
+
+
 def test_page_scripts_parse(tmp_path):
     page = phz_html.render_html({"command": "zones", "scope": HUB, "zones": [], "associations": [], "notes": ["</script>"]})
     assert page.count("<script>") == 1
