@@ -6,7 +6,7 @@ account in ``role_arn``. Profiles ending in an excluded suffix (default ``-priv`
 win; anything still ambiguous is an error rather than a guess.
 
 Commands that change something (the migration planner's script) use the account's
-``-priv`` profile instead; see ``priv_profile``.
+``-adm`` profile instead; see ``priv_profile``.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import botocore.session
 log = logging.getLogger("aws_vpce_tools.profiles")
 
 DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
-DEFAULT_PRIV_SUFFIX = "-priv"
+DEFAULT_PRIV_SUFFIX = "-adm"
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 _ROLE_ARN_ACCOUNT = re.compile(r"^arn:[^:]+:iam::(\d{12}):")
 
@@ -95,7 +95,7 @@ def priv_suffix() -> str:
 
 
 def priv_profile(account: str | None) -> str | None:
-    """The profile ending in ``-priv`` (env ``VPCE_PRIV_PROFILE_SUFFIX``) for ``account``, for commands that
+    """The profile ending in ``-adm`` (env ``VPCE_PRIV_PROFILE_SUFFIX``) for ``account``, for commands that
     change something. None when no such profile maps to the account, or several do."""
     if not account:
         return None
@@ -108,5 +108,5 @@ def priv_profile(account: str | None) -> str | None:
 
 
 def priv_profiles(accounts) -> dict[str, str]:
-    """Account -> its ``-priv`` profile, for the accounts that have exactly one."""
+    """Account -> its ``-adm`` profile, for the accounts that have exactly one."""
     return {a: p for a in sorted(set(accounts)) if (p := priv_profile(a))}

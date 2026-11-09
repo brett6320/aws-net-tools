@@ -45,8 +45,9 @@ a{color:var(--accent)}
 .controls{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;margin:4px 0 8px}
 .controls label{display:flex;flex-direction:column;font-size:11px;color:var(--muted);gap:2px}
 .controls label.check{flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--fg)}
-select,input,button{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+select,input,button,textarea{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
 input[type=search]{width:240px}select{max-width:260px}button{cursor:pointer}
+.controls label.paste textarea{width:320px;max-width:100%;resize:vertical}.pastewarn{color:var(--warn)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .tw{overflow-x:auto}
 table.grid{border-collapse:collapse;width:100%;font-size:13px}
@@ -221,6 +222,37 @@ function planMigration(data, selected, opts) {
 }
 
 function cross_any_unknown_auth(data, anyCross) { return anyCross && !data.authorizations_listed; }
+
+// Pasted text -> the associated rows it names. Picks out VPC ARNs (VPC and region), VPC IDs and 12-digit accounts
+// (matched as the VPC owner) wherever they appear, so a column copied from a spreadsheet or a log works as is.
+// An account on a line that also names a VPC is ignored, so "vpc-0abc <tab> 123456789012" selects only that VPC.
+function matchPasted(data, text) {
+  var assoc = data.associations.filter(function (a) { return a.status === "associated"; });
+  var rows = [], unmatched = [], seen = {};
+  function add(token, test) {
+    if (seen[token]) return;
+    seen[token] = 1;
+    var hits = assoc.filter(test);
+    if (!hits.length) unmatched.push(token);
+    hits.forEach(function (a) { if (rows.indexOf(a) < 0) rows.push(a); });
+  }
+  var accounts = [];
+  String(text || "").split(/\r?\n/).forEach(function (line) {
+    var vpcs = 0;
+    line = line.replace(/arn:aws[\w-]*:ec2:([a-z0-9-]+):\d{12}:vpc\/(vpc-[0-9a-f]+)\b/gi, function (m, region, vpc) {
+      region = region.toLowerCase(); vpc = vpc.toLowerCase(); vpcs++;
+      add(m.toLowerCase(), function (a) { return a.vpc_id === vpc && a.vpc_region === region; });
+      return " ";
+    });
+    (line.match(/\bvpc-[0-9a-f]+\b/gi) || []).forEach(function (v) {
+      v = v.toLowerCase(); vpcs++;
+      add(v, function (a) { return a.vpc_id === v; });
+    });
+    if (!vpcs) accounts = accounts.concat(line.match(/\b\d{12}\b/g) || []);
+  });
+  accounts.forEach(function (acct) { add(acct, function (a) { return a.vpc_owner === acct; }); });
+  return {rows: rows, unmatched: unmatched};
+}
 
 function cliFor(s, profile) {
   var parts = ["aws", "route53", s.action, "--hosted-zone-id", s.zone_id, "--vpc", "VPCRegion=" + s.vpc_region + ",VPCId=" + s.vpc_id];
@@ -398,13 +430,32 @@ UI_JS = r"""
            label: "Show stale authorizations (VPC already associated)"},
     extraControls: function (ctl) {
       var b = document.createElement("button"); b.type = "button"; b.textContent = "Clear selection";
-      b.addEventListener("click", function () { selected = {}; at.draw(); plan(); }); ctl.appendChild(b);
+      b.addEventListener("click", function () { selected = {}; pr.textContent = ""; at.draw(); plan(); }); ctl.appendChild(b);
       var u = document.createElement("button"); u.type = "button"; u.textContent = "Deselect unknown-owner VPCs";
       u.title = "Untick the selected rows whose VPC owner account isn't known from this report";
       u.addEventListener("click", function () {
         D.associations.forEach(function (a) { if (!ownerKnown(a.vpc_id)) delete selected[akey(a)]; });
         at.draw(); plan();
       }); ctl.appendChild(u);
+      var pl = document.createElement("label"); pl.className = "paste"; pl.textContent = "Select pasted VPCs / accounts";
+      var ta = document.createElement("textarea"); ta.rows = 2;
+      ta.placeholder = "vpc-…, VPC ARNs or 12-digit VPC owner accounts; any separator";
+      pl.appendChild(ta); ctl.appendChild(pl);
+      var pb = document.createElement("button"); pb.type = "button"; pb.textContent = "Select";
+      pb.title = "Add the shown associated rows of these VPCs, or of every VPC these accounts own, to the selection. " +
+        "Filter by zone first: a VPC is usually associated with several PHZs";
+      var pr = document.createElement("span"); pr.className = "muted";
+      pb.addEventListener("click", function () {
+        // Only rows the filters show: a pasted VPC is on every PHZ it resolves through, not just the one being moved off.
+        var m = matchPasted(D, ta.value), shown = at.shown(), hidden = 0;
+        m.rows.forEach(function (a) { if (shown.indexOf(a) >= 0) selected[akey(a)] = true; else hidden++; });
+        pr.textContent = (m.rows.length - hidden) + " association(s) selected" +
+          (hidden ? "; " + hidden + " more match but are hidden by the filters" : "") +
+          (m.unmatched.length ? "; no associated rows for " + m.unmatched.join(", ") : "");
+        pr.className = m.unmatched.length ? "pastewarn" : "muted";
+        at.draw(); plan();
+      });
+      ctl.appendChild(pb); ctl.appendChild(pr);
     },
     onDraw: function (tw, shown) {
       tw.querySelectorAll("input.pick").forEach(function (c) {
@@ -480,7 +531,7 @@ UI_JS = r"""
     accts.sort();
     if (accts.join() !== lastAccounts) {
       lastAccounts = accts.join();
-      inputs($("profiles"), accts, profiles, "AWS CLI profile per account (added as --profile; prefilled with the account's -priv profile from ~/.aws/config)", "profile name");
+      inputs($("profiles"), accts, profiles, "AWS CLI profile per account (added as --profile; prefilled with the account's -adm profile from ~/.aws/config)", "profile name");
     }
     $("msgs").innerHTML = p.errors.map(function (e) { return '<div class="err">' + esc(e) + "</div>"; }).join("") +
       p.warnings.map(function (w) { return '<div class="wrn">' + esc(w) + "</div>"; }).join("");

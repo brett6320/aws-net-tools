@@ -487,7 +487,7 @@ def write_html(review: Review, args: argparse.Namespace) -> Path:
         "authorizations_listed": args.command == "zones" or (args.command == "by-zone" and not args.no_authorizations),
         "vpc_counts_complete": args.command != "by-vpc",
         "notes": review.notes + ([missing_note(review.missing_owners)] if review.missing_owners else []),
-        # The planner's default --profile per account: the account's -priv profile in ~/.aws/config
+        # The planner's default --profile per account: the account's -adm profile in ~/.aws/config
         "profiles": priv_profiles(a for a in accounts if a.isdigit()),
     }
     path = Path(args.out) if args.out else report_path(review, args.command, args.reports_dir)
