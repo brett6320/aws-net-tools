@@ -97,6 +97,14 @@ def test_profile_by_account_never_priv_or_cpar(aws_config):
     assert core.resolve_profile(C, overrides={C: "c1"}) == "c1"
 
 
+def test_excluded_suffixes_ignore_case(aws_config, monkeypatch):
+    aws_config({"a-PRIV": A, "a-Cpar": A, "b-net": B, "b-Adm": B})
+    with pytest.raises(LookupError, match="no profile"):
+        core.resolve_profile(A)
+    monkeypatch.setenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES", "-ADM")
+    assert core.resolve_profile(B) == "b-net"
+
+
 # --------------------------------------------------------------------------- VPC scan
 
 

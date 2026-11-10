@@ -5,7 +5,7 @@
 Lists every VPC owned by the accounts in one or more AWS Organizations OUs:
 
 1. **OU → accounts**: AWS Organizations, using one profile for the management or delegated-administrator account. OUs below the given OU are included unless you pass `--no-recurse`.
-2. **Account → profile**: the profile in `~/.aws/config` whose `sso_account_id`, `aws_account_id` or `role_arn` account matches. Profiles ending in **`-priv`** or **`-cpar`** are never used.
+2. **Account → profile**: the profile in `~/.aws/config` whose `sso_account_id`, `aws_account_id` or `role_arn` account matches. Profiles ending in **`-priv`** or **`-cpar`** (any case) are never used.
 3. **Profile → VPCs**: one `DescribeVpcs` per account and Region, filtered to VPCs the account owns. Regions default to `us-east-1` and `ca-central-1`.
 
 Every VPC found is also saved to the **local VPC owner map** that [`phz_review`](../phz/phz_review/README.md) uses (`~/.cache/aws-net-tools/vpc-owners.json`). Running `ou_vpcs` first means `phz_review` doesn't have to look those owners up.
@@ -57,7 +57,7 @@ Only active accounts are listed; suspended and closed accounts are skipped.
 For each account, in order:
 
 1. `--account-profile ACCOUNT=PROFILE`, if given
-2. the profiles that map to the account, minus any ending in `-priv` or `-cpar` (override the suffixes with `OU_VPCS_PROFILE_EXCLUDE_SUFFIXES`):
+2. the profiles that map to the account, minus any ending in `-priv` or `-cpar`, ignoring case (override the suffixes with `OU_VPCS_PROFILE_EXCLUDE_SUFFIXES`):
    - `--profile`, if it maps to the account
    - otherwise the only one, or the single read-only one (`-ro`, `-readonly`, `-read-only`) when there are several
    - still several, or none: the account is skipped with a warning

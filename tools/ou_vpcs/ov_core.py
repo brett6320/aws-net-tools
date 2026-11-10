@@ -3,7 +3,7 @@
 Organizations calls use one profile (management or delegated-administrator account).
 Every member account is then read with its own profile, found in ~/.aws/config by
 account ID (``sso_account_id`` / ``aws_account_id`` / the account in ``role_arn``).
-Profiles ending in ``-priv`` or ``-cpar`` are never used. No role is assumed.
+Profiles ending in ``-priv`` or ``-cpar`` (any case) are never used. No role is assumed.
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def exclude_suffixes() -> tuple[str, ...]:
     raw = os.getenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES")
     if raw is None:
         return DEFAULT_EXCLUDE_SUFFIXES
-    return tuple(s.strip() for s in raw.split(",") if s.strip())
+    return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
 
 
 def profile_account(cfg: dict[str, str]) -> str | None:
@@ -169,7 +169,7 @@ def resolve_profile(account: str, overrides: dict[str, str] | None = None, prefe
     if overrides and account in overrides:
         return overrides[account]
     excluded = exclude_suffixes()
-    cands = sorted(n for n, a in profile_accounts().items() if a == account and not n.endswith(excluded))
+    cands = sorted(n for n, a in profile_accounts().items() if a == account and not n.lower().endswith(excluded))
     if not cands:
         raise LookupError("no profile in ~/.aws/config maps to it")
     if preferred in cands:
