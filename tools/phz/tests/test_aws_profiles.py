@@ -43,17 +43,23 @@ def test_account_sources(config):
     assert "nothing" not in ap.profile_accounts()
 
 
-def test_excludes_priv_and_cpar(config):
-    assert ap.candidate_profiles("111111111111") == ["net-adm", "net-ro"]
-    assert ap.derive_profile("222222222222") == "dns-adm"
+def test_excludes_priv_adm_cpar_ro(config):
+    assert ap.candidate_profiles("111111111111") == []
+    assert ap.derive_profile("222222222222") is None
     assert ap.derive_profile("666666666666") is None
+    assert ap.derive_profile("333333333333") == "hub-role"
 
 
-def test_read_only_preferred_on_tie(config):
+@pytest.fixture
+def old_exclusions(monkeypatch):
+    monkeypatch.setenv("VPCE_PROFILE_EXCLUDE_SUFFIXES", "-priv,-cpar")
+
+
+def test_read_only_preferred_on_tie(config, old_exclusions):
     assert ap.derive_profile("111111111111") == "net-ro"
 
 
-def test_preferred_kept_if_it_matches(config):
+def test_preferred_kept_if_it_matches(config, old_exclusions):
     assert ap.derive_profile("111111111111", preferred="net-adm") == "net-adm"
     assert ap.derive_profile("111111111111", preferred="dns-adm") == "net-ro"
 
@@ -76,7 +82,9 @@ def test_exclude_suffixes_override(config, monkeypatch):
 def test_session_uses_derived_profile(config):
     from lib.aws_common import AccountSessions
 
-    assert AccountSessions(None, "us-east-1", account="111111111111").profile == "net-ro"
+    assert AccountSessions(None, "us-east-1", account="444444444444").profile == "static"
+    # every profile for the account is excluded: fall back to --profile
+    assert AccountSessions(None, "us-east-1", account="111111111111", fallback_profile="static").profile == "static"
     # explicit side profile wins; --role-name disables derivation
     assert AccountSessions("dns-adm", "us-east-1", account="111111111111").profile == "dns-adm"
     assert AccountSessions(None, "us-east-1", role_name="R", account="111111111111", fallback_profile="static").profile == "static"

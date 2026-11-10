@@ -100,7 +100,7 @@ def add_account_args(parser: argparse.ArgumentParser) -> None:
         "--account applies to both the VPC and PHZ side. --vpc-account / --phz-account override it per side. "
         "Credentials: --vpc-profile / --phz-profile if given; else with --role-name, assume "
         "arn:aws:iam::<account>:role/<role-name> from --profile; else a profile derived from the account ID in "
-        "~/.aws/config (sso_account_id / aws_account_id / role_arn; names ending -priv or -cpar are skipped, "
+        "~/.aws/config (sso_account_id / aws_account_id / role_arn; names ending -priv, -adm, -cpar or -ro are skipped, "
         "-ro preferred on ties); else --profile / default chain.",
     )
     g.add_argument("--account", default=os.getenv("VPCE_ACCOUNT"), help="Account ID used for both VPCs and PHZs")

@@ -144,7 +144,8 @@ def test_resolve_falls_back_to_phz_account_then_search():
 
 
 def test_search_accounts_default_to_local_profiles(monkeypatch):
-    monkeypatch.setattr(pr, "profile_accounts", lambda: {"a-ro": A, "a-priv": "999999999999", "b": B, "b-ro": B})
+    monkeypatch.setattr(pr, "profile_accounts", lambda: {"a": A, "a-priv": "999999999999", "b": B, "b-ro": B,
+                                                     "c-adm": "888888888888", "d-ro": "777777777777"})
     assert pr.owner_search_accounts(args(), FakeCtx({})) == [A, B]
     with pytest.raises(ValueError):
         pr.owner_search_accounts(args(owner_accounts="12345"), FakeCtx({}))

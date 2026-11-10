@@ -47,7 +47,7 @@ When an account is known (from `--account` / `--vpc-account` / `--phz-account` o
 1. `--vpc-profile` / `--phz-profile`, if given
 2. with `--role-name`: assume the role from `--profile` (no derivation)
 3. the derived profile:
-   - profiles ending in **`-priv`** or **`-cpar`** are never used (override with `VPCE_PROFILE_EXCLUDE_SUFFIXES`, comma-separated)
+   - profiles ending in **`-priv`**, **`-adm`**, **`-cpar`** or **`-ro`** are never used (override with `VPCE_PROFILE_EXCLUDE_SUFFIXES`, comma-separated)
    - the `phz_review` HTML migration planner is the exception: the commands it writes default to each account's `-adm` profile (see [HTML report](phz_review/README.md#html-report))
    - if `--profile` / `AWS_PROFILE` maps to the account, it is kept
    - otherwise, with several candidates, the single read-only one (`-ro`, `-readonly`, `-read-only`) wins
