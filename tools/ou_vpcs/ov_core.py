@@ -3,7 +3,7 @@
 Organizations calls use one profile (management or delegated-administrator account).
 Every member account is then read with its own profile, found in ~/.aws/config by
 account ID (``sso_account_id`` / ``aws_account_id`` / the account in ``role_arn``).
-Profiles ending in ``-priv`` or ``-cpar`` (any case) are never used. No role is assumed.
+Profiles ending in ``-priv``, ``-adm``, ``-cpar`` or ``-ro`` (any case) are never used. No role is assumed.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ log = logging.getLogger("ou_vpcs")
 
 BOTO_CONFIG = Config(retries={"max_attempts": 5, "mode": "adaptive"})
 DEFAULT_REGIONS = ("us-east-1", "ca-central-1")
-DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
+DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-adm", "-cpar", "-ro")
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 
 OU_ID_RE = re.compile(r"^(?:ou-[0-9a-z]{4,32}-[0-9a-z]{8,32}|r-[0-9a-z]{4,32}|o-[a-z0-9]{10,32})$")

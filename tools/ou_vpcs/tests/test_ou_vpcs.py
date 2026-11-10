@@ -86,23 +86,26 @@ def test_input_parsing():
 # --------------------------------------------------------------------------- profiles
 
 
-def test_profile_by_account_never_priv_or_cpar(aws_config):
-    aws_config({"a-ro": A, "a-priv": A, "a-admin": A, "b-priv": B, "b-cpar": B, "c1": C, "c2": C})
-    assert core.resolve_profile(A) == "a-ro"  # single read-only one wins over a-admin
+def test_profile_by_account_never_excluded(aws_config, monkeypatch):
+    aws_config({"a-ro": A, "a-adm": A, "a-priv": A, "a-admin": A, "b-priv": B, "b-cpar": B, "b-adm": B, "b-ro": B,
+                "c1": C, "c2": C})
+    assert core.resolve_profile(A) == "a-admin"  # -ro / -adm / -priv are excluded by default
     with pytest.raises(LookupError, match="no profile"):
-        core.resolve_profile(B)  # only -priv / -cpar map to it
+        core.resolve_profile(B)  # only -priv / -adm / -cpar / -ro map to it
     with pytest.raises(LookupError, match="several profiles"):
         core.resolve_profile(C)
     assert core.resolve_profile(C, preferred="c2") == "c2"
     assert core.resolve_profile(C, overrides={C: "c1"}) == "c1"
+    monkeypatch.setenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES", "-priv,-cpar")
+    assert core.resolve_profile(A) == "a-ro"  # single read-only one wins over a-adm / a-admin
 
 
 def test_excluded_suffixes_ignore_case(aws_config, monkeypatch):
-    aws_config({"a-PRIV": A, "a-Cpar": A, "b-net": B, "b-Adm": B})
+    aws_config({"a-PRIV": A, "a-Cpar": A, "a-Adm": A, "a-RO": A, "b-net": B, "b-other": B})
     with pytest.raises(LookupError, match="no profile"):
         core.resolve_profile(A)
-    monkeypatch.setenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES", "-ADM")
-    assert core.resolve_profile(B) == "b-net"
+    monkeypatch.setenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES", "-NET")
+    assert core.resolve_profile(B) == "b-other"
 
 
 # --------------------------------------------------------------------------- VPC scan
@@ -147,11 +150,11 @@ def acct(account, name="n", ou="ou-ab12-11111111", path="Root/Prod"):
 
 
 def test_scan_one_call_per_account_and_region_owned_vpcs_only(aws_config):
-    aws_config({"a-ro": A, "b": B})
+    aws_config({"a-net": A, "b": B})
     calls = []
     sessions = {
-        "a-ro": FakeSession(A, {"us-east-1": [vpc("vpc-a1", name="hub", extra=("100.64.0.0/16",))],
-                                "ca-central-1": [vpc("vpc-a2", default=True)]}, calls=calls),
+        "a-net": FakeSession(A, {"us-east-1": [vpc("vpc-a1", name="hub", extra=("100.64.0.0/16",))],
+                                 "ca-central-1": [vpc("vpc-a2", default=True)]}, calls=calls),
         "b": FakeSession(B, {"us-east-1": [vpc("vpc-b1")]}, calls=calls),
     }
     scan = core.scan_accounts([acct(A, "app"), acct(B, "web", path="Root/Prod/Web")],
@@ -215,9 +218,9 @@ def test_unreadable_map_is_ignored(tmp_path):
 
 def run(org, aws_config, capsys, *argv, member_sessions=None):
     o, ous, ids = org
-    aws_config({"app-ro": ids["app"], "web": ids["web"], "web-priv": ids["web"]})
+    aws_config({"app-net": ids["app"], "web": ids["web"], "web-priv": ids["web"]})
     member_sessions = member_sessions or {
-        "app-ro": FakeSession(ids["app"], {"us-east-1": [vpc("vpc-app1", name="app")]}),
+        "app-net": FakeSession(ids["app"], {"us-east-1": [vpc("vpc-app1", name="app")]}),
         "web": FakeSession(ids["web"], {"ca-central-1": [vpc("vpc-web1")]}),
     }
 

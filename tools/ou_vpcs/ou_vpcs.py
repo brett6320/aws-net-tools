@@ -4,7 +4,7 @@
 OUs are resolved to accounts with the Organizations API (``--profile``: management or
 delegated-administrator account), including every OU below them unless ``--no-recurse``.
 Each account is then read with the profile that maps to its account ID in ~/.aws/config
-(never one ending in -priv or -cpar), one DescribeVpcs per Region.
+(never one ending in -priv, -adm, -cpar or -ro), one DescribeVpcs per Region.
 
 Every VPC found is written to the local VPC owner map that ``phz_review`` uses
 (~/.cache/aws-net-tools/vpc-owners.json), with its account name, OU, Name tag and CIDRs.

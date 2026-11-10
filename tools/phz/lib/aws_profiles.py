@@ -2,7 +2,7 @@
 
 A profile maps to an account through ``sso_account_id``, ``aws_account_id`` or the
 account in ``role_arn``. Profiles ending in an excluded suffix (default ``-priv``,
-``-cpar``) are never picked. When several remain, read-only profiles (``-ro`` etc.)
+``-adm``, ``-cpar``, ``-ro``) are never picked. When several remain, read-only profiles (``-ro`` etc.)
 win; anything still ambiguous is an error rather than a guess.
 
 Commands that change something (the migration planner's script) use the account's
@@ -19,7 +19,7 @@ import botocore.session
 
 log = logging.getLogger("aws_vpce_tools.profiles")
 
-DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
+DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-adm", "-cpar", "-ro")
 DEFAULT_PRIV_SUFFIX = "-adm"
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 _ROLE_ARN_ACCOUNT = re.compile(r"^arn:[^:]+:iam::(\d{12}):")
