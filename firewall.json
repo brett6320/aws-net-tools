@@ -4,7 +4,7 @@
   "failed": 0,
   "skipped": 0,
   "xfailed": 1,
-  "seconds": 20.44,
+  "seconds": 21.5,
   "coverage": 92.8,
   "python": "3.13"
 }
