@@ -6,6 +6,8 @@
                  owner accounts, where known) and pending cross-account authorizations.
   restore-plan   Turn a backup into a bash script of `aws route53` commands that recreates
                  the zone (or, with --into, refills an existing one). Nothing is run.
+  report         Write the HTML report of a backup: zones, tags, VPC associations, record sets
+                 and each zone's restore script. `backup` writes one too unless --no-html.
 
 The tool is read-only: it never changes AWS resources.
 """
@@ -23,6 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lib.aws_common import (  # noqa: E402
     AccountContext,
@@ -40,6 +43,7 @@ from lib.aws_common import (  # noqa: E402
 from lib.aws_profiles import priv_profile  # noqa: E402
 from lib.route53_helpers import Zone, get_zone, list_authorizations, load_tags, select_zones  # noqa: E402
 from lib.vpc_owner_cache import VpcOwnerCache, default_path  # noqa: E402
+from pb_html import render_html  # noqa: E402
 
 log = logging.getLogger("phz_backup")
 
@@ -152,12 +156,17 @@ def run_backup(args: argparse.Namespace) -> int:
         if unknown:
             log.warning("%s (%s): %d VPC owner(s) unknown; restore-plan will ask for a profile for each", z.zone_id, z.name, unknown)
     write_json(out_dir / MANIFEST, {"format": FORMAT, "taken_at": taken_at, "account": account, "zones": summary})
+    report = None
+    if not args.no_html:
+        report = write_report(load_zone_backups(resolve_backup(str(out_dir), out_dir, None), []), str(out_dir), args.reports_dir, None)
     if args.json:
-        json.dump({"backup": str(out_dir), "zones": summary}, sys.stdout, indent=2)
+        json.dump({"backup": str(out_dir), "report": str(report) if report else None, "zones": summary}, sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
         render(summary, ["zone_id", "name", "records", "vpcs", "unknown_owners", "tags", "authorizations"], "table")
         print(f"\nBackup: {out_dir}")
+        if report:
+            print(f"Report: {report}")
     log.info("Backed up %d zone(s) to %s", len(summary), out_dir)
     return 0
 
@@ -448,6 +457,14 @@ class RestorePlan:
         return "\n".join(head + self.lines) + "\n"
 
 
+def default_profiles(backups: Sequence[dict[str, Any]], phz_profile: str | None = None) -> tuple[str | None, dict[str, str]]:
+    """Script defaults: the PHZ account's and each VPC owner account's -adm profile, where there is exactly one."""
+    accounts = {b["account"] for b in backups}
+    vpc_accounts = {v["owner"] for b in backups for v in b.get("vpcs") or [] if v.get("owner") and v["owner"] != b["account"]}
+    phz = phz_profile or (priv_profile(next(iter(accounts))) if len(accounts) == 1 else None)
+    return phz, {a: p for a in vpc_accounts if (p := priv_profile(a))}
+
+
 def run_restore_plan(args: argparse.Namespace) -> int:
     files = resolve_backup(args.backup, Path(args.backup_dir).expanduser(), args.account)
     selectors = [s for raw in args.zone for s in split_csv(raw)]
@@ -455,10 +472,7 @@ def run_restore_plan(args: argparse.Namespace) -> int:
     if args.into and len(backups) != 1:
         raise ValueError(f"--into needs exactly one zone; the backup has {len(backups)} (pick one with --zone)")
     into = normalize_zone_id(args.into) if args.into else None
-    accounts = {b["account"] for b in backups}
-    vpc_accounts = {v["owner"] for b in backups for v in b.get("vpcs") or [] if v.get("owner") and v["owner"] != b["account"]}
-    phz_profile = args.cli_phz_profile or (priv_profile(next(iter(accounts))) if len(accounts) == 1 else None)
-    vpc_profiles = {a: p for a in vpc_accounts if (p := priv_profile(a))}
+    phz_profile, vpc_profiles = default_profiles(backups, args.cli_phz_profile)
     script = RestorePlan(backups, into, phz_profile, vpc_profiles).build()
     if args.out:
         out = Path(args.out)
@@ -470,6 +484,39 @@ def run_restore_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- HTML report
+
+
+def report_paths(backups: Sequence[dict[str, Any]], reports_dir: str, now: dt.datetime) -> tuple[Path, Path]:
+    """The current report DIR/<account>/phz-backup.html (overwritten each run) and a timestamped
+    copy DIR/<YYYY-MM-DD>/<account>/phz-backup_<HHMMSS>.html."""
+    scope = "_".join(sorted({b["account"] for b in backups})) or "unknown"
+    root = Path(reports_dir).expanduser()
+    return root / scope / "phz-backup.html", root / now.date().isoformat() / scope / f"phz-backup_{now:%H%M%S}.html"
+
+
+def write_report(backups: Sequence[dict[str, Any]], source: str, reports_dir: str, out: str | None) -> Path:
+    now = dt.datetime.now().astimezone()
+    phz_profile, vpc_profiles = default_profiles(backups)
+    scripts = [RestorePlan([b], None, phz_profile, vpc_profiles).build() for b in backups]
+    page = render_html(backups, scripts, source, now.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+    targets = [Path(out)] if out else list(report_paths(backups, reports_dir, now))
+    for t in targets:
+        t.parent.mkdir(parents=True, exist_ok=True)
+        t.write_text(page, encoding="utf-8")
+    log.info("Report: %s", targets[0])
+    return targets[0]
+
+
+def run_report(args: argparse.Namespace) -> int:
+    files = resolve_backup(args.backup, Path(args.backup_dir).expanduser(), args.account)
+    backups = load_zone_backups(files, [s for raw in args.zone for s in split_csv(raw)])
+    spec = Path(args.backup).expanduser()
+    source = str(spec if spec.is_file() else files[0].parent)
+    print(write_report(backups, source, args.reports_dir, args.out))
+    return 0
+
+
 # --------------------------------------------------------------------------- CLI
 
 
@@ -478,6 +525,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     root_help = "Backups root (default: VPCE_BACKUP_DIR or ./backups/phz)"
     root_default = os.getenv("VPCE_BACKUP_DIR") or DEFAULT_ROOT
+    reports_default = os.getenv("VPCE_REPORTS_DIR") or "reports"
+    reports_help = ("HTML report root: DIR/<account>/phz-backup.html (overwritten each run) plus a timestamped copy in "
+                    "DIR/<YYYY-MM-DD>/<account>/ (default: VPCE_REPORTS_DIR or ./reports)")
 
     b = sub.add_parser("backup", help="Back up PHZs (default: every PHZ in the account)")
     add_common_args(b)
@@ -492,6 +542,8 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-owner-cache", action="store_true", help="Don't read or write the local VPC owner map")
     b.add_argument("--backup-dir", default=root_default, help=root_help)
     b.add_argument("--json", action="store_true", help="Print the summary as JSON")
+    b.add_argument("--no-html", action="store_true", help="Don't write the HTML report")
+    b.add_argument("--reports-dir", default=reports_default, help=reports_help)
 
     r = sub.add_parser("restore-plan", help="Generate a bash script of AWS CLI commands that restores PHZs from a backup")
     r.add_argument("backup", help="Backup directory, one zone file, or latest / previous")
@@ -503,6 +555,16 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--out", "-o", metavar="FILE", help="Write the script to FILE (mode 0700) instead of stdout")
     r.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     r.add_argument("-q", "--quiet", action="store_true", help="Warnings/errors only")
+
+    h = sub.add_parser("report", help="Write the HTML report of a backup")
+    h.add_argument("backup", help="Backup directory, one zone file, or latest / previous")
+    h.add_argument("--zone", action="append", default=[], metavar="ID|NAME", help="Only these zones from the backup (repeatable / comma-separated)")
+    h.add_argument("--account", help="With latest / previous: the account whose backups to use")
+    h.add_argument("--backup-dir", default=root_default, help=root_help)
+    h.add_argument("--reports-dir", default=reports_default, help=reports_help)
+    h.add_argument("--out", "-o", metavar="FILE", help="Write the report to FILE instead (no timestamped copy)")
+    h.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    h.add_argument("-q", "--quiet", action="store_true", help="Warnings/errors only")
     return p
 
 
@@ -513,6 +575,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "backup":
             args.zone = [normalize_zone_id(z) for raw in args.zone for z in split_csv(raw)]
             return run_backup(args)
+        if args.command == "report":
+            return run_report(args)
         return run_restore_plan(args)
     except (ValueError, LookupError, PermissionError, FileExistsError) as e:
         log.error("%s", e)

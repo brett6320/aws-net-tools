@@ -100,7 +100,7 @@ Where each tool writes, and what it expects:
 | `ou_vpcs` | stdout: table, JSON or CSV; VPC owner map in `~/.cache/aws-net-tools/` | `OU_VPCS_` | 0 ok, 1 error, 2 bad input, 3 accounts skipped |
 | `proxy_inventory` | HTML in `reports/<scope>/` (latest), with timestamped copies in `reports/<date>/<scope>/`; optional JSON | `PROXY_INV_` | 0 ok, 2 bad input, 3 accounts skipped |
 | `vpce/*` | stdout: table, JSON or CSV | `VPCE_` | 0 ok, 1 error, 2 bad input |
-| `phz/*` | stdout: table, JSON or CSV; `phz_review -o html`: HTML in `reports/<account>/` (latest), with timestamped copies in `reports/<date>/<account>/` (`phz_assoc`: shell script or JSON plan); `phz_backup`: JSON backups in `backups/phz/<account>/<timestamp>/`, restore plan: shell script | `VPCE_` | 0 ok, 1 error, 2 bad input |
+| `phz/*` | stdout: table, JSON or CSV; `phz_review -o html`: HTML in `reports/<account>/` (latest), with timestamped copies in `reports/<date>/<account>/` (`phz_assoc`: shell script or JSON plan); `phz_backup`: JSON backups in `backups/phz/<account>/<timestamp>/` with HTML in `reports/<account>/` (latest) and `reports/<date>/<account>/`, restore plan: shell script | `VPCE_` | 0 ok, 1 error, 2 bad input |
 
 The `reports/` and `backups/` roots are relative to the current directory and are git-ignored.
 

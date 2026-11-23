@@ -12,14 +12,19 @@ Each zone backup holds:
 - **VPC associations:** region, VPC ID and the VPC's owner account, where known.
 - **Pending cross-account authorizations** (`ListVPCAssociationAuthorizations`).
 
-The tool is read-only against AWS. `restore-plan` works offline from the backup files and only prints a
-script for you to review and run.
+The tool is read-only against AWS. `restore-plan` and `report` work offline from the backup files;
+restore scripts are only printed for you to review and run.
+
+Every backup also writes an [HTML report](#html-report) (skip it with `--no-html`).
 
 ## Usage
 
 ```bash
-# Back up every PHZ in the account (or select with --zone / --zone-name / --zone-tag)
+# Back up every PHZ in the account (or select with --zone / --zone-name / --zone-tag); writes the HTML report too
 python tools/phz/phz_backup/phz_backup.py backup --profile hub
+
+# HTML report of an existing backup
+python tools/phz/phz_backup/phz_backup.py report latest
 
 # Emergency: the zone was deleted. Script that recreates it from the newest backup
 python tools/phz/phz_backup/phz_backup.py restore-plan latest --zone corp.internal -o corp.restore.sh
@@ -37,6 +42,26 @@ Backups are written to `backups/phz/<account>/<timestamp>/`: one `<zone-id>_<nam
 
 Keep copies somewhere other than the account they protect (the backup files are plain JSON, safe to put
 in an S3 bucket or a repository; they hold no secrets).
+
+## HTML report
+
+A self-contained page (no external resources, dark/light toggle) with:
+
+- **Summary cards:** zones, record sets, VPC associations, cross-account associations, unknown VPC owners
+  (highlighted when any) and pending authorizations.
+- **Zones table**, linking to each zone's section.
+- **Per zone:** account, comment and tags; VPC associations with owner account, marked same account,
+  cross-account or unknown owner; pending authorizations; every record set with type, TTL, value (alias
+  targets shown as such) and routing (set ID, weight, latency region, failover, geolocation, multivalue,
+  health check), with a filter box; and the zone's **restore script** (the same one `restore-plan` writes
+  for that zone) with Copy and Download buttons. Nothing runs from the page.
+
+`backup` writes it to `reports/<account>/phz-backup.html`, overwritten on every run, with a timestamped
+copy in `reports/<YYYY-MM-DD>/<account>/phz-backup_<HHMMSS>.html`. The root is `--reports-dir` or
+`VPCE_REPORTS_DIR`. `report BACKUP` writes the same report for any backup, or to `--out FILE`.
+
+The report embeds every record, so treat it like the backup itself: keep it with the backups, outside
+the account it protects, for when the console isn't an option.
 
 ## The restore script
 
@@ -84,13 +109,17 @@ account, which sees its own VPCs and VPCs shared with it. The summary shows how 
 | | `--no-authorizations` | Don't read pending authorizations |
 | | `--owner-cache FILE`, `--no-owner-cache` | VPC owner map location, or don't use it |
 | | `--backup-dir DIR` | Backups root |
-| | `--json` | Print the summary (and backup path) as JSON |
+| | `--json` | Print the summary (and backup and report paths) as JSON |
+| | `--no-html` | Don't write the HTML report |
+| | `--reports-dir DIR` | HTML report root |
 | `restore-plan` | `BACKUP` | Backup directory, zone file, `latest` or `previous` |
 | | `--zone ID\|NAME` | Only these zones (default: every zone in the backup) |
 | | `--into ZONE_ID` | Refill an existing zone instead of creating one (one zone only) |
 | | `--account` | With `latest` / `previous`: whose backups |
 | | `--cli-phz-profile` | Default `PHZ_PROFILE` in the script |
 | | `-o FILE` | Write the script to FILE (mode 0700) |
+| `report` | `BACKUP`, `--zone`, `--account` | As for `restore-plan` |
+| | `--reports-dir DIR` / `-o FILE` | Where to write the report |
 
 Exit codes: 0 ok, 1 AWS error, 2 bad input.
 

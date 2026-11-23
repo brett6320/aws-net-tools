@@ -12,7 +12,7 @@ All tools are **read-only**: they never change AWS resources. `phz_assoc`, `phz_
 |---|---|
 | [`phz_review`](phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`). `-o html` writes an interactive report with a planner for moving VPCs to a different PHZ |
 | [`phz_assoc`](phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations |
-| [`phz_backup`](phz_backup/README.md) | Back up PHZs (records, tags, VPC associations, pending authorizations) and generate an AWS CLI script that restores a zone for emergency use |
+| [`phz_backup`](phz_backup/README.md) | Back up PHZs (records, tags, VPC associations, pending authorizations) with an HTML report, and generate an AWS CLI script that restores a zone for emergency use |
 
 All tools are Python 3.11+ / boto3.
 
