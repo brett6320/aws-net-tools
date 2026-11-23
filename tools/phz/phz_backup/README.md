@@ -15,7 +15,7 @@ Each zone backup holds:
 The tool is read-only against AWS. `restore-plan` and `report` work offline from the backup files;
 restore scripts are only printed for you to review and run.
 
-Every backup also writes an [HTML report](#html-report) (skip it with `--no-html`).
+Every backup also writes an [HTML report](#html-report) per zone (skip them with `--no-html`).
 
 ## Usage
 
@@ -23,7 +23,7 @@ Every backup also writes an [HTML report](#html-report) (skip it with `--no-html
 # Back up every PHZ in the account (or select with --zone / --zone-name / --zone-tag); writes the HTML report too
 python tools/phz/phz_backup/phz_backup.py backup --profile hub
 
-# HTML report of an existing backup
+# HTML reports (one per zone) of an existing backup
 python tools/phz/phz_backup/phz_backup.py report latest
 
 # Emergency: the zone was deleted. Script that recreates it from the newest backup
@@ -45,20 +45,20 @@ in an S3 bucket or a repository; they hold no secrets).
 
 ## HTML report
 
-A self-contained page (no external resources, dark/light toggle) with:
+One self-contained page per zone (no external resources, dark/light toggle) with:
 
-- **Summary cards:** zones, record sets, VPC associations, cross-account associations, unknown VPC owners
+- **Summary cards:** record sets, VPC associations, cross-account associations, unknown VPC owners
   (highlighted when any) and pending authorizations.
-- **Zones table**, linking to each zone's section.
-- **Per zone:** account, comment and tags; VPC associations with owner account, marked same account,
+- **The zone:** account, comment and tags; VPC associations with owner account, marked same account,
   cross-account or unknown owner; pending authorizations; every record set with type, TTL, value (alias
   targets shown as such) and routing (set ID, weight, latency region, failover, geolocation, multivalue,
   health check), with a filter box; and the zone's **restore script** (the same one `restore-plan` writes
   for that zone) with Copy and Download buttons. Nothing runs from the page.
 
-`backup` writes it to `reports/<account>/phz-backup.html`, overwritten on every run, with a timestamped
-copy in `reports/<YYYY-MM-DD>/<account>/phz-backup_<HHMMSS>.html`. The root is `--reports-dir` or
-`VPCE_REPORTS_DIR`. `report BACKUP` writes the same report for any backup, or to `--out FILE`.
+`backup` writes each zone's report to `reports/<account>/phz-backup_<zone-id>.html`, overwritten on every
+run, with a timestamped copy in `reports/<YYYY-MM-DD>/<account>/phz-backup_<zone-id>_<HHMMSS>.html`. The
+root is `--reports-dir` or `VPCE_REPORTS_DIR`. `report BACKUP` writes the same reports for any backup;
+`--out FILE` writes one zone's report (select it with `--zone`).
 
 The report embeds every record, so treat it like the backup itself: keep it with the backups, outside
 the account it protects, for when the console isn't an option.
@@ -85,10 +85,14 @@ the account it protects, for when the console isn't an option.
 5. **Check:** prints the zone's record set and VPC counts next to the backup's.
 
 Profiles are variables at the top of the script: `PHZ_PROFILE` for the PHZ owner and `PROFILE_<account>`
-for each VPC owner account. They default to the account's `-adm` profile when exactly one is in your AWS
-config (`--cli-phz-profile` overrides the PHZ one); export a variable to override it, or leave it empty to
-use the default credential chain. A VPC whose owner was unknown at backup time gets a
-`PROFILE_VPC_<ID>` variable that must be set before the script runs.
+for each VPC owner account. Each defaults to the profile in `~/.aws/config` that maps to the account
+(`sso_account_id`, `aws_account_id` or the account in `role_arn`) and ends in **`-adm`**. Change the
+suffix with `--profile-suffix=-ops` (or `VPCE_PRIV_PROFILE_SUFFIX`), or name the profile for an account with
+`--cli-profile ACCOUNT=PROFILE` (repeatable; `--cli-phz-profile` still sets the PHZ one). An account with no
+match, or several, is left empty and warned about: its commands use the default credential chain. Export a
+variable to override it when running the script. A VPC whose owner was unknown at backup time gets a
+`PROFILE_VPC_<ID>` variable that must be set before the script runs. The same applies to the scripts in
+the HTML reports.
 
 With `--into`, records are upserted, so records added since the backup are kept, and association commands
 that fail (usually because the VPC is still associated) print a note instead of stopping the script.
@@ -110,16 +114,18 @@ account, which sees its own VPCs and VPCs shared with it. The summary shows how 
 | | `--owner-cache FILE`, `--no-owner-cache` | VPC owner map location, or don't use it |
 | | `--backup-dir DIR` | Backups root |
 | | `--json` | Print the summary (and backup and report paths) as JSON |
-| | `--no-html` | Don't write the HTML report |
+| | `--no-html` | Don't write the HTML reports |
 | | `--reports-dir DIR` | HTML report root |
 | `restore-plan` | `BACKUP` | Backup directory, zone file, `latest` or `previous` |
 | | `--zone ID\|NAME` | Only these zones (default: every zone in the backup) |
 | | `--into ZONE_ID` | Refill an existing zone instead of creating one (one zone only) |
 | | `--account` | With `latest` / `previous`: whose backups |
 | | `--cli-phz-profile` | Default `PHZ_PROFILE` in the script |
+| all | `--profile-suffix=SUFFIX` | Profile suffix matched per account in `~/.aws/config` (default `-adm`) |
+| | `--cli-profile ACCOUNT=PROFILE` | Profile for one account, instead of suffix matching |
 | | `-o FILE` | Write the script to FILE (mode 0700) |
 | `report` | `BACKUP`, `--zone`, `--account` | As for `restore-plan` |
-| | `--reports-dir DIR` / `-o FILE` | Where to write the report |
+| | `--reports-dir DIR` / `-o FILE` | Where to write the reports (`-o`: one zone only) |
 
 Exit codes: 0 ok, 1 AWS error, 2 bad input.
 
