@@ -2,16 +2,17 @@
 
 [![phz tests](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-phz.yml/badge.svg?branch=main)](https://github.com/brett6320/aws-net-tools/actions/workflows/tests-phz.yml) ![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fphz-tests.json) ![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrett6320%2Faws-net-tools%2Fbadges%2Fphz-coverage.json) ![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
 
-Tools for reviewing and managing **Route 53 private hosted zone (PHZ) to VPC associations**, including across accounts. They work with any PHZ: centralized VPC endpoint zones (see [`vpce`](../vpce/README.md)), shared internal domains, Resolver setups and so on.
+Tools for reviewing, managing and backing up **Route 53 private hosted zones (PHZs) and their VPC associations**, including across accounts. They work with any PHZ: centralized VPC endpoint zones (see [`vpce`](../vpce/README.md)), shared internal domains, Resolver setups and so on.
 
-The two tools in this suite share the code in `lib/`. This page covers what they have in common. For the other tools in this repository, see the [repository README](../../README.md).
+The tools in this suite share the code in `lib/`. This page covers what they have in common. For the other tools in this repository, see the [repository README](../../README.md).
 
-All tools are **read-only**: they never change AWS resources. `phz_assoc` and the `phz_review` HTML report's migration planner print the commands for you to review and run.
+All tools are **read-only**: they never change AWS resources. `phz_assoc`, `phz_backup restore-plan` and the `phz_review` HTML report's migration planner print the commands for you to review and run.
 
 | Tool | Purpose |
 |---|---|
 | [`phz_review`](phz_review/README.md) | List PHZs and their VPCs; find PHZs associated with a VPC (`by-vpc`) and VPCs associated with a PHZ (`by-zone`). `-o html` writes an interactive report with a planner for moving VPCs to a different PHZ |
 | [`phz_assoc`](phz_assoc/README.md) | Generate AWS CLI commands to associate / disassociate PHZs and VPCs, including cross-account authorizations |
+| [`phz_backup`](phz_backup/README.md) | Back up PHZs (records, tags, VPC associations, pending authorizations) and generate an AWS CLI script that restores a zone for emergency use |
 
 All tools are Python 3.11+ / boto3.
 
@@ -83,6 +84,10 @@ python tools/phz/phz_review/phz_review.py by-zone --profile hub --zone-tag Purpo
 # Interactive HTML report with the migration planner
 python tools/phz/phz_review/phz_review.py zones --profile hub -o html
 
+# Back up every PHZ in the hub account, then write the script that would recreate one
+python tools/phz/phz_backup/phz_backup.py backup --profile hub
+python tools/phz/phz_backup/phz_backup.py restore-plan latest --zone corp.internal -o corp.restore.sh
+
 # Generate the cross-account association script (hub owns PHZs, spoke owns VPC)
 python tools/phz/phz_assoc/phz_assoc.py associate \
   --phz-account 222222222222 --phz-profile hub \
@@ -114,6 +119,7 @@ Disassociation can be run by either account (`--disassociate-as vpc|phz`). Route
         "route53:GetHostedZone",
         "route53:ListTagsForResources",
         "route53:ListHostedZonesByVPC",
+        "route53:ListResourceRecordSets",
         "route53:ListVPCAssociationAuthorizations",
         "sts:GetCallerIdentity"
       ],
