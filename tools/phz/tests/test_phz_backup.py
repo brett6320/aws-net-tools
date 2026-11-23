@@ -192,19 +192,19 @@ def test_latest_ambiguous_across_accounts(tmp_path, capsys):
 
 def test_backup_writes_html_report_by_default(env, capsys):
     out = backup(env, capsys)
-    report = pb.Path(out["report"])
-    assert report == env["reports"] / ACCT / "phz-backup.html"
+    assert out["reports"] == [str(env["reports"] / ACCT / f"phz-backup_{env['zone']}.html")]
+    report = pb.Path(out["reports"][0])
     page = report.read_text()
     assert "corp.internal" in page and env["zone"] in page and "db.corp.internal." in page
     assert "Owner=net" in page and env["spoke"] in page
     assert "aws route53 create-hosted-zone" in page  # the zone's restore script is embedded
     assert "&quot;v=it&#x27;s $HOME&quot;" in page  # TXT value escaped
-    history = list((env["reports"]).glob(f"*/{ACCT}/phz-backup_*.html"))
+    history = list((env["reports"]).glob(f"*/{ACCT}/phz-backup_{env['zone']}_*.html"))
     assert len(history) == 1
 
 
 def test_backup_no_html(env, capsys):
-    assert backup(env, capsys, "--no-html")["report"] is None
+    assert backup(env, capsys, "--no-html")["reports"] == []
     assert not env["reports"].exists()
 
 
@@ -229,3 +229,64 @@ def test_report_escapes_and_flags(tmp_path, capsys):
     assert "<script>alert(1)" not in page and "&lt;script&gt;alert(1)" in page
     assert "cross-account" in page and "unknown owner" in page and "PROFILE_VPC_" in page
     assert "*.corp.internal." in page and "weight 10" in page
+
+
+def test_report_one_file_per_zone(tmp_path, capsys):
+    zone_file(tmp_path)
+    other = json.loads((tmp_path / "ZOLD_corp.internal.json").read_text())
+    other["zone"] = {**other["zone"], "id": "ZTWO", "name": "two.internal"}
+    (tmp_path / "ZTWO_two.internal.json").write_text(json.dumps(other))
+    reports = tmp_path / "reports"
+    assert pb.main(["report", str(tmp_path), "--reports-dir", str(reports), "-q"]) == 0
+    printed = capsys.readouterr().out.split()
+    assert sorted(pb.Path(p).name for p in printed) == ["phz-backup_ZOLD.html", "phz-backup_ZTWO.html"]
+    assert "two.internal" in (reports / ACCT / "phz-backup_ZTWO.html").read_text()
+    assert "two.internal" not in (reports / ACCT / "phz-backup_ZOLD.html").read_text()
+    assert pb.main(["report", str(tmp_path), "--out", str(tmp_path / "x.html"), "-q"]) == 2
+
+
+@pytest.fixture
+def aws_config(tmp_path, monkeypatch):
+    from lib.aws_profiles import profile_accounts
+
+    cfg = tmp_path / "aws_config"
+    cfg.write_text(
+        f"[profile hub-ro]\nsso_account_id = {ACCT}\n"
+        f"[profile hub-adm]\nsso_account_id = {ACCT}\n"
+        f"[profile hub-ops]\nsso_account_id = {ACCT}\n"
+        f"[profile spoke-adm]\nsso_account_id = {OTHER}\n"
+    )
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(cfg))
+    profile_accounts.cache_clear()
+    yield
+    profile_accounts.cache_clear()
+
+
+def cross_file(tmp_path):
+    return zone_file(tmp_path, vpcs=[
+        {"region": "us-east-1", "vpc_id": "vpc-0aaaaaaaaaaaaaaa0", "owner": ACCT},
+        {"region": "us-west-2", "vpc_id": "vpc-0bbbbbbbbbbbbbbb0", "owner": OTHER},
+    ])
+
+
+def test_profiles_matched_by_adm_suffix(tmp_path, aws_config, capsys):
+    s = plan(cross_file(tmp_path), capsys)
+    assert 'PHZ_PROFILE="${PHZ_PROFILE-hub-adm}"' in s
+    assert f'PROFILE_{OTHER}="${{PROFILE_{OTHER}-spoke-adm}}"' in s
+
+
+def test_profile_suffix_and_overrides(tmp_path, aws_config, capsys):
+    f = cross_file(tmp_path)
+    s = plan(f, capsys, "--profile-suffix=-ops")
+    assert 'PHZ_PROFILE="${PHZ_PROFILE-hub-ops}"' in s
+    assert f'PROFILE_{OTHER}="${{PROFILE_{OTHER}-}}"' in s  # no -ops profile for the spoke
+    s = plan(f, capsys, "--cli-profile", f"{OTHER}=spoke-break-glass,{ACCT}=hub-ro")
+    assert 'PHZ_PROFILE="${PHZ_PROFILE-hub-ro}"' in s
+    assert f'PROFILE_{OTHER}="${{PROFILE_{OTHER}-spoke-break-glass}}"' in s
+    assert pb.main(["restore-plan", str(f), "--cli-profile", "nope", "-q"]) == 2
+
+
+def test_report_scripts_use_matched_profiles(tmp_path, aws_config, capsys):
+    out = tmp_path / "r.html"
+    assert pb.main(["report", str(cross_file(tmp_path)), "--out", str(out), "-q"]) == 0
+    assert "PHZ_PROFILE-hub-adm" in out.read_text()

@@ -94,12 +94,12 @@ def priv_suffix() -> str:
     return os.getenv("VPCE_PRIV_PROFILE_SUFFIX") or DEFAULT_PRIV_SUFFIX
 
 
-def priv_profile(account: str | None) -> str | None:
-    """The profile ending in ``-adm`` (env ``VPCE_PRIV_PROFILE_SUFFIX``) for ``account``, for commands that
-    change something. None when no such profile maps to the account, or several do."""
+def priv_profile(account: str | None, suffix: str | None = None) -> str | None:
+    """The profile ending in ``suffix`` (default: env ``VPCE_PRIV_PROFILE_SUFFIX`` or ``-adm``) for ``account``,
+    for commands that change something. None when no such profile maps to the account, or several do."""
     if not account:
         return None
-    suffix = priv_suffix()
+    suffix = suffix or priv_suffix()
     cands = sorted(n for n, a in profile_accounts().items() if a == account and n.endswith(suffix))
     if len(cands) > 1:
         log.warning("Several %s profiles map to account %s (%s); not choosing one", suffix, account, ", ".join(cands))
