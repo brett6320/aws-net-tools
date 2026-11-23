@@ -31,7 +31,7 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 | Tool | AWS service | What it does |
 |---|---|---|
 | [`vpce`](tools/vpce/) | VPC endpoints, Route 53 | List VPC endpoints with their private hosted zones (`vpce_list`) |
-| [`phz`](tools/phz/) (suite of 2) | Route 53 private hosted zones | Review PHZ to VPC associations in either direction with owner accounts, as a table or an interactive HTML report with a planner for moving VPCs to another PHZ (`phz_review`), and generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`) |
+| [`phz`](tools/phz/) (suite of 3) | Route 53 private hosted zones | Review PHZ to VPC associations in either direction with owner accounts, as a table or an interactive HTML report with a planner for moving VPCs to another PHZ (`phz_review`), generate the AWS CLI commands to associate or disassociate PHZs and VPCs across accounts (`phz_assoc`), and back up PHZs with their records, tags and associations, with an AWS CLI restore script for emergencies (`phz_backup`) |
 
 **Monitoring**
 
@@ -81,7 +81,7 @@ covers usage, options, output, configuration and IAM permissions.
 
 | Area | Convention |
 |---|---|
-| **Safety** | Nothing changes AWS resources except `reachability_trace`'s `create`, `analyze` and `delete-*` commands. Those are dry-run by default: they log `[DRY-RUN]` with the exact request and need `--execute` or `--apply`. `phz_assoc` and `dx_backup restore-plan` only print the commands for you to review and run |
+| **Safety** | Nothing changes AWS resources except `reachability_trace`'s `create`, `analyze` and `delete-*` commands. Those are dry-run by default: they log `[DRY-RUN]` with the exact request and need `--execute` or `--apply`. `phz_assoc`, `phz_backup restore-plan` and `dx_backup restore-plan` only print the commands for you to review and run |
 | **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce`, `phz`, `ou_vpcs`, `proxy_inventory`, `pl_review` and `dx_route` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` (in `phz` and `ou_vpcs`: `-priv`, `-adm`, `-cpar` or `-ro`) are never picked automatically for the tools' own calls (the `phz_review` migration planner defaults the commands it writes to each account's `-adm` profile), and `pl_review` only uses profiles whose names start with `hcli-` |
 | **Configuration** | Each tool or suite reads a `.env` file (see its `.env.example`) from its own directory, or from the nearest parent directory that has one (such as the repository root). The directory you run a tool from doesn't matter. CLI flags override `.env`, which overrides defaults |
 | **TLS** | The OS certificate store is used through `truststore` (macOS, Windows, Linux), so corporate TLS inspection works without extra configuration |
@@ -100,7 +100,7 @@ Where each tool writes, and what it expects:
 | `ou_vpcs` | stdout: table, JSON or CSV; VPC owner map in `~/.cache/aws-net-tools/` | `OU_VPCS_` | 0 ok, 1 error, 2 bad input, 3 accounts skipped |
 | `proxy_inventory` | HTML in `reports/<scope>/` (latest), with timestamped copies in `reports/<date>/<scope>/`; optional JSON | `PROXY_INV_` | 0 ok, 2 bad input, 3 accounts skipped |
 | `vpce/*` | stdout: table, JSON or CSV | `VPCE_` | 0 ok, 1 error, 2 bad input |
-| `phz/*` | stdout: table, JSON or CSV; `phz_review -o html`: HTML in `reports/<account>/` (latest), with timestamped copies in `reports/<date>/<account>/` (`phz_assoc`: shell script or JSON plan) | `VPCE_` | 0 ok, 1 error, 2 bad input |
+| `phz/*` | stdout: table, JSON or CSV; `phz_review -o html`: HTML in `reports/<account>/` (latest), with timestamped copies in `reports/<date>/<account>/` (`phz_assoc`: shell script or JSON plan); `phz_backup`: JSON backups in `backups/phz/<account>/<timestamp>/`, restore plan: shell script | `VPCE_` | 0 ok, 1 error, 2 bad input |
 
 The `reports/` and `backups/` roots are relative to the current directory and are git-ignored.
 
