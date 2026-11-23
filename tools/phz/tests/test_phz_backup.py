@@ -37,11 +37,12 @@ def env(tmp_path, monkeypatch):
                                                         "ResourceRecords": [{"Value": '"v=it\'s $HOME"'}]}},
         ]})
         r53.create_hosted_zone(Name="public.example", CallerReference="p1")
-        yield {"hub": hub, "spoke": spoke, "zone": zone, "r53": r53, "root": tmp_path / "backups"}
+        yield {"hub": hub, "spoke": spoke, "zone": zone, "r53": r53, "root": tmp_path / "backups", "reports": tmp_path / "reports"}
 
 
 def backup(env, capsys, *extra):
-    assert pb.main(["backup", "--backup-dir", str(env["root"]), "--no-owner-cache", "--json", "-q", *extra]) == 0
+    argv = ["backup", "--backup-dir", str(env["root"]), "--reports-dir", str(env["reports"]), "--no-owner-cache", "--json", "-q"]
+    assert pb.main(argv + list(extra)) == 0
     return json.loads(capsys.readouterr().out)
 
 
@@ -58,7 +59,8 @@ def test_backup_records_tags_and_associations(env, capsys):
 
 def test_backup_public_zone_rejected(env, capsys):
     pub = [z for z in env["r53"].list_hosted_zones()["HostedZones"] if z["Name"] == "public.example."][0]["Id"]
-    assert pb.main(["backup", "--backup-dir", str(env["root"]), "--no-owner-cache", "--zone", pub, "-q"]) == 2
+    assert pb.main(["backup", "--backup-dir", str(env["root"]), "--reports-dir", str(env["reports"]),
+                    "--no-owner-cache", "--zone", pub, "-q"]) == 2
 
 
 def test_restore_plan_from_latest(env, capsys):
@@ -186,3 +188,44 @@ def test_latest_ambiguous_across_accounts(tmp_path, capsys):
         (tmp_path / acct / "20261123T000000Z").mkdir(parents=True)
     assert pb.main(["restore-plan", "latest", "--backup-dir", str(tmp_path), "-q"]) == 2
     assert pb.main(["restore-plan", "previous", "--backup-dir", str(tmp_path), "--account", ACCT, "-q"]) == 2
+
+
+def test_backup_writes_html_report_by_default(env, capsys):
+    out = backup(env, capsys)
+    report = pb.Path(out["report"])
+    assert report == env["reports"] / ACCT / "phz-backup.html"
+    page = report.read_text()
+    assert "corp.internal" in page and env["zone"] in page and "db.corp.internal." in page
+    assert "Owner=net" in page and env["spoke"] in page
+    assert "aws route53 create-hosted-zone" in page  # the zone's restore script is embedded
+    assert "&quot;v=it&#x27;s $HOME&quot;" in page  # TXT value escaped
+    history = list((env["reports"]).glob(f"*/{ACCT}/phz-backup_*.html"))
+    assert len(history) == 1
+
+
+def test_backup_no_html(env, capsys):
+    assert backup(env, capsys, "--no-html")["report"] is None
+    assert not env["reports"].exists()
+
+
+def test_report_subcommand(env, capsys):
+    backup(env, capsys, "--no-html")
+    target = env["reports"] / "r.html"
+    assert pb.main(["report", "latest", "--backup-dir", str(env["root"]), "--out", str(target), "-q"]) == 0
+    assert capsys.readouterr().out.strip() == str(target)
+    assert "PHZ backup" in target.read_text()
+
+
+def test_report_escapes_and_flags(tmp_path, capsys):
+    f = zone_file(tmp_path, tags={"x": "<script>alert(1)</script>"}, vpcs=[
+        {"region": "us-east-1", "vpc_id": "vpc-0aaaaaaaaaaaaaaa0", "owner": ACCT},
+        {"region": "us-west-2", "vpc_id": "vpc-0bbbbbbbbbbbbbbb0", "owner": OTHER},
+        {"region": "us-west-2", "vpc_id": "vpc-0ccccccccccccccc0", "owner": None},
+    ], records=[{"Name": "\\052.corp.internal.", "Type": "CNAME", "TTL": 60, "SetIdentifier": "a", "Weight": 10,
+                 "ResourceRecords": [{"Value": "x.corp.internal"}]}])
+    out = tmp_path / "r.html"
+    assert pb.main(["report", str(f), "--out", str(out), "-q"]) == 0
+    page = out.read_text()
+    assert "<script>alert(1)" not in page and "&lt;script&gt;alert(1)" in page
+    assert "cross-account" in page and "unknown owner" in page and "PROFILE_VPC_" in page
+    assert "*.corp.internal." in page and "weight 10" in page
