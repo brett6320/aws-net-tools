@@ -1,0 +1,32 @@
+name: name_tag_sync tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/name_tag_sync/**"
+      - ".github/workflows/tests-name_tag_sync.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/name_tag_sync/**"
+      - ".github/workflows/tests-name_tag_sync.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: name_tag_sync
+      path: tools/name_tag_sync
+    permissions:
+      contents: write
