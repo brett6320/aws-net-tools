@@ -1,0 +1,32 @@
+name: vpc_participants tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/vpc_participants/**"
+      - ".github/workflows/tests-vpc_participants.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/vpc_participants/**"
+      - ".github/workflows/tests-vpc_participants.yml"
+      - ".github/workflows/_python-tests.yml"
+      - ".github/scripts/test_report.py"
+      - ".github/coveragerc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/_python-tests.yml
+    with:
+      name: vpc_participants
+      path: tools/vpc_participants
+    permissions:
+      contents: write
