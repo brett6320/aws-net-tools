@@ -486,3 +486,72 @@ def test_prompt_shows_escaped_values(world):
 def test_table_marks_nothing_shared(capsys):
     nts.render([], "table")
     assert "no VPCs or subnets shared" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- color and emojis
+
+
+def test_table_emojis_and_alignment(world, capsys):
+    assert run(world, "--color", "never") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "\033[" not in "\n".join(lines)
+    by_id = {line.split()[2]: line for line in lines[2:]}
+    assert "❌ set" in by_id["subnet-0001"]
+    assert "✅ skip: names match" in by_id["subnet-0007"]
+    assert "🔶 skip: name already set" in by_id["subnet-0004"]
+    assert "🔶 skip: name is whitespace" in by_id["subnet-0006"]
+    assert "➖ skip: owner has no name" in by_id["subnet-0005"]
+    # The ACTION column starts at the same terminal column on every row.
+    col = nts.width(lines[0][:lines[0].index("ACTION")])
+    for line in lines[2:]:
+        start = min(line.index(e) for e in ("❌", "✅", "🔶", "➖") if e in line)
+        assert nts.width(line[:start]) == col
+
+
+def test_no_emoji(world, capsys):
+    assert run(world, "--no-emoji") == 0
+    out = capsys.readouterr().out
+    assert not any(e in out for e in ("❌", "✅", "🔶", "➖"))
+
+
+def test_color_always(world, capsys):
+    assert run(world, "--color", "always", "--apply", ask=["y", "n", "q"]) == 0
+    out = capsys.readouterr().out
+    assert nts.GREEN + "✅ tagged" + nts.RESET in out
+    assert nts.DIM + "➖ declined" + nts.RESET in out
+    assert nts.RED + "❌ set" + nts.RESET in out
+    assert nts.BOLD + "REGION" in out
+
+
+def test_color_auto(monkeypatch):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    assert nts.use_color("auto", Tty()) is True
+    assert nts.use_color("auto", io.StringIO()) is False
+    assert nts.use_color("always", io.StringIO()) is True
+    assert nts.use_color("never", Tty()) is False
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert nts.use_color("auto", Tty()) is False
+
+
+def test_machine_output_has_no_styling(world, capsys):
+    assert run(world, "--color", "always", "-o", "csv") == 0
+    out = capsys.readouterr().out
+    assert "\033[" not in out and "❌" not in out
+
+
+@pytest.mark.parametrize("text, emoji", [
+    ("tagged", "✅"), ("allowed", "✅"), ("denied: UnauthorizedOperation", "⛔"), ("not asked (denied)", "⛔"),
+    ("error: x", "❌"), ("stopped: owner mismatch", "❌"), ("interrupted (check its Name tag)", "⚡"),
+    ("skipped: x", "🔶"), ("declined", "➖"), ("not asked (quit)", "➖")])
+def test_outcome_style(text, emoji):
+    assert nts.outcome_style(text)[0] == emoji
+
+
+def test_prompt_styled(world):
+    items, o, p = planned(world)
+    text = nts.prompt_text(items["subnet-0001"], p, nts.Style(color=True, emoji=True))
+    assert "❌" in text and nts.GREEN + nts.BOLD + "prod-a" + nts.RESET in text
+    assert "\033[" not in nts.prompt_text(items["subnet-0001"], p)

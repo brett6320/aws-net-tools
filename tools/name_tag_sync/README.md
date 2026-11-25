@@ -59,11 +59,24 @@ python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --part
 | `--check-permissions` | | For each planned tag, call `CreateTags` with `DryRun=True` through the participant to see whether it would be allowed. Writes nothing. Useful because a shared resource's ARN carries the owner's account ID, so participant IAM policies or SCPs scoped to their own account deny the write |
 | `--apply` | | Write the planned tags, confirming each resource |
 | `-o table\|csv\|json`, `--json` | | Output format (default `table`) |
+| `--color auto\|always\|never` | `NO_COLOR` | Color the table and prompts. `auto` (default) colors only on a terminal, and not when `NO_COLOR` is set |
+| `--no-emoji` | | No status emojis in the table and prompts |
 | `-v` / `-q` | | Debug logging / warnings only (prompts still show) |
 
 ## Output
 
 Logs and prompts go to stderr; the rows go to stdout. With `-o table`, the plan is printed before the prompts and the planned resources again afterwards with their results. With CSV or JSON, the rows are printed once at the end.
+
+In the table, each `action`, `permission` and `result` has a status emoji and, on a terminal, a color. A missing or empty participant name is also shown in red. CSV and JSON have neither.
+
+| | Color | `action` | `permission` / `result` |
+|---|---|---|---|
+| ✅ | green | `skip: names match` | `allowed`, `tagged` |
+| ❌ | red | `set`: the participant's Name is missing or empty | `error: ...`, `stopped: owner mismatch` |
+| 🔶 | yellow | `skip: name already set` (a different name), `skip: name is whitespace` | `skipped: ...` (a re-check failed) |
+| ➖ | dim | `skip: owner has no name` | `declined`, `not asked (quit)`, `not asked (stopped)` |
+| ⛔ | red | | `denied: ...`, `not asked (denied)` |
+| ⚡ | yellow | | `interrupted (check its Name tag)` |
 
 | Column | Meaning |
 |---|---|
