@@ -21,6 +21,8 @@ import json
 import logging
 import os
 import sys
+import unicodedata
+from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 import truststore
@@ -58,13 +60,81 @@ def configure_logging(verbose: bool = False, quiet: bool = False) -> None:
             logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
-def _cell(column: str, v: Any) -> str:
+# --------------------------------------------------------------------------- styling (table and prompts only)
+
+RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
+GREEN, RED, YELLOW, CYAN = "\033[32m", "\033[31m", "\033[33m", "\033[36m"
+# Every emoji here is a single wide (2-column) code point, so the table stays aligned.
+OK, MISSING, DIFFERS, NEUTRAL, DENIED, INTERRUPTED = "✅", "❌", "🔶", "➖", "⛔", "⚡"
+
+ACTION_STYLE = {  # action -> (emoji, color)
+    core.SET: (MISSING, RED),  # participant Name missing or empty
+    core.SKIP_SAME: (OK, GREEN),
+    core.SKIP_POPULATED: (DIFFERS, YELLOW),
+    core.SKIP_WHITESPACE: (DIFFERS, YELLOW),
+    core.SKIP_NO_SOURCE: (NEUTRAL, DIM),
+}
+
+
+def outcome_style(text: str) -> tuple[str, str]:
+    """(emoji, color) for a permission or result value."""
+    if text in ("tagged", "allowed"):
+        return OK, GREEN
+    if text.startswith("denied") or text == "not asked (denied)":
+        return DENIED, RED
+    if text.startswith(("error", "stopped")):
+        return MISSING, RED
+    if text.startswith("interrupted"):
+        return INTERRUPTED, YELLOW
+    if text.startswith("skipped"):
+        return DIFFERS, YELLOW
+    return NEUTRAL, DIM  # declined, not asked
+
+
+@dataclass
+class Style:
+    color: bool = False
+    emoji: bool = False
+
+    def paint(self, text: str, code: str) -> str:
+        return f"{code}{text}{RESET}" if self.color and code and text else text
+
+    def mark(self, text: str, emoji: str) -> str:
+        return f"{emoji} {text}" if self.emoji and text else text
+
+
+PLAIN = Style()
+
+
+def use_color(mode: str, stream) -> bool:
+    """--color always/never, or auto: only on a terminal, and never when NO_COLOR is set."""
+    if mode == "never":
+        return False
+    if mode == "always":
+        return True
+    return not os.getenv("NO_COLOR") and bool(getattr(stream, "isatty", lambda: False)())
+
+
+def width(text: str) -> int:
+    """Terminal columns: wide characters (the emojis) take two."""
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
+
+
+def _cell(column: str, v: Any, style: Style = PLAIN) -> tuple[str, str]:
+    """(text, color) of one table cell."""
     if column in ("owner_name", "participant_name"):
-        return core.show(v)
-    return "" if v is None else str(v)
+        return core.show(v), (RED if column == "participant_name" and core.is_unset(v) else "")
+    text = "" if v is None else str(v)
+    if column == "action" and text in ACTION_STYLE:
+        emoji, code = ACTION_STYLE[text]
+        return style.mark(text, emoji), code
+    if column in ("permission", "result") and text:
+        emoji, code = outcome_style(text)
+        return style.mark(text, emoji), code
+    return text, ""
 
 
-def render(items: Sequence[core.Item], fmt: str, stream=None) -> None:
+def render(items: Sequence[core.Item], fmt: str, stream=None, style: Style = PLAIN) -> None:
     stream = stream or sys.stdout
     rows = [i.row() for i in items]
     if fmt == "json":
@@ -78,13 +148,14 @@ def render(items: Sequence[core.Item], fmt: str, stream=None) -> None:
             w.writerow(["" if r.get(c) is None else r.get(c) for c in FULL_COLUMNS])
         return
     columns = TABLE_COLUMNS + tuple(c for c in ("permission", "result") if any(r.get(c) for r in rows))
-    table = [[_cell(c, r.get(c)) for c in columns] for r in rows]
-    widths = [max([len(c)] + [len(row[i]) for row in table]) for i, c in enumerate(columns)]
+    table = [[_cell(c, r.get(c), style) for c in columns] for r in rows]
+    widths = [max([len(c)] + [width(row[i][0]) for row in table]) for i, c in enumerate(columns)]
     buf = io.StringIO()
-    buf.write("  ".join(c.upper().ljust(widths[i]) for i, c in enumerate(columns)).rstrip() + "\n")
+    buf.write(style.paint("  ".join(c.upper().ljust(widths[i]) for i, c in enumerate(columns)).rstrip(), BOLD) + "\n")
     buf.write("  ".join("-" * w for w in widths) + "\n")
     for row in table:
-        buf.write("  ".join(v.ljust(widths[i]) for i, v in enumerate(row)).rstrip() + "\n")
+        cells = [style.paint(text, code) + " " * (widths[i] - width(text)) for i, (text, code) in enumerate(row)]
+        buf.write("  ".join(cells).rstrip() + "\n")
     stream.write(buf.getvalue())
     if not rows:
         stream.write("(no VPCs or subnets shared between the two accounts)\n")
@@ -101,16 +172,19 @@ def tty_ask(question: str) -> str:
         return "q"
 
 
-def prompt_text(item: core.Item, participant: core.Account) -> str:
-    return (f"\n{item.region} {item.kind} {item.resource_id}"
+def prompt_text(item: core.Item, participant: core.Account, style: Style = PLAIN) -> str:
+    p = style.paint
+    new = p(core.show(item.source_name), GREEN + BOLD)
+    return (f"\n{p(f'{item.region} {item.kind} {item.resource_id}', BOLD)}"
             f"{'' if item.kind == 'vpc' else f' (in {item.vpc_id})'} {item.cidr}\n"
-            f"  owner {item.owner} Name: {core.show(item.source_name)}\n"
-            f"  participant {participant.account} (profile {participant.profile}) Name: {core.show(item.target_name)}\n"
-            f"Set Name in {participant.account} to {core.show(item.source_name)}? [y/N/q] ")
+            f"  owner {item.owner} Name: {p(core.show(item.source_name), GREEN)}\n"
+            f"  participant {participant.account} "
+            f"(profile {participant.profile}) Name: {style.mark(p(core.show(item.target_name), RED), MISSING)}\n"
+            f"{p('Set Name', CYAN)} in {participant.account} to {new}? [y/N/q] ")
 
 
 def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Account,
-               ask: Callable[[str], str] = tty_ask) -> None:
+               ask: Callable[[str], str] = tty_ask, style: Style = PLAIN) -> None:
     """Confirm and write each planned item. Raises OwnerMismatch (the run stops).
 
     Items --check-permissions found denied aren't asked. Ctrl-C during a write stops like quit.
@@ -121,7 +195,7 @@ def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Ac
             item.result = "not asked (denied)"
     todo = [i for i in todo if not i.result]
     for n, item in enumerate(todo):
-        answer = ask(prompt_text(item, participant))
+        answer = ask(prompt_text(item, participant, style))
         if answer in ("q", "quit"):
             for rest in todo[n:]:
                 rest.result = "not asked (quit)"
@@ -177,6 +251,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", "-o", choices=("table", "json", "csv"), default="table",
                    help="Output format (default: table)")
     p.add_argument("--json", dest="output", action="store_const", const="json", help="Shortcut for --output json")
+    p.add_argument("--color", choices=("auto", "always", "never"), default="auto",
+                   help="Color the table and prompts (default auto: only on a terminal, and not when NO_COLOR is set)")
+    p.add_argument("--no-emoji", dest="emoji", action="store_false",
+                   help="No status emojis in the table and prompts (CSV and JSON never have them)")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     p.add_argument("-q", "--quiet", action="store_true", help="Warnings/errors only (prompts still show)")
     return p
@@ -230,21 +308,23 @@ def main(argv: list[str] | None = None, session_for=None, ask: Callable[[str], s
         for item in planned:
             item.permission = core.check_permission(item, owner, participant)
     stream_now = args.output == "table"
+    table_style = Style(use_color(args.color, sys.stdout), args.emoji)
+    prompt_style = Style(use_color(args.color, sys.stderr), args.emoji)
     if stream_now:
-        render(items, args.output)
+        render(items, args.output, style=table_style)
 
     status = 0
     if args.apply and planned:
         try:
-            apply_plan(items, owner, participant, ask or tty_ask)
+            apply_plan(items, owner, participant, ask or tty_ask, prompt_style)
         except core.OwnerMismatch as e:
             log.error("Owner mismatch, stopped; nothing more changed: %s", e)
             status = MISMATCH_EXIT
         if stream_now:
             sys.stdout.write("\n")
-            render(planned, args.output)
+            render(planned, args.output, style=table_style)
     if not stream_now:
-        render(items, args.output)
+        render(items, args.output, style=table_style)
 
     if args.apply:
         done = sum(i.result == "tagged" for i in planned)
