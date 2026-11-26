@@ -7,8 +7,8 @@ one is owned by any other account, the run stops with an error and nothing is ch
 
 The owner's ``Name`` tag is copied only where the participant has no ``Name`` tag or an empty one.
 Tags in the owner account are never changed, and a ``Name`` with a value is never changed. With
-``--apply``, each resource is confirmed one at a time at the terminal (``--force`` skips the
-confirmations), and every rule is re-checked against live data right before its write.
+``--apply``, each resource is confirmed one at a time at the terminal (``--force`` asks once for
+all of them instead), and every rule is re-checked against live data right before its write.
 
 Logs and prompts go to stderr; the table / CSV / JSON goes to stdout.
 """
@@ -196,9 +196,20 @@ def skip_reason(item: core.Item, force: bool) -> str:
     return ""
 
 
+def force_text(todo: Sequence[core.Item], participant: core.Account, style: Style = PLAIN) -> str:
+    """The one --force confirmation: every resource about to be tagged and its new Name."""
+    p = style.paint
+    lines = [f"\n{p('--force', BOLD)}: tag {len(todo)} resource(s) in {participant.account} "
+             f"(profile {participant.profile}) without asking for each one:"]
+    for item in todo:
+        lines.append(f"  {item.region} {item.kind} {item.resource_id}: Name {p(core.show(item.source_name), GREEN)}")
+    lines.append(f"Type {p('yes', BOLD)} to tag all of them: ")
+    return "\n".join(lines)
+
+
 def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Account,
                ask: Callable[[str], str] = tty_ask, style: Style = PLAIN, force: bool = False) -> None:
-    """Confirm (unless ``force``) and write each planned item. Raises OwnerMismatch (the run stops).
+    """Confirm each planned item (``force``: confirm all of them once) and write it. Raises OwnerMismatch.
 
     Ctrl-C at any point stops like quit; the item being written is marked interrupted.
     """
@@ -206,7 +217,16 @@ def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Ac
     for item in todo:
         item.result = skip_reason(item, force)
     todo = [i for i in todo if not i.result]
-    if force:
+    if force and todo:
+        try:
+            answer = ask(force_text(todo, participant, style))
+        except KeyboardInterrupt:
+            answer = ""
+        if answer.strip().lower() != "yes":
+            for item in todo:
+                item.result = "not asked (--force not confirmed)"
+            log.warning("--force not confirmed; nothing tagged")
+            return
         log.warning("--force: tagging %d resource(s) in %s without asking for each one", len(todo),
                     participant.account)
     for n, item in enumerate(todo):
@@ -270,8 +290,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--apply", action="store_true",
                    help="Write the planned Name tags, confirming each resource at the terminal (default: dry run)")
     p.add_argument("--force", action="store_true",
-                   help="With --apply: write every planned tag without asking for each resource (no terminal "
-                        "needed). Every other safety rule and live re-check still applies")
+                   help="With --apply: confirm once (type yes) for all planned tags instead of for each resource. "
+                        "Every other safety rule and live re-check still applies")
     p.add_argument("--output", "-o", choices=("table", "json", "csv"), default="table",
                    help="Output format (default: table)")
     p.add_argument("--json", dest="output", action="store_const", const="json", help="Shortcut for --output json")
@@ -295,11 +315,11 @@ def main(argv: list[str] | None = None, session_for=None, ask: Callable[[str], s
         log.error("--owner-profile and --participant-profile are the same profile")
         return USAGE_EXIT
     if args.force and not args.apply:
-        log.error("--force only skips the confirmations of --apply; pass --apply --force to write")
+        log.error("--force only changes how --apply confirms (once for all resources); pass --apply --force")
         return USAGE_EXIT
     interactive = interactive or (lambda: sys.stdin.isatty() and sys.stderr.isatty())
-    if args.apply and not args.force and not interactive():
-        log.error("--apply confirms each resource at the terminal; stdin and stderr must be a terminal")
+    if args.apply and not interactive():
+        log.error("--apply asks for confirmation at the terminal; stdin and stderr must be a terminal")
         return USAGE_EXIT
     try:
         regions = core.check_regions(core.split_csv(args.regions))

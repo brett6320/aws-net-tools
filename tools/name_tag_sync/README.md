@@ -13,7 +13,7 @@ When subnets are shared through RAM, the participant sees the VPC and those subn
 - **The owner is the account EC2 reports.** Ownership comes from each resource's `OwnerId`, not from the profile it was read with. Every VPC or subnet both accounts can see must be owned by the `--owner-profile` account. If one is owned by any other account, the run stops with an error (exit `3`) before any change. That includes the `--participant-profile` account and a third account that shares a VPC with both. It also stops if the two accounts disagree on a resource's owner, or both profiles are the same account. Use `--vpc-ids` to leave out VPCs a third account shares with both.
 - **The owner account's tags are never changed.** Writes go only through `--participant-profile`, and only to resources that the other account owns.
 - **A `Name` tag with a value is never changed.** Only a missing `Name` tag or an empty one (`""`) is filled in. A whitespace-only name counts as a value and is left alone.
-- **Each resource is confirmed.** `--apply` prompts `[y/N/q]` for every resource at the terminal. It refuses to run when stdin or stderr isn't a terminal. EOF or Ctrl-C at a prompt means quit. `--apply --force` skips these prompts (no terminal needed) and writes every planned tag. It doesn't relax any other rule: the owner check, the empty-name rule and the live re-checks all still apply. With `--check-permissions`, `--force` writes only resources whose check says `allowed`. Each forced write is logged as a warning before it happens; do a dry run first to review the plan. `--force` without `--apply` is an error.
+- **Each resource is confirmed.** `--apply` prompts `[y/N/q]` for every resource at the terminal. It refuses to run when stdin or stderr isn't a terminal. EOF or Ctrl-C at a prompt means quit. `--apply --force` replaces them with one confirmation: it lists every resource it will tag with its new Name, and writes only if you type `yes` (any case). Anything else, EOF or Ctrl-C tags nothing. It still needs a terminal. It doesn't relax any other rule: the owner check, the empty-name rule and the live re-checks all still apply. With `--check-permissions`, `--force` writes only resources whose check says `allowed`. Each forced write is logged as a warning before it happens. `--force` without `--apply` is an error.
 - **Everything is re-checked just before each write:**
   - the participant profile still authenticates as the same account;
   - both accounts still see the original owner;
@@ -49,7 +49,7 @@ python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --part
 # Write, confirming each resource
 python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --participant-profile app-team --apply
 
-# Write every planned tag without asking for each one (e.g. after reviewing a dry run)
+# Write every planned tag after one confirmation (type yes) instead of one per resource
 python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --participant-profile app-team --apply --force
 ```
 
@@ -61,7 +61,7 @@ python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --part
 | `--vpc-ids` | | Only these VPCs and their subnets; repeat or comma-separate |
 | `--check-permissions` | | For each planned tag, call `CreateTags` with `DryRun=True` through the participant to see whether it would be allowed. Writes nothing. Useful because a shared resource's ARN carries the owner's account ID, so participant IAM policies or SCPs scoped to their own account deny the write |
 | `--apply` | | Write the planned tags, confirming each resource |
-| `--force` | | With `--apply`: don't ask for each resource. Every other safety rule still applies |
+| `--force` | | With `--apply`: one confirmation (type `yes`) for all planned tags instead of one per resource. Every other safety rule still applies |
 | `-o table\|csv\|json`, `--json` | | Output format (default `table`) |
 | `--color auto\|always\|never` | `NO_COLOR` | Color the table and prompts. `auto` (default) colors only on a terminal, and not when `NO_COLOR` is set |
 | `--no-emoji` | | No status emojis in the table and prompts |
@@ -89,7 +89,7 @@ In the table, each `action`, `permission` and `result` has a status emoji and, o
 | `owner_name`, `participant_name` | The `Name` tag each account sees: `(none)` when there's no tag, `""` when it is empty |
 | `action` | `set`, or `skip:` with the reason: `name already set`, `name is whitespace`, `names match`, `owner has no name` |
 | `permission` | `--check-permissions`: `allowed`, `denied: ...` or `error: ...`. With `--apply`, resources that are denied aren't asked |
-| `result` | `--apply`: `tagged`, `declined`, `skipped: ...` (a re-check failed), `error: ...`, `interrupted (check its Name tag)`, `not asked (quit)`, `not asked (denied)`, `not asked (permission error: ...)` (`--force`) or `not asked (stopped)` |
+| `result` | `--apply`: `tagged`, `declined`, `skipped: ...` (a re-check failed), `error: ...`, `interrupted (check its Name tag)`, `not asked (quit)`, `not asked (denied)`, `not asked (permission error: ...)` (`--force`), `not asked (--force not confirmed)` or `not asked (stopped)` |
 
 Exit codes:
 
@@ -97,7 +97,7 @@ Exit codes:
 |---|---|
 | `0` | Success |
 | `1` | A Region couldn't be read, a write failed, was skipped by a re-check or was interrupted, or `--check-permissions` found tags that wouldn't be allowed |
-| `2` | Bad input, `--apply` without a terminal (and without `--force`), or `--force` without `--apply` |
+| `2` | Bad input, `--apply` without a terminal, or `--force` without `--apply` |
 | `3` | Owner mismatch: a shared resource isn't owned by the `--owner-profile` account, the two accounts disagree on its owner, both profiles are the same account, or the participant profile's account changed during the run. Nothing was changed, or with `--apply`, nothing more after it |
 
 ## IAM permissions

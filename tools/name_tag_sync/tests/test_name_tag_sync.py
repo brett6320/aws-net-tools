@@ -564,18 +564,35 @@ def test_prompt_styled(world):
 # --------------------------------------------------------------------------- --force
 
 
+def force(world, *args, answer="yes", asked=None):
+    """Run --apply --force; the one confirmation gets ``answer``, a per-resource prompt fails the test."""
+    def ask(q):
+        assert "--force" in q, "--force must not ask for each resource"
+        if asked is not None:
+            asked.append(q)
+        return answer
+
+    return nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--force", *args],
+                    session_for=sessions(world), ask=ask, interactive=lambda: True)
+
+
 def test_force_requires_apply(world):
     assert run(world, "--force") == nts.USAGE_EXIT
     assert world.writes == []
 
 
-def test_force_writes_without_asking_or_terminal(world, capsys):
-    def ask(q):
-        raise AssertionError("--force must not prompt")
+def test_force_requires_terminal(world):
+    assert run(world, "--apply", "--force", interactive=False) == nts.USAGE_EXIT
+    assert world.writes == []
 
-    code = nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--force"],
-                    session_for=sessions(world), ask=ask, interactive=lambda: False)
-    assert code == 0
+
+def test_force_one_confirmation_lists_everything(world, capsys):
+    asked = []
+    assert force(world, asked=asked) == 0
+    assert len(asked) == 1
+    for rid, name in (("vpc-00000001", "prod-vpc"), ("subnet-0001", "prod-a"), ("subnet-0002", "prod-b")):
+        assert f"{rid}: Name {name}" in asked[0]
+    assert "subnet-0004" not in asked[0] and "tag 3 resource(s) in 222222222222" in asked[0]
     assert sorted(w[1]["Resources"][0] for w in real_writes(world)) == ["subnet-0001", "subnet-0002", "vpc-00000001"]
     assert all(acct == PART for acct, _ in world.writes)
     # Populated, whitespace, matching and no-owner-name resources are untouched; owner tags unchanged.
@@ -586,10 +603,34 @@ def test_force_writes_without_asking_or_terminal(world, capsys):
     assert "tagged" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("answer", ["", "n", "y", "q", "YES please", "yess"])
+def test_force_needs_yes(world, capsys, answer):
+    assert force(world, "-o", "json", answer=answer) == 0
+    assert world.writes == []
+    rows = json.loads(capsys.readouterr().out)
+    assert {r["result"] for r in rows if r["action"] == "set"} == {"not asked (--force not confirmed)"}
+
+
+def test_force_eof_is_no(world, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    code = nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--force"],
+                    session_for=sessions(world), interactive=lambda: True)
+    assert code == 0 and world.writes == []
+
+
+def test_force_nothing_planned_asks_nothing(world):
+    for rid in ("vpc-00000001", "subnet-0001", "subnet-0002"):
+        world.tags[(PART, rid)] = "x"
+    asked = []
+    assert force(world, asked=asked) == 0
+    assert asked == [] and world.writes == []
+
+
 def test_force_still_stops_on_owner_mismatch(world):
     world.add("subnet-0008", "subnet", "vpc-00000001", PART, [OWNER, PART], {})
-    assert run(world, "--apply", "--force", interactive=False) == nts.MISMATCH_EXIT
-    assert world.writes == []
+    asked = []
+    assert force(world, asked=asked) == nts.MISMATCH_EXIT
+    assert asked == [] and world.writes == []
 
 
 def test_force_still_rechecks(world, capsys):
@@ -597,20 +638,22 @@ def test_force_still_rechecks(world, capsys):
         w.tags[(PART, "subnet-0001")] = "set meanwhile"
 
     world.before_write = set_meanwhile
-    assert run(world, "--apply", "--force", interactive=False) == nts.ERROR_EXIT
+    assert force(world) == nts.ERROR_EXIT
     assert world.tags[(PART, "subnet-0001")] == "set meanwhile"
     assert "skipped" in capsys.readouterr().out
 
 
 def test_force_skips_denied(world):
     world.deny.add("subnet-0002")
-    assert run(world, "--apply", "--force", "--check-permissions", interactive=False) == nts.ERROR_EXIT
+    asked = []
+    assert force(world, "--check-permissions", asked=asked) == nts.ERROR_EXIT
+    assert "subnet-0002" not in asked[0]
     assert sorted(w[1]["Resources"][0] for w in real_writes(world)) == ["subnet-0001", "vpc-00000001"]
 
 
 def test_force_skips_permission_errors(world, capsys):
     world.dry_run_error.add("subnet-0001")
-    assert run(world, "--apply", "--force", "--check-permissions", "-o", "json", interactive=False) == nts.ERROR_EXIT
+    assert force(world, "--check-permissions", "-o", "json") == nts.ERROR_EXIT
     rows = {r["resource_id"]: r for r in json.loads(capsys.readouterr().out)}
     assert rows["subnet-0001"]["result"] == "not asked (permission error: InternalError: InternalError)"
     assert sorted(w[1]["Resources"][0] for w in real_writes(world)) == ["subnet-0002", "vpc-00000001"]
@@ -626,7 +669,7 @@ def test_interactive_still_asks_on_permission_error(world):
 
 def test_force_warning_count_excludes_denied(world, caplog):
     world.deny.add("subnet-0002")
-    run(world, "--apply", "--force", "--check-permissions", interactive=False)
+    force(world, "--check-permissions")
     assert "tagging 2 resource(s)" in caplog.text
     assert "--force: us-east-1 subnet subnet-0001" in caplog.text
 
@@ -637,7 +680,7 @@ def test_force_owner_change_mid_run_stops(world):
             w.res["subnet-0001"]["owner"] = PART
 
     world.before_write = flip
-    assert run(world, "--apply", "--force", interactive=False) == nts.MISMATCH_EXIT
+    assert force(world) == nts.MISMATCH_EXIT
     assert [w[1]["Resources"] for w in real_writes(world)] == [["vpc-00000001"]]
 
 
@@ -652,8 +695,30 @@ def test_force_interrupt_after_write_is_recorded(world, capsys, monkeypatch):
             raise KeyboardInterrupt
 
     monkeypatch.setattr(core, "apply_item", apply_then_interrupt)
-    assert run(world, "--apply", "--force", "-o", "json", interactive=False) == nts.ERROR_EXIT
+    assert force(world, "-o", "json") == nts.ERROR_EXIT
     rows = {r["resource_id"]: r for r in json.loads(capsys.readouterr().out)}
     assert rows["vpc-00000001"]["result"] == "tagged"
     assert rows["subnet-0001"]["result"].startswith("interrupted")
     assert rows["subnet-0002"]["result"] == "not asked (quit)"
+
+
+def test_force_text_escapes_and_styles(world):
+    items, o, p = planned(world)
+    item = items["subnet-0001"]
+    item.source_name = "evil\x1b[2Jname"
+    text = nts.force_text([item], p, nts.Style(color=True, emoji=True))
+    assert "\x1b[2J" not in text and nts.GREEN in text
+
+
+def test_force_yes_any_case(world):
+    assert force(world, answer=" YES ") == 0
+    assert len(real_writes(world)) == 3
+
+
+def test_force_ctrl_c_at_confirmation(world):
+    def ask(q):
+        raise KeyboardInterrupt
+
+    code = nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--force"],
+                    session_for=sessions(world), ask=ask, interactive=lambda: True)
+    assert code == 0 and world.writes == []
