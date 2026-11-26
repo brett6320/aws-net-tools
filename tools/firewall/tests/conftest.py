@@ -80,3 +80,14 @@ def run_main(mod, monkeypatch, argv: list[str]) -> int:
     """Run a tool's main() (which reads sys.argv) with the given arguments."""
     monkeypatch.setattr(sys, "argv", [f"{mod.__name__}.py", *argv])
     return mod.main()
+
+
+def assert_private(*paths):
+    """Reports describe the network: files owner-only (0600), directories 0700. POSIX only."""
+    import os
+    import stat
+    if os.name != "posix":
+        return
+    for p in paths:
+        want = 0o700 if os.path.isdir(p) else 0o600
+        assert stat.S_IMODE(os.stat(p).st_mode) == want, f"{p}: {oct(stat.S_IMODE(os.stat(p).st_mode))}"

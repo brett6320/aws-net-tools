@@ -77,6 +77,8 @@ def test_write(tmp_path):
     path = tmp_path / "r.html"
     html_report.write(path, "T", tables=[TABLE])
     assert path.read_text(encoding="utf-8") == html_report.render("T", tables=[TABLE])
+    from conftest import assert_private
+    assert_private(path)
 
 
 def test_collapsed_tables_fold_under_their_heading():

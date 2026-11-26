@@ -2,6 +2,8 @@ import copy
 import ipaddress
 import json
 import logging
+import os
+import stat
 import sys
 from pathlib import Path
 
@@ -271,3 +273,26 @@ def test_cli_bad_query_exits_1(caplog):
 
 def test_cli_requires_query():
     assert ipam_locate.main(["--no-report"]) == 1
+
+
+# ---------- output permissions ----------
+
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+
+
+@posix_only
+def test_cli_outputs_are_private(tmp_path, monkeypatch):
+    monkeypatch.setattr(ipam_locate, "_ec2", lambda args: FakeEC2())
+    js = tmp_path / "j" / "b.json"
+    old = os.umask(0o022)
+    try:
+        assert ipam_locate.main(["10.1.1.25", "--reports-dir", str(tmp_path / "r"), "--json-out", str(js)]) == 0
+    finally:
+        os.umask(old)
+    html = next((tmp_path / "r").rglob("*.html"))
+    assert _mode(html) == 0o600 and _mode(js) == 0o600
+    assert _mode(html.parent) == 0o700 and _mode(js.parent) == 0o700

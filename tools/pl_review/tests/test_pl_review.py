@@ -1,7 +1,9 @@
 import copy
 import csv
 import json
+import os
 import pathlib
+import stat
 from types import SimpleNamespace
 
 import boto3
@@ -200,3 +202,22 @@ def test_unauthorized_account_yields_error_rows(pl_review, scenario, monkeypatch
     pl_review.render_markdown(ru)
     pl_review.render_csv(ru)
     pl_review.render_html_report(ru)
+
+
+# ---------- output permissions ----------
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_reports_and_cache_are_private(pl_review, scenario, tmp_path):
+    mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)  # noqa: E731
+    old = os.umask(0o022)
+    try:
+        paths = pl_review.write_report(scenario.r, tmp_path / "reports")
+        cpath = tmp_path / "newcache" / "c.json"
+        cache = pl_review.DiskCache(cpath)
+        cache.set("k", 1)
+        cache.save()
+    finally:
+        os.umask(old)
+    assert paths and all(mode(p) == 0o600 for p in paths)
+    assert mode(paths[0].parent) == 0o700
+    assert cpath.is_file() and mode(cpath) == 0o600 and mode(cpath.parent) == 0o700

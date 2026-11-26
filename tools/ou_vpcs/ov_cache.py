@@ -12,8 +12,12 @@ import datetime as dt
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
 
 log = logging.getLogger("ou_vpcs.cache")
 
@@ -67,10 +71,8 @@ class VpcOwnerCache:
         if self.path is None or not self._dirty:
             return
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
+            with secure_io.open_private(tmp, "w") as f:
                 json.dump(self._data, f, indent=1, sort_keys=True)
             tmp.replace(self.path)
             log.info("VPC owner map: %d VPC(s) in %s", len(self._data), self.path)

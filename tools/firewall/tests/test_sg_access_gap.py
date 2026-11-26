@@ -3,7 +3,7 @@ import json
 import boto3
 from moto import mock_aws
 
-from conftest import load_tool, run_main
+from conftest import assert_private, load_tool, run_main
 from lib.security_groups import SG, SgRule
 
 gap = load_tool("sg_access_gap")
@@ -135,6 +135,7 @@ def test_main_moto(monkeypatch, capsys, tmp_path):
         text = html.read_text()
         assert "<script>x</script>" not in text and "&lt;script&gt;x&lt;/script&gt;" in text
         assert csv_path.read_text().splitlines()[0] == ",".join(gap.CSV_COLUMNS)
+        assert_private(html, csv_path)
 
         # identical groups -> exit 0; a single group -> fatal
         assert run_main(gap, monkeypatch, [b, b, "--no-save", "-q"]) == 2

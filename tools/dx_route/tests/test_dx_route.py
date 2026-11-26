@@ -3,7 +3,9 @@ import datetime as dt
 import html
 import ipaddress
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -733,3 +735,27 @@ def test_cli_aws_error(monkeypatch):
     monkeypatch.setattr(core, "collect", boom)
     monkeypatch.setattr(core.Sessions, "__init__", lambda self, *a, **k: setattr(self, "region", "us-east-1"))
     assert dx_route.main(["--region", "us-east-1", "--no-report", "show", "ip", "bgp"]) == 1
+
+
+# ---------- output permissions ----------
+
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+
+
+@posix_only
+def test_cli_outputs_are_private(bundle, tmp_path):
+    f = tmp_path / "b.json"
+    f.write_text(json.dumps(bundle))
+    out, js = tmp_path / "new" / "r.html", tmp_path / "new2" / "r.json"
+    old = os.umask(0o022)
+    try:
+        assert dx_route.main(["--from-json", str(f), "-o", str(out), "--json-out", str(js), "show", "ip", "bgp",
+                              "10.20.30.0/24"]) == 0
+    finally:
+        os.umask(old)
+    assert _mode(out) == 0o600 and _mode(js) == 0o600
+    assert _mode(out.parent) == 0o700 and _mode(js.parent) == 0o700

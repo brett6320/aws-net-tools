@@ -1,3 +1,6 @@
+import os
+import stat
+
 import pytest
 
 from conftest import load_tool
@@ -112,3 +115,17 @@ def test_offline_cli_cross_account(capsys):
     assert out.index(pa.CREATE_AUTH) < out.index(pa.ASSOCIATE) < out.index(pa.DELETE_AUTH)
     assert "VPCRegion=us-west-2" in out and "--profile hub" in out
     assert "run as VPC owner account 111111111111" in out
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_offline_cli_out_file_is_private(tmp_path):
+    out = tmp_path / "plans" / "assoc.plan.sh"
+    old = os.umask(0o022)
+    try:
+        rc = pa.main(["associate", "--offline", "--phz-account", HUB, "--vpc-account", SPOKE, "--zone", Z,
+                      "--vpc", f"arn:aws:ec2:us-west-2:{SPOKE}:vpc/{V2.vpc_id}", "--out", str(out), "-q"])
+    finally:
+        os.umask(old)
+    assert rc == 0 and out.read_text()
+    assert stat.S_IMODE(os.stat(out).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(out.parent).st_mode) == 0o700

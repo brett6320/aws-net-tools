@@ -37,6 +37,9 @@ import dr_cisco as cisco  # noqa: E402
 import dr_core as core  # noqa: E402
 from dr_export import THEMES, render_html  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -197,12 +200,11 @@ def run(args) -> int:
     for w in bundle.get("warnings") or []:
         log.warning("%s", w)
     if args.json_out:
-        Path(args.json_out).write_text(_dump(bundle), encoding="utf-8")
+        secure_io.write_private_text(args.json_out, _dump(bundle))
         log.info("Wrote JSON %s", args.json_out)
     if not args.no_report:
         out = Path(args.output) if args.output else core.report_path(bundle, cmd["text"], args.reports_dir)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_html(bundle, cmd, output, args.title, args.theme), encoding="utf-8")
+        secure_io.write_private_text(out, render_html(bundle, cmd, output, args.title, args.theme))
         log.info("Wrote HTML report %s", out)
     return EXIT_NO_ROUTE if _no_route(bundle, cmd) else EXIT_OK
 

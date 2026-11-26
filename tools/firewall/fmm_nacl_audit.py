@@ -84,6 +84,8 @@ truststore.inject_into_ssl()
 import boto3  # noqa: E402
 from botocore.exceptions import BotoCoreError, ClientError  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
 from lib import html_report  # noqa: E402
 from lib.accounts import DEFAULT_EXTRA_EXCLUDE_SUFFIXES, EXCLUDE_SUFFIX_HELP, pick_profile, profile_lookup, resolve_admin_profile  # noqa: E402
 from lib.aws_common import err_text, _g, get_client, get_policy, get_session, list_policies, normalize_proto, resolve_regions
@@ -702,20 +704,20 @@ def write_outputs(findings: list[Finding], stats: dict, json_path, csv_path, htm
     """Write the JSON, CSV and HTML reports to whichever paths are set."""
     for path in (json_path, csv_path, html_path):
         if path:
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            secure_io.ensure_private_dir(Path(path).parent)
     if json_path:
-        with open(json_path, "w", encoding="utf-8") as fh:
+        with secure_io.open_private(json_path, "w", encoding="utf-8") as fh:
             json.dump({"stats": stats, "findings": [asdict(f) for f in findings]}, fh, indent=2)
         log.info("Wrote JSON to %s", json_path)
     if csv_path:
-        with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+        with secure_io.open_private(csv_path, "w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
             w.writeheader()
             for f in findings:
                 w.writerow({**asdict(f), "subnets": ";".join(f.subnets)})
         log.info("Wrote %d rows to %s", len(findings), csv_path)
     if html_path:
-        with open(html_path, "w", encoding="utf-8") as fh:
+        with secure_io.open_private(html_path, "w", encoding="utf-8") as fh:
             fh.write(render_html(findings, stats, policy))
         log.info("Wrote HTML to %s", html_path)
 

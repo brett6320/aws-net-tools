@@ -28,6 +28,9 @@ from botocore.exceptions import BotoCoreError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import secure_io  # noqa: E402
+
 from lib.aws_common import (  # noqa: E402
     AccountContext,
     AccountSessions,
@@ -493,8 +496,7 @@ def write_html(review: Review, args: argparse.Namespace) -> Path:
     copy = history_path(path, None if args.out else args.reports_dir, now)
     page = render_html(data)
     for p in (copy, path):
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(page, encoding="utf-8")
+        secure_io.write_private_text(p, page)
     log.info("Report history copy: %s", copy)
     return path
 

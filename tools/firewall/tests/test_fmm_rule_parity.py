@@ -4,7 +4,7 @@ import json
 import pytest
 from botocore.exceptions import ClientError
 
-from conftest import load_tool
+from conftest import assert_private, load_tool
 
 frp = load_tool("fmm_rule_parity")
 N = ipaddress.ip_network
@@ -386,6 +386,7 @@ def test_main_fake_fms(monkeypatch, capsys, tmp_path):
     assert [(c["container"], c["status"]) for c in out["containers"]] == [("sg-a", "NON_COMPLIANT"), ("sg-b", "COMPLIANT")]
     written = sorted(p.name.split("parity_")[1] for p in (tmp_path / "rep" / "fmm_rule_parity").glob("*/*"))
     assert written == [f"10.0.0.1_32_tcp_443_vs_pl-b_tcp_443.{ext}" for ext in ("compliance.csv", "gaps.csv", "html", "json")]
+    assert_private(*(tmp_path / "rep" / "fmm_rule_parity").glob("*/*"), *(tmp_path / "rep" / "fmm_rule_parity").glob("*"))
 
     assert run_main(frp, monkeypatch, ["-a", "10.0.0.2", "tcp", "443", "-b", "10.0.0.1", "tcp", "443",
                                        "--no-save", "--show-all", "--all-containers"]) == 0
