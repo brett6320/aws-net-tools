@@ -22,6 +22,9 @@ from typing import Any, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import secure_io  # noqa: E402
+
 from lib.aws_common import (  # noqa: E402
     AccountContext,
     ClientError,
@@ -322,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         output = render_script(steps, action, phz_account)
     if args.out:
-        Path(args.out).write_text(output)
+        secure_io.write_private_text(args.out, output)
         log.info("Wrote %s", args.out)
     else:
         sys.stdout.write(output)

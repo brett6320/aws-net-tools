@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -567,3 +569,26 @@ def test_render_path_only_bundle():
     html = render_html([{"path": p, "analysis": {}}, load("reachable.json")])
     assert html.count('class="analysis"') == 2
     assert f'href="#{p["NetworkInsightsPathId"]}"' in html  # TOC falls back to the path ID
+
+
+# ---------- output permissions ----------
+
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+
+
+@posix_only
+def test_export_outputs_are_private(tmp_path):
+    html, js = tmp_path / "new" / "one.html", tmp_path / "new2" / "one.json"
+    old = os.umask(0o022)
+    try:
+        rc = reachability.main(["export", "--from-json", str(FIXTURES / "reachable.json"), "-o", str(html),
+                                "--json-out", str(js)])
+    finally:
+        os.umask(old)
+    assert rc == 0
+    assert _mode(html) == 0o600 and _mode(js) == 0o600
+    assert _mode(html.parent) == 0o700 and _mode(js.parent) == 0o700

@@ -39,6 +39,9 @@ import db_diff  # noqa: E402
 import db_restore  # noqa: E402
 from db_export import THEMES, render_html  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -163,9 +166,8 @@ def cmd_diff(args) -> int:
         sys.stdout.write(db_diff.render_text(changes, old["manifest"], new["manifest"]))
     if not args.no_report:
         out = Path(args.output) if args.output else report_path(old, new, args.reports_dir)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_html(changes, old, new, title=args.title, theme=args.theme, state=args.state),
-                       encoding="utf-8")
+        secure_io.write_private_text(out, render_html(changes, old, new, title=args.title, theme=args.theme,
+                                                      state=args.state))
         log.info("Wrote HTML report %s", out)
     return EXIT_CHANGES if changes else EXIT_OK
 
@@ -178,7 +180,7 @@ def cmd_restore_plan(args) -> int:
     _warn(target, current)
     plan = db_restore.plan(target, current)
     if args.output:
-        Path(args.output).write_text(plan.text, encoding="utf-8")
+        secure_io.write_private_text(args.output, plan.text)
         log.info("Wrote restore plan %s (review it before running)", args.output)
     else:
         sys.stdout.write(plan.text)

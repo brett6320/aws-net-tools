@@ -37,6 +37,11 @@ Table spec (dict):
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import secure_io  # noqa: E402
 
 TEMPLATE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -274,5 +279,5 @@ def render(title: str, *, meta: list[str] | None = None, cards: list[tuple] | No
 
 def write(path, title: str, **kw) -> None:
     """Render a report and write it to `path`."""
-    with open(path, "w", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", encoding="utf-8") as fh:
         fh.write(render(title, **kw))

@@ -5,7 +5,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from conftest import load_tool, run_main
+from conftest import assert_private, load_tool, run_main
 
 fna = load_tool("fmm_nacl_audit")
 Entry = fna.Entry
@@ -236,7 +236,9 @@ def test_main_fake_fms_moto_ec2(monkeypatch, capsys, aws_profiles, tmp_path):
         ec2.create_network_acl_entry(NetworkAclId=acl, RuleNumber=32000, Protocol="-1", RuleAction="allow",
                                      Egress=False, CidrBlock="0.0.0.0/0")
         rc = run_main(fna, monkeypatch, ["--region", "us-east-1", "--nacl-scope", "fmmanaged", "--json", "--no-save",
-                                         "--html-out", str(tmp_path / "n.html"), "-q"])
+                                         "--html-out", str(tmp_path / "n.html"),
+                                         "--json-out", str(tmp_path / "out" / "n.json"),
+                                         "--csv-out", str(tmp_path / "out" / "n.csv"), "-q"])
     out = json.loads(capsys.readouterr().out)
     assert rc == 1
     assert out["stats"]["policies"] == 1 and out["stats"]["accounts"] == 1 and out["stats"]["accounts_skipped"] == 1
@@ -245,6 +247,7 @@ def test_main_fake_fms_moto_ec2(monkeypatch, capsys, aws_profiles, tmp_path):
     assert ("NO_PROFILE", "555555555555", "") in got                 # only a -priv profile exists for it
     assert not any(f["nacl_id"] == acl and f["severity"] == "error" for f in out["findings"])
     assert (tmp_path / "n.html").exists()
+    assert_private(tmp_path / "n.html", tmp_path / "out" / "n.json", tmp_path / "out" / "n.csv", tmp_path / "out")
 
 
 def test_main_rejects_compare_live_without_file(monkeypatch):

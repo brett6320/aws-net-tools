@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
@@ -32,6 +33,9 @@ from typing import Any, Callable, Iterable, Iterator
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
 
 log = logging.getLogger("dx_backup")
 
@@ -268,11 +272,10 @@ def write_backup(snapshot: dict, backup_dir: str | Path) -> Path:
     for o in snapshot["objects"].values():
         rel = f"{DIRS[o['kind']]}/{_safe(o['id'])}.json"
         data = (json.dumps(o, indent=2, sort_keys=True) + "\n").encode()
-        (root / rel).parent.mkdir(parents=True, exist_ok=True)
-        (root / rel).write_bytes(data)
+        secure_io.write_private_bytes(root / rel, data, owned_root=root)
         files[rel] = _sha(data)
     manifest = {**snapshot["manifest"], "counts": counts(snapshot), "files": dict(sorted(files.items()))}
-    (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    secure_io.write_private_text(root / "manifest.json", json.dumps(manifest, indent=2) + "\n", owned_root=root)
     return root
 
 

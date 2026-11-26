@@ -1,5 +1,7 @@
 """OU -> accounts (Organizations, via moto), account -> profile, profile -> VPCs (fakes), and the owner map."""
 import json
+import os
+import stat
 
 import boto3
 import pytest
@@ -337,3 +339,17 @@ def test_cli_accepts_org_id_and_rejects_another_org(org, aws_config, capsys):
     assert {r["account"] for r in json.loads(out)} == {ids["app"], ids["web"]}
     rc, out = run(org, aws_config, capsys, "--ou", "o-zzzzzzzzzz", "--no-cache")
     assert rc == 2 and out == ""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_owner_map_file_and_new_directory_are_private(tmp_path):
+    path = tmp_path / "cache" / "owners.json"
+    cache = VpcOwnerCache(path)
+    cache.put("us-east-1", "vpc-1", A, "ou_vpcs")
+    old = os.umask(0o022)
+    try:
+        cache.save()
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(path.parent).st_mode) == 0o700

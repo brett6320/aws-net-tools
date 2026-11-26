@@ -1,5 +1,7 @@
 """VPC owner lookup: IPAM bulk pull first, then the PHZ account, then a batched search of other accounts."""
 import argparse
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -219,3 +221,17 @@ def test_no_owner_cache_keeps_it_in_memory(tmp_path):
     assert pr.owner_cache(a).path is None
     a = args(no_owner_cache=False, owner_cache=str(tmp_path / "x.json"))
     assert pr.owner_cache(a).path == tmp_path / "x.json"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_owner_map_file_and_new_directory_are_private(tmp_path):
+    path = tmp_path / "cache" / "owners.json"
+    c = VpcOwnerCache(path)
+    c.put("us-east-1", "vpc-1", A, "ou_vpcs")
+    old = os.umask(0o022)
+    try:
+        c.save()
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(path.parent).st_mode) == 0o700

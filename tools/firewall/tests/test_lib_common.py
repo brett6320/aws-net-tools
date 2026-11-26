@@ -124,6 +124,8 @@ def test_write_csv_and_json(tmp_path):
     t = tmp_path / "t" / "r.html"
     output.write_text(t, "<p>hi</p>")
     assert t.read_text() == "<p>hi</p>"
+    from conftest import assert_private
+    assert_private(p, j, t, p.parent, j.parent, t.parent)            # reports are private: 0600 files, 0700 new dirs
 
 
 def test_exit_code():

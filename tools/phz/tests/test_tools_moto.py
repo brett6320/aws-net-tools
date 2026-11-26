@@ -4,6 +4,8 @@ moto does not implement Route 53 VPC association authorizations, so cross-accoun
 behaviour is covered by the planner tests instead.
 """
 import json
+import os
+import stat
 from pathlib import Path
 
 import boto3
@@ -127,6 +129,10 @@ def test_outputs_include_accounts(env, no_auths, capsys):
     assert rows[0]["vpc_owner"] == "unknown" and rows[0]["cross_account"] is None
 
 
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
 def _report_data(path):
     text = path.read_text()
     raw = text.split('<script type="application/json" id="phz-data">', 1)[1].split("</script>", 1)[0]
@@ -145,6 +151,9 @@ def test_html_report_from_phz_account(env, no_auths, capsys, tmp_path, argv):
     assert path == tmp_path / ACCT / f"phz-review_{argv[0]}.html"  # current: one place, overwritten each run
     copies = list(tmp_path.glob(f"*-*-*/{ACCT}/phz-review_{argv[0]}_*.html"))
     assert len(copies) == 1 and copies[0].read_text() == path.read_text()
+    if os.name == "posix":                         # the reports describe the network: owner-only
+        assert _mode(path) == _mode(copies[0]) == 0o600
+        assert _mode(path.parent) == _mode(copies[0].parent) == _mode(copies[0].parent.parent) == 0o700
     d = _report_data(path)
     assert d["vpc_counts_complete"] and d["authorizations_listed"]
     assert [(z["zone_id"], z["owner"], z["vpc_count"], z["tags"]) for z in d["zones"]] == [(env["zone"], ACCT, 1, {"Purpose": "vpce"})]

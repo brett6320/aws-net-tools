@@ -29,6 +29,9 @@ from dotenv import load_dotenv  # noqa: E402
 import il_core as core  # noqa: E402
 from il_export import THEMES, render_html  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -95,8 +98,7 @@ def print_summary(b: dict) -> None:
 
 
 def _write_report(bundles: list[dict], out: Path, title: str | None, theme: str) -> None:
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_html(bundles, title, theme), encoding="utf-8")
+    secure_io.write_private_text(out, render_html(bundles, title, theme))
     log.info("Wrote HTML report %s", out)
 
 
@@ -148,7 +150,7 @@ def run(args) -> int:
                 print()
             print_summary(b)
     if args.json_out:
-        Path(args.json_out).write_text(_dump(bundles[0] if len(bundles) == 1 else bundles), encoding="utf-8")
+        secure_io.write_private_text(args.json_out, _dump(bundles[0] if len(bundles) == 1 else bundles))
         log.info("Wrote JSON %s", args.json_out)
     if args.output:
         _write_report(bundles, Path(args.output), args.title, args.theme)

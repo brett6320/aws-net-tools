@@ -42,6 +42,8 @@ if "urllib3" not in sys.modules:
 import boto3  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
 import pi_core as core  # noqa: E402
 import pi_html  # noqa: E402
 
@@ -286,8 +288,7 @@ def history_path(current: Path, reports_dir: str | None, now: dt.datetime) -> Pa
 
 def write_report(page: str, path: Path, copy: Path) -> None:
     for p in (copy, path):
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(page, encoding="utf-8")
+        secure_io.write_private_text(p, page)
     log.info("Wrote %s", path) if copy == path else log.info("Wrote %s (history copy: %s)", path, copy)
 
 
@@ -296,7 +297,7 @@ def write_json(path: str, rows: dict[str, list[dict]], **header: Any) -> None:
            "resources": [{**{k: v for k, v in r.items() if k not in ("tags", "tag_keys")}, "tags": r["all_tags"]}
                          for r in rows.get("resources", [])],
            "apps": rows["apps"], "vpcs": rows["vpcs"], "unattributed_enis": rows["enis"], "issues": rows["issues"]}
-    Path(path).write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+    secure_io.write_private_text(path, json.dumps(out, indent=2, default=str))
     log.info("Wrote JSON %s", path)
 
 

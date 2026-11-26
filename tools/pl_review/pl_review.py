@@ -47,6 +47,7 @@ from dotenv import load_dotenv  # noqa: E402
 from plr_export import THEMES, render_html  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
 import profile_guard  # noqa: E402
 
 load_dotenv()
@@ -253,9 +254,8 @@ class DiskCache:
         if not (self.enabled and self._dirty and self.path is not None):
             return
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self._data, indent=1))
+            secure_io.write_private_text(tmp, json.dumps(self._data, indent=1))
             tmp.replace(self.path)
             log.debug("Saved cache %s (%d keys)", self.path, len(self._data))
         except OSError as e:
@@ -902,7 +902,7 @@ def write_report(report: PrefixListReport, out_dir: Path, formats: Iterable[str]
     """Write <out_dir>/<YYYY-MM-DD>/<pl>_<HHMMSS>.{json,md,csv,html}; return paths."""
     ts = datetime.fromisoformat(report.generated_at)
     day_dir = out_dir / report.date
-    day_dir.mkdir(parents=True, exist_ok=True)
+    secure_io.ensure_private_dir(day_dir, owned_root=day_dir)
     stem = f"{report.prefix_list_id}_{ts.strftime('%H%M%S')}"
     paths: list[Path] = []
     for fmt in formats:
@@ -910,7 +910,7 @@ def write_report(report: PrefixListReport, out_dir: Path, formats: Iterable[str]
             raise SystemExit(f"Unknown report format {fmt!r}; choose from {', '.join(REPORT_FORMATS)}")
         path = day_dir / f"{stem}.{fmt}"
         text = render_html_report(report, theme) if fmt == "html" else RENDERERS[fmt](report)
-        path.write_text(text, encoding="utf-8")
+        secure_io.write_private_text(path, text)
         paths.append(path)
     return paths
 

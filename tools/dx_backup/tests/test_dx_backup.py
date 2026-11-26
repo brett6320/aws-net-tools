@@ -1,8 +1,10 @@
 import copy
 import datetime as dt
 import json
+import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -645,6 +647,9 @@ def test_cli_backup_diff_restore(cli_env, fake, capsys):
 
     assert dx_backup.main(["restore-plan", "previous", "--against", "latest", "-o", "plan.sh"]) == 2
     assert "--mtu 9001" in Path("plan.sh").read_text()
+    if os.name == "posix":                               # backups, reports and plans are private
+        for p in (*Path("backups").rglob("*"), *Path("reports").rglob("*"), Path("plan.sh")):
+            assert _mode(p) == (0o700 if p.is_dir() else 0o600), p
     assert dx_backup.main(["restore-plan", "latest"]) == 0                  # live matches
     assert "Nothing to do" in capsys.readouterr().out
     assert dx_backup.main(["restore-plan", "live"]) == 1
@@ -673,3 +678,12 @@ def test_cli_live_account_mismatch_and_errors(cli_env, fake, monkeypatch, caplog
     for name in ("DXB_REGION", "DXB_REGIONS", "AWS_REGION", "AWS_DEFAULT_REGION"):
         monkeypatch.delenv(name, raising=False)
     assert dx_backup.main(["backup"]) == 1                                  # no region anywhere
+
+
+# ---------- output permissions ----------
+
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")

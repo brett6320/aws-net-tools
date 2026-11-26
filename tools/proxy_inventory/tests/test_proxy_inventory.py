@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 from pathlib import Path
 
 import boto3
@@ -183,6 +185,9 @@ def test_end_to_end(tmp_path, aws_config, moto_collectors):
                   "--exclude-account", OTHER, "-q"],
                  session_for=lambda profile: boto3.Session(region_name=REGION))
     assert rc == 0
+    if os.name == "posix":                      # inventories are private: 0600 files, 0700 new directories
+        assert stat.S_IMODE(os.stat(out).st_mode) == stat.S_IMODE(os.stat(js).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(out.parent).st_mode) == 0o700
     data = json.loads(js.read_text())
     assert data["services_not_read"] == ["WorkSpaces", "MWAA", "App Runner"]
     assert data["excluded_accounts"] == [OTHER]
@@ -509,6 +514,9 @@ def test_rerender_current_report_in_place(tmp_path, capsys):
     assert meta[0].endswith("from proxy-inventory.html (no AWS calls)") and meta[1] == "Application tag"
     copies = list((tmp_path / "reports").glob(f"*-*-*/{ACCT}/proxy-inventory_*.html"))
     assert len(copies) == 1 and copies[0].read_text() == src.read_text()
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(copies[0]).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(copies[0].parent).st_mode) == 0o700
     data = json.loads(js.read_text())
     assert data["generated_at"] == "2026-11-01T09:00:00+00:00" and data["key_tag"] == "AppCatID"
     assert data["resources"][0]["tags"] == {"AppCatID": "APP-1", "Team": "a=b"}
@@ -589,3 +597,13 @@ def test_retry_throttled(monkeypatch):
     with pytest.raises(ClientError):
         core._retry_throttled(fn, "t")
     assert len(calls) == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_pi_html_write_is_private(tmp_path):
+    out = tmp_path / "x.html"
+    out.write_text("old")
+    os.chmod(out, 0o644)
+    tables = [{"id": "t", "title": "x", "columns": [["a", "A"]], "rows": [{"a": "1"}]}]
+    pi_html.write(out, "T", tables=tables)
+    assert stat.S_IMODE(os.stat(out).st_mode) == 0o600 and "<title>T</title>" in out.read_text()

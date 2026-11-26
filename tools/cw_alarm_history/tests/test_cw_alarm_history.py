@@ -1,6 +1,8 @@
 import csv
 import io
 import json
+import os
+import stat
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -418,3 +420,23 @@ def test_main_overlap_option_and_report_paths(monkeypatch, tmp_path, capsys, cle
     assert out.count("Report: ") == 2 and str(tmp_path) in out  # file names printed at the end
     assert cwah.main(["--alarm", "x", "--overlap", "0", "--no-write"]) == 2
     assert cwah.main(["--alarm", "x", "--overlap", "lots", "--no-write"]) == 2
+
+
+# ---------- output permissions ----------
+
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+
+
+@posix_only
+def test_reports_are_private(tmp_path):
+    old = os.umask(0o022)
+    try:
+        paths = cwah.write_report(collect(), tmp_path / "reports", ["html", "csv", "json"])
+    finally:
+        os.umask(old)
+    assert all(_mode(p) == 0o600 for p in paths)
+    assert _mode(paths[0].parent) == 0o700 and _mode(paths[0].parent.parent) == 0o700

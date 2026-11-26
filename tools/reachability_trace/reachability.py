@@ -37,6 +37,9 @@ import ra_core as core  # noqa: E402
 from ra_export import THEMES, blocking_targets, break_direction, port_range, proto, render_html  # noqa: E402
 from ra_icons import classify, label_for  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -69,16 +72,14 @@ def _dump(obj: Any) -> str:
 
 
 def _write_export(bundles: list[dict], out: str | Path, title: str | None, theme: str = "dark") -> None:
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(render_html(bundles, title, theme), encoding="utf-8")
+    secure_io.write_private_text(out, render_html(bundles, title, theme))
     log.info("Wrote HTML export %s", out)
 
 
 def _write_json(bundles: list[dict], out: str) -> None:
     """Save bundles for offline re-rendering (export --from-json). One bundle is written
     as an object, several as a list; export accepts both."""
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(_dump(bundles if len(bundles) > 1 else bundles[0]), encoding="utf-8")
+    secure_io.write_private_text(out, _dump(bundles if len(bundles) > 1 else bundles[0]))
     log.info("Wrote JSON %s", out)
 
 

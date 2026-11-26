@@ -42,6 +42,9 @@ from dotenv import load_dotenv  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cwah_export import THEMES, render_html  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
+
 
 def _find_dotenv() -> Path | None:
     """``.env`` next to the tool, else the nearest one in a parent of the tool directory."""
@@ -575,7 +578,7 @@ def write_report(report: HistoryReport, out_dir: Path, formats: Iterable[str] = 
     """Write <out_dir>/<YYYY-MM-DD>/<account>/alarm_history_<HHMMSS>.{html,csv,json}; return paths."""
     ts = _from_iso(report.generated_at)
     day_dir = out_dir / report.date / (report.account or "unknown-account")
-    day_dir.mkdir(parents=True, exist_ok=True)
+    secure_io.ensure_private_dir(day_dir, owned_root=out_dir / report.date)
     stem = f"alarm_history_{ts.strftime('%H%M%S')}"
     paths: list[Path] = []
     for fmt in formats:
@@ -583,7 +586,7 @@ def write_report(report: HistoryReport, out_dir: Path, formats: Iterable[str] = 
             raise SystemExit(f"Unknown report format {fmt!r}; choose from {', '.join(REPORT_FORMATS)}")
         path = day_dir / f"{stem}.{fmt}"
         text = render_html_report(report, theme) if fmt == "html" else RENDERERS[fmt](report)
-        path.write_text(text, encoding="utf-8")
+        secure_io.write_private_text(path, text)
         paths.append(path)
     return paths
 

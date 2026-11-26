@@ -65,6 +65,8 @@ truststore.inject_into_ssl()
 import boto3  # noqa: E402
 from botocore.exceptions import ClientError  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import secure_io  # noqa: E402
 from lib import html_report  # noqa: E402
 from lib.aws_common import (_g, get_client, get_policy, get_session, list_policies,  # noqa: E402,F401
                             normalize_proto, resolve_regions)
@@ -822,7 +824,7 @@ def build_json(rules: list[Rule], findings: list[Finding], stats: dict, A: Targe
 
 def write_csv(path: str, rows: list[dict]) -> None:
     """Write the rule-level gaps CSV (`build_rows` output)."""
-    with open(path, "w", newline="", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
         w.writeheader()
         w.writerows(rows)
@@ -831,7 +833,7 @@ def write_csv(path: str, rows: list[dict]) -> None:
 
 def write_json(path: str, payload: dict) -> None:
     """Write the JSON report."""
-    with open(path, "w", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, default=str)
     log.info("Wrote JSON to %s", path)
 
@@ -889,7 +891,7 @@ def build_container_report(rules: list[Rule], findings: list[Finding], A: Target
 
 def write_report_csv(path: str, report: list[dict]) -> None:
     """Write the per-container compliance CSV (list cells joined with ';' / ' | ')."""
-    with open(path, "w", newline="", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=REPORT_COLUMNS)
         w.writeheader()
         for row in report:
@@ -1217,7 +1219,7 @@ Example:
     html_path = args.html_out or auto.get("html")
     for path in (json_path, csv_path, report_path, html_path):
         if path:
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            secure_io.ensure_private_dir(Path(path).parent)
     if json_path:
         write_json(str(json_path), payload)
     if csv_path:
@@ -1225,7 +1227,7 @@ Example:
     if report_path:
         write_report_csv(str(report_path), report)
     if html_path:
-        with open(html_path, "w", encoding="utf-8") as fh:
+        with secure_io.open_private(html_path, "w", encoding="utf-8") as fh:
             fh.write(render_html(rules, findings, stats, A, B, args.scope, regions, report))
         log.info("Wrote HTML to %s", html_path)
 

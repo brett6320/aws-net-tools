@@ -27,6 +27,9 @@ from typing import Any, Iterable, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import secure_io  # noqa: E402
+
 from lib.aws_common import (  # noqa: E402
     AccountContext,
     ClientError,
@@ -114,7 +117,7 @@ def zone_filename(zone: dict[str, Any]) -> str:
 
 
 def write_json(path: Path, data: Any) -> None:
-    path.write_text(json.dumps(data, indent=2, default=str) + "\n")
+    secure_io.write_private_text(path, json.dumps(data, indent=2, default=str) + "\n")
 
 
 def run_backup(args: argparse.Namespace) -> int:
@@ -142,7 +145,9 @@ def run_backup(args: argparse.Namespace) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     taken_at = now.isoformat(timespec="seconds")
     out_dir = Path(args.backup_dir).expanduser() / account / now.strftime(STAMP)
-    out_dir.mkdir(parents=True, exist_ok=False)
+    secure_io.ensure_private_dir(out_dir.parent, owned_root=out_dir.parent)
+    out_dir.mkdir(mode=0o700)                       # still raises FileExistsError if it exists
+    secure_io.ensure_private_dir(out_dir, owned_root=out_dir)
     summary = []
     for z in full:
         auths = list_authorizations(route53, z.zone_id) if not args.no_authorizations else []
@@ -501,8 +506,7 @@ def run_restore_plan(args: argparse.Namespace) -> int:
     script = RestorePlan(backups, into, phz_profile, vpc_profiles).build()
     if args.out:
         out = Path(args.out)
-        out.write_text(script)
-        out.chmod(0o700)
+        secure_io.write_private_text(out, script, executable=True)
         log.info("Wrote %s", out)
     else:
         sys.stdout.write(script)
@@ -534,8 +538,7 @@ def write_reports(backups: Sequence[dict[str, Any]], source: str, reports_dir: s
         page = render_html([b], [script], source, generated)
         targets = [Path(out)] if out else list(report_paths(b, reports_dir, now))
         for t in targets:
-            t.parent.mkdir(parents=True, exist_ok=True)
-            t.write_text(page, encoding="utf-8")
+            secure_io.write_private_text(t, page)
         log.info("Report: %s", targets[0])
         written.append(targets[0])
     return written

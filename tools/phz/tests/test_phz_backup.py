@@ -1,6 +1,8 @@
 """phz_backup: backup against moto, restore-plan from crafted backups (no AWS)."""
 import json
+import os
 import shutil
+import stat
 import subprocess
 
 import boto3
@@ -180,7 +182,9 @@ def test_batches_split_by_count_and_size():
 def test_restore_plan_out_file(tmp_path, capsys):
     out = tmp_path / "restore.sh"
     assert pb.main(["restore-plan", str(zone_file(tmp_path)), "-o", str(out), "-q"]) == 0
-    assert out.read_text().startswith("#!/usr/bin/env bash") and out.stat().st_mode & 0o777 == 0o700
+    assert out.read_text().startswith("#!/usr/bin/env bash")
+    if os.name == "posix":
+        assert out.stat().st_mode & 0o777 == 0o700
 
 
 def test_latest_ambiguous_across_accounts(tmp_path, capsys):
@@ -290,3 +294,40 @@ def test_report_scripts_use_matched_profiles(tmp_path, aws_config, capsys):
     out = tmp_path / "r.html"
     assert pb.main(["report", str(cross_file(tmp_path)), "--out", str(out), "-q"]) == 0
     assert "PHZ_PROFILE-hub-adm" in out.read_text()
+
+
+# ---------- output permissions ----------
+
+def _mode(p) -> int:
+    return stat.S_IMODE(os.stat(p).st_mode)
+
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+
+
+@posix_only
+def test_backup_and_reports_are_private(env, capsys):
+    old = os.umask(0o022)
+    try:
+        out = backup(env, capsys)
+    finally:
+        os.umask(old)
+    backup_dir = pb.Path(out["backup"])
+    files = [*backup_dir.rglob("*"), *env["reports"].rglob("*")]
+    assert len(files) >= 5
+    for p in (*files, backup_dir, backup_dir.parent, env["root"]):
+        assert _mode(p) == (0o700 if p.is_dir() else 0o600), p
+
+
+@posix_only
+def test_report_and_restore_script_outputs(tmp_path):
+    old = os.umask(0o022)
+    try:
+        target = tmp_path / "new" / "r.html"
+        assert pb.main(["report", str(zone_file(tmp_path)), "--out", str(target), "-q"]) == 0
+        script = tmp_path / "new2" / "restore.sh"
+        assert pb.main(["restore-plan", str(zone_file(tmp_path)), "-o", str(script), "-q"]) == 0
+    finally:
+        os.umask(old)
+    assert _mode(target) == 0o600 and _mode(script) == 0o700
+    assert _mode(target.parent) == 0o700 and _mode(script.parent) == 0o700

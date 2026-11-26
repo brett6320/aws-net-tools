@@ -13,8 +13,11 @@ import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import secure_io  # noqa: E402
 log = logging.getLogger("output")
 
 SEVERITY_ORDER = {"error": 0, "warn": 1, "info": 2}
@@ -59,14 +62,14 @@ def report_paths(args, tool: str, slug: str) -> dict[str, str | None]:
 
 
 def _mkparent(path) -> None:
-    """Create the parent directory of `path` if needed."""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    """Create the parent directory of `path` if needed (new directories are private, 0700)."""
+    secure_io.ensure_private_dir(Path(path).parent)
 
 
 def write_json(path, payload) -> None:
     """Write JSON (creating parent directories)."""
     _mkparent(path)
-    with open(path, "w", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, default=str)
     log.info("Wrote JSON to %s", path)
 
@@ -74,7 +77,7 @@ def write_json(path, payload) -> None:
 def write_csv(path, rows: list[dict], columns: list[str]) -> None:
     """Write CSV with the given columns; list values are joined with '; '."""
     _mkparent(path)
-    with open(path, "w", newline="", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
         w.writeheader()
         for r in rows:
@@ -85,7 +88,7 @@ def write_csv(path, rows: list[dict], columns: list[str]) -> None:
 def write_text(path, text: str) -> None:
     """Write a text file such as an HTML report (creating parent directories)."""
     _mkparent(path)
-    with open(path, "w", encoding="utf-8") as fh:
+    with secure_io.open_private(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     log.info("Wrote %s", path)
 
