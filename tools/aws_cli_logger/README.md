@@ -110,6 +110,7 @@ Ages are whole days. Compression and retention changes take effect at the next 0
 | `AWS_LOG_DIR` | `~/.aws/logs` | Directory for log files |
 | `AWS_LOG_KEEP_DAYS` | `30` | Delete logs (compressed or not) older than this many days; `0` keeps everything |
 | `AWS_LOG_COMPRESS_DAYS` | `7` | Gzip logs older than this many days; `0` disables compression |
+| `AWS_LOG_OUTPUT` | `redact` | `redact` logs stdout and stderr with secret values replaced by `<redacted>`; `none` never logs stdout or stderr |
 | `AWS_REAL_BIN` | auto-detected | Path to the real `aws` binary, if auto-detection picks the wrong one |
 
 ## Log files
@@ -184,8 +185,10 @@ Some commands need a real terminal, and piping their I/O would break them. These
 
 ## Security notes
 
-- **Command output can contain secrets.** For example, `aws secretsmanager get-secret-value` and `aws sts assume-role` print sensitive values to stdout, and those lines will be written to the log. Treat the log directory accordingly.
-- Credentials passed as command-line arguments (for instance `aws configure set aws_secret_access_key ...`) will appear in the `START` line.
+- **Output of credential-returning commands is not logged.** For `sts assume-role*`, `sts get-session-token`, `sts get-federation-token`, `secretsmanager get-secret-value`, `ssm get-parameter*`, `kms decrypt` and `generate-data-key*`, `ecr get-login-password` / `get-authorization-token`, `codeartifact get-authorization-token`, `iam create-access-key` / `create-login-profile` / service-specific credentials, `sso get-role-credentials`, `cognito-identity get-credentials-for-identity`, `rds generate-db-auth-token`, `eks get-token`, `ec2 get-password-data` / `create-key-pair`, `s3 presign`, `configure get` / `export-credentials` and a few similar commands, stdout is passed through to you but the log records only `stdout=suppressed(sensitive-command)` on the `START` line. stderr is still logged, redacted.
+- **Other output is redacted by pattern.** Values of keys whose names contain `secret`, `passw`, `token` (except pagination tokens such as `NextToken`), `privatekey`, `keymaterial` or `plaintext` are replaced by `<redacted>` in JSON, YAML, `key=value` and table output, and long session-token blobs are replaced wherever they appear. This is best effort: a secret printed without a recognisable key (for example in `--output text` from a command not listed above) is not caught. Set `AWS_LOG_OUTPUT=none` if you can't accept that.
+- **Secret arguments are redacted.** The value of any option whose name contains `secret`, `passw`, `token`, `credential`, `private-key` or `key-material`, of `--value` in `ssm put-parameter`, and the value in `aws configure set <name> <value>`, is logged as `<redacted>`. Secrets passed inside `--cli-input-json` / `--cli-input-yaml` or in `file://` contents are not inspected.
+- `AccessKeyId` values are not redacted: they identify a key but don't grant access, and `iam list-access-keys` output is useful in an audit trail.
 - Environment secrets are fingerprinted, not stored, as described above.
 
 ## Limitations
