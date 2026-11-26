@@ -4,7 +4,7 @@
 
 Command-line tools for investigating AWS networks: tracing paths, finding who owns an address, showing which
 Direct Connect path AWS prefers, backing up Direct Connect configuration, reviewing firewall policy, security groups, NACLs and prefix lists, running centralized VPC endpoints, finding which applications live in each VPC, and capturing CloudWatch alarm state history. All but the
-`vpce`, `ou_vpcs`, `vpc_participants`, `name_tag_sync` and `phz_assoc` tools write self-contained HTML reports you can share or attach to a ticket (`phz_review` with `-o html`).
+`vpce`, `ou_vpcs`, `vpc_participants`, `name_tag_sync`, `phz_assoc` and `aws_cli_logger` tools write self-contained HTML reports you can share or attach to a ticket (`phz_review` with `-o html`).
 
 ## Tools
 
@@ -40,6 +40,12 @@ Direct Connect path AWS prefers, backing up Direct Connect configuration, review
 | Tool | AWS service | What it does |
 |---|---|---|
 | [`cw_alarm_history`](tools/cw_alarm_history/) | CloudWatch | Every state transition of a list of alarms (or a name prefix) over a period: when, from and to which state, why, and how long the new state lasted, with per-alarm time in ALARM. The HTML report filters by alarm, state, text and time window, and its CSV export honours those filters |
+
+**AWS CLI logging**
+
+| Tool | AWS service | What it does |
+|---|---|---|
+| [`aws_cli_logger`](tools/aws_cli_logger/) | AWS CLI (makes no AWS API calls of its own) | A drop-in `aws` wrapper (Bash 5) that logs every command, its timestamped stdout and stderr, exit code, duration and `AWS_*` environment changes to `~/.aws/logs`, rolling over at 08:00 and 20:00. Command output is logged as printed, so the logs can contain secrets: see its README |
 
 The tools work well together. For example:
 - Use `ipam_locate` to find who owns an unknown address, then `reachability_trace` to check whether traffic
@@ -83,9 +89,9 @@ covers usage, options, output, configuration and IAM permissions.
 
 | Area | Convention |
 |---|---|
-| **Safety** | Nothing changes AWS resources except `reachability_trace`'s `create`, `analyze` and `delete-*` commands. Those are dry-run by default: they log `[DRY-RUN]` with the exact request and need `--execute` or `--apply`. `phz_assoc`, `phz_backup restore-plan` and `dx_backup restore-plan` only print the commands for you to review and run |
-| **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce`, `phz`, `ou_vpcs`, `vpc_participants`, `proxy_inventory`, `pl_review` and `dx_route` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` (in `phz`, `ou_vpcs` and `vpc_participants`: `-priv`, `-adm`, `-cpar` or `-ro`) are never picked automatically for the tools' own calls (the `phz_review` migration planner defaults the commands it writes to each account's `-adm` profile), and `pl_review` only uses profiles whose names start with `hcli-` |
-| **Configuration** | Each tool or suite reads a `.env` file (see its `.env.example`) from its own directory, or from the nearest parent directory that has one (such as the repository root). The directory you run a tool from doesn't matter. CLI flags override `.env`, which overrides defaults |
+| **Safety** | Nothing changes AWS resources except `reachability_trace`'s `create`, `analyze` and `delete-*` commands and `name_tag_sync --apply`. The `reachability_trace` commands are dry-run by default: they log `[DRY-RUN]` with the exact request and need `--execute` or `--apply`. `name_tag_sync` is also a dry run unless `--apply`, which writes a `Name` tag only where the participant's name is missing or empty, after a confirmation at the terminal for each resource (or one `FORCE` confirmation with `--force`). `phz_assoc`, `phz_backup restore-plan` and `dx_backup restore-plan` only print the commands for you to review and run. `aws_cli_logger` changes no AWS resources, but writes local log files |
+| **Credentials** | `--profile` (or `AWS_PROFILE`) and `--region` (or `AWS_REGION`) select the account and Region; otherwise the standard boto3 credential chain is used. The `firewall`, `vpce`, `phz`, `ou_vpcs`, `vpc_participants`, `proxy_inventory`, `pl_review` and `dx_route` tools can also find each account's profile in your local AWS config by account ID. Profiles ending in `-priv` or `-cpar` (in `phz`, `ou_vpcs` and `vpc_participants`: `-priv`, `-adm`, `-cpar` or `-ro`) are never picked automatically for the tools' own calls (the `phz_review` migration planner defaults the commands it writes to each account's `-adm` profile), and `pl_review` only uses profiles whose names start with `hcli-`. `name_tag_sync` doesn't discover profiles or apply that suffix rule: it uses exactly the `--owner-profile` and `--participant-profile` you give it |
+| **Configuration** | Each tool or suite reads a `.env` file (see its `.env.example`) from its own directory, or from the nearest parent directory that has one (such as the repository root). The directory you run a tool from doesn't matter. CLI flags override `.env`, which overrides defaults. The exception is `aws_cli_logger`, which reads only exported environment variables |
 | **TLS** | The OS certificate store is used through `truststore` (macOS, Windows, Linux), so corporate TLS inspection works without extra configuration |
 
 Where each tool writes, and what it expects:
@@ -102,6 +108,7 @@ Where each tool writes, and what it expects:
 | `ou_vpcs` | stdout: table, JSON or CSV; VPC owner map in `~/.cache/aws-net-tools/` | `OU_VPCS_` | 0 ok, 1 error, 2 bad input, 3 accounts skipped |
 | `vpc_participants` | stdout: table, JSON or CSV | `VPC_PART_` | 0 ok, 1 some VPCs not read, 2 bad input |
 | `name_tag_sync` | stdout: table, JSON or CSV | `NTS_` | 0 ok, 1 error, 2 bad input, 3 owner mismatch |
+| `aws_cli_logger` | log files in `~/.aws/logs/` (or `AWS_LOG_DIR`) | `AWS_LOG_` | the real `aws` command's exit code (130 if interrupted) |
 | `proxy_inventory` | HTML in `reports/<scope>/` (latest), with timestamped copies in `reports/<date>/<scope>/`; optional JSON | `PROXY_INV_` | 0 ok, 2 bad input, 3 accounts skipped |
 | `vpce/*` | stdout: table, JSON or CSV | `VPCE_` | 0 ok, 1 error, 2 bad input |
 | `phz/*` | stdout: table, JSON or CSV; `phz_review -o html`: HTML in `reports/<account>/` (latest), with timestamped copies in `reports/<date>/<account>/` (`phz_assoc`: shell script or JSON plan); `phz_backup`: JSON backups in `backups/phz/<account>/<timestamp>/` with one HTML report per zone in `reports/<account>/` (latest) and `reports/<date>/<account>/`, restore plan: shell script | `VPCE_` | 0 ok, 1 error, 2 bad input |
@@ -110,7 +117,7 @@ The `reports/` and `backups/` roots are relative to the current directory and ar
 
 ## Tests and CI
 
-Each tool and suite has its own GitHub Actions workflow. It runs the tests on Python 3.11, 3.12 and 3.13
+Each tool and suite except `aws_cli_logger` (a single script with no tests) has its own GitHub Actions workflow. It runs the tests on Python 3.11, 3.12 and 3.13
 whenever that tool's folder changes, and on every pull request that touches it. Each run's summary page lists
 the test count, failures, duration and coverage for every Python version. CodeQL scans the code on every
 pull request and weekly, and Dependabot proposes dependency updates weekly.
@@ -164,7 +171,7 @@ tools/
     └── ...                # the tools, as <tool>.py files (firewall) or <tool>/ folders (vpce, phz)
 ```
 
-New tools go under `tools/` with the same layout and conventions, plus a row in the tables above.
+New tools go under `tools/` with the same layout and conventions, plus a row in the tables above. `aws_cli_logger` is the exception: a single `aws` script and its README.
 
 `firewall` and `vpce` were merged in from the `aws-firewall-tools` and `aws-vpce-tools` repositories with their
 history, so `git log --follow` works on their files (`phz` was later split out of `vpce`). `pl_review` came from a standalone project with no version

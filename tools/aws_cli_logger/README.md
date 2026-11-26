@@ -138,7 +138,7 @@ zgrep '\[3fa91c0e\]' ~/.aws/logs/aws-cli_*.log.gz
 zcat ~/.aws/logs/aws-cli_2026-10-21_0800.log.gz | less
 ```
 
-Log files are created with mode `600` and the directory with mode `700`.
+Log files are created with mode `600`. The log directory (and `.env-state`) gets mode `700` only when the wrapper creates it; an existing directory keeps its current mode, so check it if you point `AWS_LOG_DIR` at one.
 
 ## Log format
 
@@ -165,6 +165,8 @@ Each time `aws` runs, the wrapper takes a snapshot of all exported `AWS_*` varia
 - `ENV set` / `ENV changed` / `ENV unset` — individual differences since that shell's last command.
 
 Variables whose names contain `SECRET`, `TOKEN` or `PASSWORD` (such as `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`) are never logged in clear text. They appear as `<redacted sha256:xxxxxxxx len:N>`, which is enough to see that a credential changed without exposing it.
+
+Other `AWS_*` variables are logged in clear text, including `AWS_ACCESS_KEY_ID`, `AWS_PROFILE` and `AWS_REGION`. Only names containing `SECRET`, `TOKEN` or `PASSWORD` are redacted, so a secret held in a variable with another name is not.
 
 Changes are noticed when the next `aws` command runs, not at the moment of the `export`. Read an `ENV` timestamp as "changed at or before this point."
 
