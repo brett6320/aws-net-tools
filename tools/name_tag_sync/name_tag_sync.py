@@ -7,8 +7,8 @@ one is owned by any other account, the run stops with an error and nothing is ch
 
 The owner's ``Name`` tag is copied only where the participant has no ``Name`` tag or an empty one.
 Tags in the owner account are never changed, and a ``Name`` with a value is never changed. With
-``--apply``, each resource is confirmed one at a time at the terminal, and every rule is re-checked
-against live data right before its write.
+``--apply``, each resource is confirmed one at a time at the terminal (``--force`` skips the
+confirmations), and every rule is re-checked against live data right before its write.
 
 Logs and prompts go to stderr; the table / CSV / JSON goes to stdout.
 """
@@ -80,7 +80,7 @@ def outcome_style(text: str) -> tuple[str, str]:
     """(emoji, color) for a permission or result value."""
     if text in ("tagged", "allowed"):
         return OK, GREEN
-    if text.startswith("denied") or text == "not asked (denied)":
+    if text.startswith(("denied", "not asked (denied)", "not asked (permission")):
         return DENIED, RED
     if text.startswith(("error", "stopped")):
         return MISSING, RED
@@ -183,50 +183,71 @@ def prompt_text(item: core.Item, participant: core.Account, style: Style = PLAIN
             f"{p('Set Name', CYAN)} in {participant.account} to {new}? [y/N/q] ")
 
 
-def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Account,
-               ask: Callable[[str], str] = tty_ask, style: Style = PLAIN) -> None:
-    """Confirm and write each planned item. Raises OwnerMismatch (the run stops).
+def skip_reason(item: core.Item, force: bool) -> str:
+    """Why a planned item isn't asked about at all ("" when it is).
 
-    Items --check-permissions found denied aren't asked. Ctrl-C during a write stops like quit.
+    Interactive: only --check-permissions denials are skipped; any other check error is shown in the
+    table and the prompt, so it can be declined. --force: anything the check didn't call "allowed".
+    """
+    if item.permission.startswith("denied"):
+        return "not asked (denied)"
+    if force and item.permission and item.permission != "allowed":
+        return f"not asked (permission {item.permission})"
+    return ""
+
+
+def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Account,
+               ask: Callable[[str], str] = tty_ask, style: Style = PLAIN, force: bool = False) -> None:
+    """Confirm (unless ``force``) and write each planned item. Raises OwnerMismatch (the run stops).
+
+    Ctrl-C at any point stops like quit; the item being written is marked interrupted.
     """
     todo = [i for i in items if i.action == core.SET]
     for item in todo:
-        if item.permission.startswith("denied"):
-            item.result = "not asked (denied)"
+        item.result = skip_reason(item, force)
     todo = [i for i in todo if not i.result]
+    if force:
+        log.warning("--force: tagging %d resource(s) in %s without asking for each one", len(todo),
+                    participant.account)
     for n, item in enumerate(todo):
-        answer = ask(prompt_text(item, participant, style))
-        if answer in ("q", "quit"):
-            for rest in todo[n:]:
-                rest.result = "not asked (quit)"
-            log.info("Quit; %d resource(s) not asked", len(todo) - n)
-            return
-        if answer not in ("y", "yes"):
-            item.result = "declined"
-            continue
         try:
-            core.apply_item(item, owner, participant)
+            if not force:
+                answer = ask(prompt_text(item, participant, style))
+                if answer in ("q", "quit"):
+                    for rest in todo[n:]:
+                        rest.result = "not asked (quit)"
+                    log.info("Quit; %d resource(s) not asked", len(todo) - n)
+                    return
+                if answer not in ("y", "yes"):
+                    item.result = "declined"
+                    continue
+            else:
+                log.warning("--force: %s %s %s in %s: Name=%s", item.region, item.kind, item.resource_id,
+                            participant.account, core.show(item.source_name))
+            try:
+                core.apply_item(item, owner, participant)
+            except core.OwnerMismatch:
+                item.result = "stopped: owner mismatch"
+                for rest in todo[n + 1:]:
+                    rest.result = "not asked (stopped)"
+                raise
+            except core.SafetyError as e:
+                item.result = f"skipped: {e}"
+                log.warning("%s", e)
+                continue
+            except (ClientError, BotoCoreError) as e:
+                item.result = f"error: {core._error(e)}"
+                log.error("%s: %s", item.resource_id, core._error(e))
+                continue
+            item.result = "tagged"
+            log.info("Tagged %s in %s: Name=%s", item.resource_id, participant.account, core.show(item.source_name))
         except KeyboardInterrupt:
-            item.result = "interrupted (check its Name tag)"
+            if not item.result:
+                item.result = "interrupted (check its Name tag)"
+                log.warning("Interrupted while tagging %s; it may or may not be tagged", item.resource_id)
             for rest in todo[n + 1:]:
                 rest.result = "not asked (quit)"
-            log.warning("Interrupted while tagging %s; it may or may not be tagged", item.resource_id)
             return
-        except core.OwnerMismatch:
-            item.result = "stopped: owner mismatch"
-            for rest in todo[n + 1:]:
-                rest.result = "not asked (stopped)"
-            raise
-        except core.SafetyError as e:
-            item.result = f"skipped: {e}"
-            log.warning("%s", e)
-            continue
-        except (ClientError, BotoCoreError) as e:
-            item.result = f"error: {core._error(e)}"
-            log.error("%s: %s", item.resource_id, core._error(e))
-            continue
-        item.result = "tagged"
-        log.info("Tagged %s in %s: Name=%s", item.resource_id, participant.account, core.show(item.source_name))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -248,6 +269,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "(writes nothing)")
     p.add_argument("--apply", action="store_true",
                    help="Write the planned Name tags, confirming each resource at the terminal (default: dry run)")
+    p.add_argument("--force", action="store_true",
+                   help="With --apply: write every planned tag without asking for each resource (no terminal "
+                        "needed). Every other safety rule and live re-check still applies")
     p.add_argument("--output", "-o", choices=("table", "json", "csv"), default="table",
                    help="Output format (default: table)")
     p.add_argument("--json", dest="output", action="store_const", const="json", help="Shortcut for --output json")
@@ -270,8 +294,11 @@ def main(argv: list[str] | None = None, session_for=None, ask: Callable[[str], s
     if args.owner_profile == args.participant_profile:
         log.error("--owner-profile and --participant-profile are the same profile")
         return USAGE_EXIT
+    if args.force and not args.apply:
+        log.error("--force only skips the confirmations of --apply; pass --apply --force to write")
+        return USAGE_EXIT
     interactive = interactive or (lambda: sys.stdin.isatty() and sys.stderr.isatty())
-    if args.apply and not interactive():
+    if args.apply and not args.force and not interactive():
         log.error("--apply confirms each resource at the terminal; stdin and stderr must be a terminal")
         return USAGE_EXIT
     try:
@@ -316,7 +343,7 @@ def main(argv: list[str] | None = None, session_for=None, ask: Callable[[str], s
     status = 0
     if args.apply and planned:
         try:
-            apply_plan(items, owner, participant, ask or tty_ask, prompt_style)
+            apply_plan(items, owner, participant, ask or tty_ask, prompt_style, force=args.force)
         except core.OwnerMismatch as e:
             log.error("Owner mismatch, stopped; nothing more changed: %s", e)
             status = MISMATCH_EXIT
