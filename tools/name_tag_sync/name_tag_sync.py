@@ -46,6 +46,7 @@ TABLE_COLUMNS = ("region", "type", "resource_id", "vpc_id", "owner_name", "parti
 FULL_COLUMNS = ("region", "type", "resource_id", "vpc_id", "cidr", "owner", "target", "owner_name",
                 "participant_name", "action", "permission", "result")
 ERROR_EXIT = 1
+FORCE_WORD = "FORCE"  # the --force confirmation: exact, case-sensitive
 USAGE_EXIT = 2
 MISMATCH_EXIT = 3
 
@@ -166,7 +167,7 @@ def tty_ask(question: str) -> str:
     sys.stderr.write(question)
     sys.stderr.flush()
     try:
-        return input().strip().lower()
+        return input().strip()
     except (EOFError, KeyboardInterrupt):
         sys.stderr.write("\n")
         return "q"
@@ -203,7 +204,7 @@ def force_text(todo: Sequence[core.Item], participant: core.Account, style: Styl
              f"(profile {participant.profile}) without asking for each one:"]
     for item in todo:
         lines.append(f"  {item.region} {item.kind} {item.resource_id}: Name {p(core.show(item.source_name), GREEN)}")
-    lines.append(f"Type {p('yes', BOLD)} to tag all of them: ")
+    lines.append(f"Type {p(FORCE_WORD, BOLD)} to tag all of them: ")
     return "\n".join(lines)
 
 
@@ -222,7 +223,7 @@ def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Ac
             answer = ask(force_text(todo, participant, style))
         except KeyboardInterrupt:
             answer = ""
-        if answer.strip().lower() != "yes":
+        if answer.strip() != FORCE_WORD:
             for item in todo:
                 item.result = "not asked (--force not confirmed)"
             log.warning("--force not confirmed; nothing tagged")
@@ -232,7 +233,7 @@ def apply_plan(items: list[core.Item], owner: core.Account, participant: core.Ac
     for n, item in enumerate(todo):
         try:
             if not force:
-                answer = ask(prompt_text(item, participant, style))
+                answer = ask(prompt_text(item, participant, style)).strip().lower()
                 if answer in ("q", "quit"):
                     for rest in todo[n:]:
                         rest.result = "not asked (quit)"
@@ -290,7 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--apply", action="store_true",
                    help="Write the planned Name tags, confirming each resource at the terminal (default: dry run)")
     p.add_argument("--force", action="store_true",
-                   help="With --apply: confirm once (type yes) for all planned tags instead of for each resource. "
+                   help="With --apply: confirm once (type FORCE) for all planned tags instead of for each resource. "
                         "Every other safety rule and live re-check still applies")
     p.add_argument("--output", "-o", choices=("table", "json", "csv"), default="table",
                    help="Output format (default: table)")

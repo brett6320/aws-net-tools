@@ -13,7 +13,7 @@ When subnets are shared through RAM, the participant sees the VPC and those subn
 - **The owner is the account EC2 reports.** Ownership comes from each resource's `OwnerId`, not from the profile it was read with. Every VPC or subnet both accounts can see must be owned by the `--owner-profile` account. If one is owned by any other account, the run stops with an error (exit `3`) before any change. That includes the `--participant-profile` account and a third account that shares a VPC with both. It also stops if the two accounts disagree on a resource's owner, or both profiles are the same account. Use `--vpc-ids` to leave out VPCs a third account shares with both.
 - **The owner account's tags are never changed.** Writes go only through `--participant-profile`, and only to resources that the other account owns.
 - **A `Name` tag with a value is never changed.** Only a missing `Name` tag or an empty one (`""`) is filled in. A whitespace-only name counts as a value and is left alone.
-- **Each resource is confirmed.** `--apply` prompts `[y/N/q]` for every resource at the terminal. It refuses to run when stdin or stderr isn't a terminal. EOF or Ctrl-C at a prompt means quit. `--apply --force` replaces them with one confirmation: it lists every resource it will tag with its new Name, and writes only if you type `yes` (any case). Anything else, EOF or Ctrl-C tags nothing. It still needs a terminal. It doesn't relax any other rule: the owner check, the empty-name rule and the live re-checks all still apply. With `--check-permissions`, `--force` writes only resources whose check says `allowed`. Each forced write is logged as a warning before it happens. `--force` without `--apply` is an error.
+- **Each resource is confirmed.** `--apply` prompts `[y/N/q]` for every resource at the terminal. It refuses to run when stdin or stderr isn't a terminal. EOF or Ctrl-C at a prompt means quit. `--apply --force` replaces them with one confirmation: it lists every resource it will tag with its new Name, and writes only if you type `FORCE` (exactly, in capitals). Anything else, EOF or Ctrl-C tags nothing. It still needs a terminal. It doesn't relax any other rule: the owner check, the empty-name rule and the live re-checks all still apply. With `--check-permissions`, `--force` writes only resources whose check says `allowed`. Each forced write is logged as a warning before it happens. `--force` without `--apply` is an error.
 - **Everything is re-checked just before each write:**
   - the participant profile still authenticates as the same account;
   - both accounts still see the original owner;
@@ -49,7 +49,7 @@ python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --part
 # Write, confirming each resource
 python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --participant-profile app-team --apply
 
-# Write every planned tag after one confirmation (type yes) instead of one per resource
+# Write every planned tag after one confirmation (type FORCE) instead of one per resource
 python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --participant-profile app-team --apply --force
 ```
 
@@ -61,7 +61,7 @@ python tools/name_tag_sync/name_tag_sync.py --owner-profile network-owner --part
 | `--vpc-ids` | | Only these VPCs and their subnets; repeat or comma-separate |
 | `--check-permissions` | | For each planned tag, call `CreateTags` with `DryRun=True` through the participant to see whether it would be allowed. Writes nothing. Useful because a shared resource's ARN carries the owner's account ID, so participant IAM policies or SCPs scoped to their own account deny the write |
 | `--apply` | | Write the planned tags, confirming each resource |
-| `--force` | | With `--apply`: one confirmation (type `yes`) for all planned tags instead of one per resource. Every other safety rule still applies |
+| `--force` | | With `--apply`: one confirmation (type `FORCE`) for all planned tags instead of one per resource. Every other safety rule still applies |
 | `-o table\|csv\|json`, `--json` | | Output format (default `table`) |
 | `--color auto\|always\|never` | `NO_COLOR` | Color the table and prompts. `auto` (default) colors only on a terminal, and not when `NO_COLOR` is set |
 | `--no-emoji` | | No status emojis in the table and prompts |
