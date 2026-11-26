@@ -272,15 +272,36 @@ def test_write_and_load_round_trip(fake, tmp_path):
         core.write_backup(snap, tmp_path)
 
 
-def test_load_flags_edits_and_missing_files(fake, tmp_path):
+def test_load_refuses_edited_files(fake, tmp_path):
     root = core.write_backup(snapshot(fake, generated="2026-10-26T12:00:00+00:00"), tmp_path)
     f = root / "lags" / f"{LAG}.json"
     f.write_text(f.read_text().replace("nyc-lag-b", "edited"))
+    with pytest.raises(core.ValidationError, match=r"integrity check.*lags/.*don't match the manifest hash"):
+        core.load_backup(root)
+
+
+def test_load_refuses_missing_files(fake, tmp_path):
+    root = core.write_backup(snapshot(fake, generated="2026-10-26T12:00:00+00:00"), tmp_path)
     (root / "connections" / f"{CON}.json").unlink()
-    loaded = core.load_backup(root)
-    w = " ".join(loaded["manifest"]["warnings"])
-    assert "don't match the manifest hash" in w and "missing" in w
-    assert f"connection/{CON}" not in loaded["objects"]
+    with pytest.raises(core.ValidationError, match=r"integrity check.*connections/.*missing"):
+        core.load_backup(root)
+
+
+def test_load_refuses_manifest_paths_outside_the_backup(fake, tmp_path):
+    root = core.write_backup(snapshot(fake, generated="2026-10-26T12:00:00+00:00"), tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}")
+    m = json.loads((root / "manifest.json").read_text())
+    m["files"]["../../../outside.json"] = core._sha(b"{}")
+    (root / "manifest.json").write_text(json.dumps(m))
+    with pytest.raises(core.ValidationError, match="outside the backup directory"):
+        core.load_backup(root)
+
+
+def test_load_ignores_unlisted_files(fake, tmp_path):
+    root = core.write_backup(snapshot(fake, generated="2026-10-26T12:00:00+00:00"), tmp_path)
+    (root / "vifs" / "injected.json").write_text(json.dumps({"kind": "vif", "id": "dxvif-injected"}))
+    assert "vif/dxvif-injected" not in core.load_backup(root)["objects"]
 
 
 def test_load_rejects_non_backups(tmp_path):

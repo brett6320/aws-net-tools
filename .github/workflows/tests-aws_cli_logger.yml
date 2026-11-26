@@ -1,0 +1,33 @@
+name: aws_cli_logger tests
+
+# Standalone rather than the reusable workflow: the wrapper is a bash script, so there is no Python
+# coverage to report or badge.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/aws_cli_logger/**"
+      - ".github/workflows/tests-aws_cli_logger.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/aws_cli_logger/**"
+      - ".github/workflows/tests-aws_cli_logger.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/aws_cli_logger
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest tests -q

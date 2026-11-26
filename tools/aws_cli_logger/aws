@@ -80,6 +80,15 @@
 #   AWS_LOG_KEEP_DAYS      delete logs older than N days   (default 30, 0 = keep all)
 #   AWS_LOG_COMPRESS_DAYS  gzip logs older than N days     (default 7, 0 = never)
 #   AWS_REAL_BIN           path to the real aws            (default: next aws on PATH)
+#   AWS_LOG_OUTPUT         redact (default) | none         (none = never log stdout/stderr)
+#
+# Secrets: values of secret-looking options (--password, --secret-string,
+# --token-code, ...) are replaced by <redacted> in the logged command, and so are
+# secret-valued keys (SecretAccessKey, SessionToken, SecretString, Password, ...)
+# in output. The output of commands that return credentials (sts assume-role,
+# secretsmanager get-secret-value, ssm get-parameter*, kms decrypt, ...) is not
+# logged at all; stderr still is, redacted. Redaction is pattern-based and best
+# effort: use AWS_LOG_OUTPUT=none when you can't accept any residual risk.
 #
 # Log line format:
 #   [2026-10-30T09:14:02.113-0400] [3fa91c0e] START ... cmd: aws s3 ls
@@ -142,20 +151,88 @@ to_us() {   # to_us VAR EPOCH  -> integer microseconds
   local s=${2%%[.,]*} f=${2#*[.,]}
   printf -v "$1" '%d' $(( s * 1000000 + 10#$f ))
 }
+# --- secret redaction ---------------------------------------------------------
+# Option names whose value is a secret, and the keys whose values are secrets in
+# CLI output (JSON, YAML, key=value and table formats).
+SECRET_OPT_RE='(secret|passw|token|credential|private-?key|key-?material)'
+SECRET_KEY_RE='("?)([A-Za-z0-9_.-]*(secret|passw|token|private[_-]?key|key[_-]?material|plaintext)[A-Za-z0-9_.-]*)("?[[:space:]]*[:=|][[:space:]]*)("([^"\\]|\\.)*"|[^,}[:space:]|]+)'
+SESSION_TOKEN_RE='(FwoG|IQoJ|AQoD|AQoE)[A-Za-z0-9/+=]{60,}'
+
+redact_line() {  # redact_line VAR LINE -> VAR = LINE with secret values replaced
+  local - ; shopt -s nocasematch
+  local rest=$2 out= m pre q k sep v
+  while [[ $rest =~ $SECRET_KEY_RE ]]; do
+    m=${BASH_REMATCH[0]} q=${BASH_REMATCH[1]} k=${BASH_REMATCH[2]} sep=${BASH_REMATCH[4]} v=${BASH_REMATCH[5]}
+    pre=${rest%%"$m"*}
+    if [[ $k =~ (next|continuation|pagination|marker) ]]; then out+="$pre$m"
+    elif [[ $v == \"* ]]; then out+="$pre$q$k$sep\"<redacted>\""
+    else out+="$pre$q$k$sep<redacted>"
+    fi
+    rest=${rest#*"$m"}
+  done
+  rest=$out$rest
+  out=
+  while [[ $rest =~ $SESSION_TOKEN_RE ]]; do
+    m=${BASH_REMATCH[0]}; out+="${rest%%"$m"*}<redacted>"; rest=${rest#*"$m"}
+  done
+  printf -v "$1" '%s' "$out$rest"
+}
+
+redact_args() {  # redact_args VAR ARGS... -> VAR = " %q %q ..." with secret option values replaced
+  local - ; shopt -s nocasematch
+  local var=$1 out= a name redact_next=0 cfg_pos=0; shift
+  for a in "$@"; do
+    if (( redact_next )); then out+=" '<redacted>'"; redact_next=0; continue; fi
+    if [[ $a == --* ]]; then
+      name=${a%%=*}
+      if [[ $name =~ $SECRET_OPT_RE || ( $name == --value && $CMD_KEY == "ssm put-parameter" ) ]]; then
+        if [[ $a == *=* ]]; then printf -v a ' %q=<redacted>' "$name"; out+=$a
+        else printf -v a ' %q' "$name"; out+=$a; redact_next=1; fi
+        continue
+      fi
+    elif [[ $CMD_KEY == "configure set" ]]; then   # aws configure set <name> <value>
+      if (( cfg_pos == 2 )); then out+=" '<redacted>'"; cfg_pos=3; continue; fi
+      [[ $a == set ]] && cfg_pos=1 || { (( cfg_pos == 1 )) && cfg_pos=2; }
+    fi
+    printf -v a ' %q' "$a"; out+=$a
+  done
+  printf -v "$var" '%s' "$out"
+}
+
+output_is_sensitive() {  # output_is_sensitive "<service> <command>": does stdout carry credentials?
+  case "$1" in
+    "sts assume-role"*|"sts get-session-token"|"sts get-federation-token"|"sts get-access-key-info"|\
+    "secretsmanager get-secret-value"|"secretsmanager batch-get-secret-value"|"secretsmanager get-random-password"|\
+    "ssm get-parameter"*|"kms decrypt"|"kms generate-data-key"*|"kms generate-random"|\
+    "ecr get-login-password"|"ecr get-authorization-token"|"ecr-public get-login-password"|"ecr-public get-authorization-token"|\
+    "codeartifact get-authorization-token"|"iam create-access-key"|"iam create-login-profile"|\
+    "iam create-service-specific-credential"|"iam reset-service-specific-credential"|\
+    "sso get-role-credentials"|"sso-oidc create-token"*|"cognito-identity get-credentials-for-identity"|\
+    "cognito-identity get-open-id-token"*|"rds generate-db-auth-token"|"eks get-token"|\
+    "redshift get-cluster-credentials"*|"configure export-credentials"|"configure get"|\
+    "lightsail get-instance-access-details"|"ec2 get-password-data"|"ec2 create-key-pair"|\
+    "iot create-keys-and-certificate"|"apigateway get-api-key"*|"s3 presign"|"s3api presign") return 0 ;;
+  esac
+  return 1
+}
+
 logline() { # logline EPOCH MESSAGE
   local ts; fmt_ts ts "$1"
   printf '[%s] [%s] %s\n' "$ts" "$ID" "$2" >&7
 }
-stream() {  # stream LABEL STATEFILE — pass one stream through and log it
-  local label=$1 state=$2 line nl t ts last=
+stream() {  # stream LABEL STATEFILE MODE — pass one stream through; log it (redacted) unless MODE=skip
+  local label=$1 state=$2 mode=$3 line nl t ts shown last=
   while :; do
     if IFS= read -r line; then nl=$'\n'
     elif [[ -n $line ]]; then nl=          # final line with no newline
     else break; fi
     t=$EPOCHREALTIME
     printf '%s%s' "$line" "$nl"
-    fmt_ts ts "$t"
-    printf '[%s] [%s] %s %s\n' "$ts" "$ID" "$label" "${line%$'\r'}" >&7
+    if [[ $mode != skip ]]; then
+      fmt_ts ts "$t"
+      redact_line shown "${line%$'\r'}"
+      printf '[%s] [%s] %s %s\n' "$ts" "$ID" "$label" "$shown" >&7
+    fi
     last=$t
     [[ -n $nl ]] || break
   done
@@ -206,7 +283,6 @@ fi
 { exec 7>>"$LOG"; } 2>/dev/null || exec "$REAL_AWS" "$@"   # never block aws on logging
 
 printf -v ID '%04x%04x' "$RANDOM" "$RANDOM"
-printf -v cmdline ' %q' "$@"
 
 # --- commands that need a real terminal: log start/end only -----------------
 interactive=0
@@ -220,11 +296,20 @@ for a in "$@"; do
     *) words+=("$a"); (( ${#words[@]} == 2 )) && break ;;
   esac
 done
-case "${words[0]-} ${words[1]-}" in
+CMD_KEY="${words[0]-} ${words[1]-}"
+case "$CMD_KEY" in
   "configure "|"configure sso"*|"ssm start-session"|"ecs execute-command") interactive=1 ;;
 esac
 [[ " $* " == *" --cli-auto-prompt "* || ${AWS_CLI_AUTO_PROMPT:-} == on* ]] && interactive=1
 [[ ${!#} == help ]] && interactive=1
+
+# --- what to log: the redacted command, and stdout/stderr unless suppressed ----
+redact_args cmdline "$@"
+OUT_MODE=log ERR_MODE=log output_note=
+case ${AWS_LOG_OUTPUT:-redact} in
+  none) OUT_MODE=skip ERR_MODE=skip output_note=' output=off(AWS_LOG_OUTPUT=none)' ;;
+  *) if output_is_sensitive "$CMD_KEY"; then OUT_MODE=skip output_note=' stdout=suppressed(sensitive-command)'; fi ;;
+esac
 
 # --- AWS_* environment tracking (per calling shell) ---------------------------
 # Snapshot exported AWS_* vars, diff against what this shell had at its last
@@ -276,7 +361,7 @@ fi
   for n in "${!cur[@]}"; do printf '%s=%s\n' "$n" "${cur[$n]}"; done
 } > "$state.$$" 2>/dev/null && mv -f -- "$state.$$" "$state" 2>/dev/null
 
-logline "$t0" "START shell=$PPID user=${USER:-$(id -un)} host=${HOSTNAME} cwd=${PWD} profile=${AWS_PROFILE:--} region=${AWS_REGION:-${AWS_DEFAULT_REGION:--}}$( ((interactive)) && echo ' mode=interactive(output-not-captured)') cmd: aws${cmdline}"
+logline "$t0" "START shell=$PPID user=${USER:-$(id -un)} host=${HOSTNAME} cwd=${PWD} profile=${AWS_PROFILE:--} region=${AWS_REGION:-${AWS_DEFAULT_REGION:--}}$( ((interactive)) && echo ' mode=interactive(output-not-captured)')${output_note} cmd: aws${cmdline}"
 for l in "${env_lines[@]}"; do logline "$t0" "$l"; done
 
 trap ':' INT   # let aws handle Ctrl-C; we still write END
@@ -292,9 +377,9 @@ else
   export AWS_PAGER=""   # output is piped; never invoke less
 
   {
-    "$REAL_AWS" "$@" 2>&1 >&3 3>&- 7>&- | stream ERR "$tmp/err" >&2 3>&-
+    "$REAL_AWS" "$@" 2>&1 >&3 3>&- 7>&- | stream ERR "$tmp/err" "$ERR_MODE" >&2 3>&-
     printf '%s\n' "${PIPESTATUS[0]}" > "$tmp/rc"
-  } 3>&1 | stream OUT "$tmp/out"
+  } 3>&1 | stream OUT "$tmp/out" "$OUT_MODE"
 
   t1=$EPOCHREALTIME
   if [[ -s $tmp/rc ]]; then read -r rc < "$tmp/rc"; else rc=130; fi

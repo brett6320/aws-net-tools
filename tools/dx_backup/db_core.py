@@ -277,8 +277,8 @@ def write_backup(snapshot: dict, backup_dir: str | Path) -> Path:
 
 
 def load_backup(path: str | Path) -> dict:
-    """Read a backup directory (or its manifest.json). A file whose hash doesn't match the
-    manifest is still loaded, with a warning."""
+    """Read a backup directory (or its manifest.json). Every file the manifest lists must exist,
+    stay inside the backup directory and match its SHA-256, otherwise nothing is loaded."""
     root = Path(path)
     if root.name == "manifest.json":
         root = root.parent
@@ -291,17 +291,25 @@ def load_backup(path: str | Path) -> dict:
     if manifest.get("format", 0) > FORMAT:
         raise ValidationError(f"{mpath} uses backup format {manifest['format']}; this version reads up to {FORMAT}")
     warnings = list(manifest.get("warnings") or [])
+    problems: list[str] = []
     objects: dict[str, dict] = {}
+    base = root.resolve()
     for rel, digest in (manifest.get("files") or {}).items():
-        f = root / rel
+        f = (base / rel).resolve()
+        if not f.is_relative_to(base):
+            problems.append(f"{rel}: path is outside the backup directory")
+            continue
         if not f.is_file():
-            warnings.append(f"{rel}: listed in the manifest but missing")
+            problems.append(f"{rel}: listed in the manifest but missing")
             continue
         data = f.read_bytes()
         if _sha(data) != digest:
-            warnings.append(f"{rel}: contents don't match the manifest hash (edited after the backup?)")
+            problems.append(f"{rel}: contents don't match the manifest hash (edited after the backup?)")
+            continue
         o = json.loads(data)
         objects[f"{o['kind']}/{o['id']}"] = o
+    if problems:
+        raise ValidationError(f"{root} failed its integrity check, nothing was loaded: " + "; ".join(problems))
     manifest = {**manifest, "warnings": warnings, "path": str(root)}
     return {"manifest": manifest, "objects": dict(sorted(objects.items()))}
 

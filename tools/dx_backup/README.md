@@ -157,8 +157,10 @@ backups/<account>/<UTC timestamp>/
 ```
 
 Each object file holds the API response for that object, with the auth key replaced. When a backup is
-loaded, every file is checked against the manifest's hash: a file that was edited or is missing is reported
-as a warning, and the rest still load. An existing backup is never overwritten. `backups/` is git-ignored.
+loaded, every file is checked against the manifest's hash: if any file was edited, is missing or lies outside
+the backup directory, the load fails and nothing is read, so a diff or restore plan is never built from altered
+data. There is no override; take a new backup instead. The check detects edits to the object files, not to
+`manifest.json` itself. An existing backup is never overwritten. `backups/` is git-ignored.
 
 ## Scope
 
