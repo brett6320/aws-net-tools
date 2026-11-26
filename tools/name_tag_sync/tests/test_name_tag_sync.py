@@ -564,7 +564,7 @@ def test_prompt_styled(world):
 # --------------------------------------------------------------------------- --force
 
 
-def force(world, *args, answer="yes", asked=None):
+def force(world, *args, answer="FORCE", asked=None):
     """Run --apply --force; the one confirmation gets ``answer``, a per-resource prompt fails the test."""
     def ask(q):
         assert "--force" in q, "--force must not ask for each resource"
@@ -603,8 +603,8 @@ def test_force_one_confirmation_lists_everything(world, capsys):
     assert "tagged" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("answer", ["", "n", "y", "q", "YES please", "yess"])
-def test_force_needs_yes(world, capsys, answer):
+@pytest.mark.parametrize("answer", ["", "n", "y", "q", "yes", "YES", "force", "Force", "FORCE!", "FORCE please"])
+def test_force_needs_force_word(world, capsys, answer):
     assert force(world, "-o", "json", answer=answer) == 0
     assert world.writes == []
     rows = json.loads(capsys.readouterr().out)
@@ -710,8 +710,8 @@ def test_force_text_escapes_and_styles(world):
     assert "\x1b[2J" not in text and nts.GREEN in text
 
 
-def test_force_yes_any_case(world):
-    assert force(world, answer=" YES ") == 0
+def test_force_word_surrounding_space(world):
+    assert force(world, answer=" FORCE ") == 0
     assert len(real_writes(world)) == 3
 
 
@@ -722,3 +722,19 @@ def test_force_ctrl_c_at_confirmation(world):
     code = nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--force"],
                     session_for=sessions(world), ask=ask, interactive=lambda: True)
     assert code == 0 and world.writes == []
+
+
+def test_tty_ask_keeps_case(monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO(" FORCE \n"))
+    assert nts.tty_ask("? ") == "FORCE"
+
+
+def test_per_resource_prompt_any_case(world):
+    assert run(world, "--apply", ask=["Y", " YES ", "Q"]) == 0
+    assert len(real_writes(world)) == 2
+
+
+def test_force_prompt_names_keyword(world):
+    asked = []
+    force(world, answer="no", asked=asked)
+    assert "Type FORCE to tag all of them" in asked[0]
