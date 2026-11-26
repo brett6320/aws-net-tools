@@ -76,6 +76,19 @@ python tools/dx_backup/dx_backup.py backup --region us-east-1
 python tools/firewall/sg_quota_audit.py --help
 ```
 
+For a reproducible, hash-verified install of the shared runtime dependencies (pinned versions, every artifact
+checked against its SHA-256), use the lockfile instead of `requirements.txt`:
+
+```bash
+pip install --require-hashes -r requirements.lock
+```
+
+Regenerate it after changing `requirements.txt` (needs [uv](https://docs.astral.sh/uv/); `pip-compile --generate-hashes` also works):
+
+```bash
+uv pip compile requirements.txt --generate-hashes --universal --python-version 3.11 -o requirements.lock
+```
+
 Every tool and suite also has its own `requirements.txt`, so it can be installed on its own. Each README
 covers usage, options, output, configuration and IAM permissions.
 
