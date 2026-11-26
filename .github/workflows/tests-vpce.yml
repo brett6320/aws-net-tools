@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "tools/vpce/**"
+      - "tools/common/**"
       - ".github/workflows/tests-vpce.yml"
       - ".github/workflows/_python-tests.yml"
       - ".github/scripts/test_report.py"
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "tools/vpce/**"
+      - "tools/common/**"
       - ".github/workflows/tests-vpce.yml"
       - ".github/workflows/_python-tests.yml"
       - ".github/scripts/test_report.py"

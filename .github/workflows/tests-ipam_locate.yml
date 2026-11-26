@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "tools/ipam_locate/**"
+      - "tools/common/**"
       - ".github/workflows/tests-ipam_locate.yml"
       - ".github/workflows/_python-tests.yml"
       - ".github/scripts/test_report.py"
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "tools/ipam_locate/**"
+      - "tools/common/**"
       - ".github/workflows/tests-ipam_locate.yml"
       - ".github/workflows/_python-tests.yml"
       - ".github/scripts/test_report.py"

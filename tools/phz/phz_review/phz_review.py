@@ -42,7 +42,7 @@ from lib.aws_common import (  # noqa: E402
     render,
     validate_account,
 )
-from lib.aws_profiles import exclude_suffixes, priv_profiles, profile_accounts  # noqa: E402
+from lib.aws_profiles import is_excluded, priv_profiles, profile_accounts  # noqa: E402
 from lib.vpc_owner_cache import VpcOwnerCache, default_path  # noqa: E402
 from lib.route53_helpers import Zone, list_authorizations, load_tags, load_vpcs, select_zones, zones_by_vpc  # noqa: E402
 from phz_html import render_html  # noqa: E402
@@ -176,8 +176,7 @@ def owner_search_accounts(args: argparse.Namespace, ctx: AccountContext) -> list
         return sorted(accounts)
     if raw:
         return [validate_account(a.strip(), "--owner-accounts") for a in raw.split(",") if a.strip()]
-    excluded = exclude_suffixes()
-    return sorted({acct for name, acct in profile_accounts().items() if not name.endswith(excluded)})
+    return sorted({acct for name, acct in profile_accounts().items() if not is_excluded(name)})
 
 
 def owner_cache(args: argparse.Namespace) -> VpcOwnerCache:

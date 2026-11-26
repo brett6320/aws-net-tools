@@ -34,7 +34,7 @@ Read-only: only Describe and Get calls are made.
 
 Groups are ids or ARNs. Accounts and profiles work as in
 [sg_rule_inventory](sg_rule_inventory.md#accounts-and-profiles):
-- each account named by an ARN is read with its own local profile (never `-priv` / `-cpar`);
+- each account named by an ARN is read with its own local profile (never `-priv` / `-adm` / `-cpar` / `-ro`);
 - `--profile` is used for its own account and for bare ids.
 
 ## What it checks
@@ -98,7 +98,7 @@ in `change_group`; the JSON also has `change_groups`.
 | `--profile NAME` | Profile for its own account and for bare ids |
 | `--region REGION` | Region for bare ids |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never chosen (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never chosen, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--no-equate-references` | Do not treat references to an old group as references to its new group |
 | `--show-changes` | Text report: the full detail per group of resources (status, access lost if the old is removed now and once migrated, every rule responsible) instead of only the differences once migrated |
 

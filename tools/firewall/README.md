@@ -109,7 +109,7 @@ Tools that look inside member accounts scan the accounts you select:
 
 Each account's profile comes from the local AWS config (`AWS_CONFIG_FILE` is honoured):
 - A profile's account is its `sso_account_id`, `aws_account_id`, or the account in its `role_arn`.
-- Profiles ending in `-priv` or `-cpar` are never used (`--exclude-profile-suffix` to change).
+- Profiles ending in `-priv`, `-adm`, `-cpar` or `-ro` are never used (`--exclude-profile-suffix` adds more suffixes; it can't remove these).
 - If several profiles match, the first alphabetically is used, with a warning. `--account-profile ACCOUNT=PROFILE` forces one.
 - Every profile is checked with `sts:GetCallerIdentity` before use. An account without a usable profile is reported as a finding and skipped by the account-scanning tools (`fmm_nacl_audit`, `nacl_shadow`, `sg_quota_audit`, `prefix_list_audit`); the security group tools stop (exit 2) instead.
 

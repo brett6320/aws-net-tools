@@ -60,10 +60,10 @@ def test_missing_cache_is_bad_input(tmp_path):
 
 
 def test_resolve_profile(aws_config):
-    aws_config({"app": ACCT, "app-priv": ACCT, "two-a": OTHER, "two-b-ro": OTHER, "dup1": "111111111111",
+    aws_config({"app": ACCT, "app-priv": ACCT, "two-a": OTHER, "two-b-readonly": OTHER, "dup1": "111111111111",
                 "dup2": "111111111111"})
     assert core.resolve_profile(ACCT) == "app"
-    assert core.resolve_profile(OTHER) == "two-b-ro"
+    assert core.resolve_profile(OTHER) == "two-b-readonly"
     assert core.resolve_profile(OTHER, preferred="two-a") == "two-a"
     assert core.resolve_profile("111111111111", {"111111111111": "x"}) == "x"
     with pytest.raises(LookupError, match="several"):
@@ -72,15 +72,30 @@ def test_resolve_profile(aws_config):
         core.resolve_profile("333333333333")
 
 
+def test_resolve_profile_excludes_the_strict_list(aws_config, monkeypatch):
+    aws_config({"a-priv": ACCT, "a-ADM": ACCT, "a-cpar": ACCT, "a-ro": ACCT, "b-RO": OTHER, "b-net": OTHER})
+    with pytest.raises(LookupError, match="no profile"):
+        core.resolve_profile(ACCT)
+    assert core.resolve_profile(OTHER) == "b-net"
+    # PROXY_INV_PROFILE_EXCLUDE_SUFFIXES only adds; a narrower or blank value changes nothing
+    for value in ("-priv,-cpar", "", " "):
+        monkeypatch.setenv("PROXY_INV_PROFILE_EXCLUDE_SUFFIXES", value)
+        with pytest.raises(LookupError, match="no profile"):
+            core.resolve_profile(ACCT)
+    monkeypatch.setenv("PROXY_INV_PROFILE_EXCLUDE_SUFFIXES", "-NET")
+    with pytest.raises(LookupError, match="no profile"):
+        core.resolve_profile(OTHER)
+
+
 def test_resolve_profile_prefix(aws_config):
-    aws_config({"app": ACCT, "hcli-app": ACCT, "two-ro": OTHER, "hcli-two": OTHER, "hcli-two-ro": OTHER,
+    aws_config({"app": ACCT, "hcli-app": ACCT, "two-readonly": OTHER, "hcli-two": OTHER, "hcli-two-readonly": OTHER,
                 "x-a": "111111111111", "x-b": "111111111111", "hcli-only": "222222222222"})
     assert core.resolve_profile(ACCT) == "hcli-app"
     assert core.resolve_profile(ACCT, preferred="app") == "app"
     with pytest.raises(LookupError, match="several"):
         core.resolve_profile(ACCT, prefix="")  # turned off
-    assert core.resolve_profile(OTHER) == "hcli-two-ro"  # several hcli-: the read-only one of those
-    assert core.resolve_profile(OTHER, prefix="two") == "two-ro"
+    assert core.resolve_profile(OTHER) == "hcli-two-readonly"  # several hcli-: the read-only one of those
+    assert core.resolve_profile(OTHER, prefix="two") == "two-readonly"
     assert core.resolve_profile("222222222222", prefix="zzz") == "hcli-only"  # not ambiguous
     with pytest.raises(LookupError, match="several"):
         core.resolve_profile("111111111111")

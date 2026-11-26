@@ -208,7 +208,7 @@ is per interface.
 | `--profile NAME` | AWS profile for a bare group ID; see [Accounts and profiles](#accounts-and-profiles) |
 | `--region REGION` | Region for a bare group ID |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never chosen (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never chosen, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--full` | Also list every rule, each resource's effective access, kept access and referencing groups |
 | `--remove-rule RULE` | Rule removal scenario, in the HTML report only (repeatable) |
 | `--resource ID` | Only this resource: instance ID, load balancer or function name, or ENI ID (repeatable) |

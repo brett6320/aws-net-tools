@@ -46,9 +46,9 @@ When an account is known (from `--account` / `--vpc-account` / `--phz-account` o
 1. `--vpc-profile` / `--phz-profile`, if given
 2. with `--role-name`: assume the role from `--profile` (no derivation)
 3. the derived profile:
-   - profiles ending in **`-priv`** or **`-cpar`** are never used (override with `VPCE_PROFILE_EXCLUDE_SUFFIXES`, comma-separated)
+   - profiles ending in **`-priv`**, **`-adm`**, **`-cpar`** or **`-ro`** are never used (any case; `VPCE_PROFILE_EXCLUDE_SUFFIXES`, comma-separated, adds more but can never remove these)
    - if `--profile` / `AWS_PROFILE` maps to the account, it is kept
-   - otherwise, with several candidates, the single read-only one (`-ro`, `-readonly`, `-read-only`) wins
+   - otherwise, with several candidates, the single read-only one (`-readonly`, `-read-only`) wins
    - still several → error listing them; pass `--vpc-profile` / `--phz-profile`
 4. `--profile` / default credential chain
 

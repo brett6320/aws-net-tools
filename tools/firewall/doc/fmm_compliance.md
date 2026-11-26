@@ -66,7 +66,7 @@ and accounts.
 | `--profile NAME` | FMS administrator profile; overrides `--admin-account` |
 | `--admin-account ID` | FMS administrator account (env `FMM_ADMIN_ACCOUNT`) |
 | `--account-profile ACCT=PROFILE` | Force the profile used for the administrator account |
-| `--exclude-profile-suffix LIST` | Profile suffixes never used (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never used, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--region REGION` | Region(s): repeatable and/or comma-separated (default `AWS_REGION` or `us-east-1`) |
 | `--all-regions` | Every enabled region that offers Firewall Manager |
 | `--policy ID_OR_NAME` | Only this policy |

@@ -65,7 +65,7 @@ found by account id, like member accounts. Precedence: `--profile`, then
 **Member accounts** are mapped to profiles from the local AWS config
 (`AWS_CONFIG_FILE` is honoured):
 - A profile's account is its `sso_account_id`, `aws_account_id`, or the account in its `role_arn`.
-- Profiles ending in `-priv` or `-cpar` are never used (`--exclude-profile-suffix` to change).
+- Profiles ending in `-priv`, `-adm`, `-cpar` or `-ro` are never used (`--exclude-profile-suffix` to change).
 - If several profiles match, the first alphabetically is used, with a warning. Force one with `--account-profile 123456789012=my-profile`.
 - Every profile is verified with `sts:GetCallerIdentity` before use. A mismatch is reported and the account is not scanned.
 - Accounts with no matching profile are reported as `NO_PROFILE`.
@@ -82,7 +82,7 @@ found by account id, like member accounts. Precedence: `--profile`, then
 | `--compare-live` | With `--policy-file`: diff file vs live policy and check NACLs against both |
 | `--account ID` | Only these account(s); repeatable / comma-separated |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never used (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never used, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--nacl-scope subnets\|fmmanaged\|all` | Check NACLs on subnets in the policy's tag scope (default), NACLs tagged `FMManaged=true`, or all non-default NACLs |
 | `--limit N` | Rules-per-direction limit (default 30, env `FMM_NACL_LIMIT`) |
 | `--headroom N` | Also flag NACLs within N rules of the limit (default 3, env `FMM_NACL_HEADROOM`) |

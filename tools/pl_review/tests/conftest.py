@@ -7,11 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 PROFILES_CONFIG = """
-[profile hcli-net-ro]
+[profile hcli-net]
 region = us-east-1
 role_arn = arn:aws:iam::123456789012:role/ReadOnly
-source_profile = hcli-app-ro
-[profile hcli-app-ro]
+source_profile = hcli-app
+[profile hcli-app]
 region = us-east-1
 [profile zz-sso-test]
 sso_account_id = 999888777666
@@ -22,10 +22,14 @@ sso_region = us-east-1
 region = us-east-1
 [profile hcli-x-cpar]
 region = us-east-1
+[profile hcli-app-ADM]
+region = us-east-1
+[profile hcli-net-ro]
+region = us-east-1
 [profile bmeier-prd-ro]
 region = us-east-1
 """
-CREDENTIAL_PROFILES = ["hcli-net-ro", "hcli-app-ro", "hcli-app-priv", "hcli-x-cpar", "bmeier-prd-ro"]
+CREDENTIAL_PROFILES = ["hcli-net", "hcli-app", "hcli-app-priv", "hcli-x-cpar", "hcli-app-ADM", "hcli-net-ro", "bmeier-prd-ro"]
 
 
 @pytest.fixture(scope="session", autouse=True)

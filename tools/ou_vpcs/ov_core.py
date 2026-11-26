@@ -8,21 +8,25 @@ Profiles ending in ``-priv``, ``-adm``, ``-cpar`` or ``-ro`` (any case) are neve
 from __future__ import annotations
 
 import logging
-import os
 import re
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 import botocore.session
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import profile_guard  # noqa: E402
+
 log = logging.getLogger("ou_vpcs")
 
 BOTO_CONFIG = Config(retries={"max_attempts": 5, "mode": "adaptive"})
 DEFAULT_REGIONS = ("us-east-1", "ca-central-1")
-DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-adm", "-cpar", "-ro")
+EXCLUDE_SUFFIXES_ENV = "OU_VPCS_PROFILE_EXCLUDE_SUFFIXES"  # may only add to profile_guard.STRICT_EXCLUDE_SUFFIXES
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 
 OU_ID_RE = re.compile(r"^(?:ou-[0-9a-z]{4,32}-[0-9a-z]{8,32}|r-[0-9a-z]{4,32}|o-[a-z0-9]{10,32})$")
@@ -142,13 +146,6 @@ def accounts_in_ous(org: Any, ou_ids: Iterable[str], recurse: bool = True) -> li
 # --------------------------------------------------------------------------- profiles
 
 
-def exclude_suffixes() -> tuple[str, ...]:
-    raw = os.getenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES")
-    if raw is None:
-        return DEFAULT_EXCLUDE_SUFFIXES
-    return tuple(s.strip().lower() for s in raw.split(",") if s.strip())
-
-
 def profile_account(cfg: dict[str, str]) -> str | None:
     for key in ("sso_account_id", "aws_account_id"):
         if cfg.get(key):
@@ -168,8 +165,8 @@ def resolve_profile(account: str, overrides: dict[str, str] | None = None, prefe
     """The profile to read ``account`` with. Raises LookupError when there's none or several."""
     if overrides and account in overrides:
         return overrides[account]
-    excluded = exclude_suffixes()
-    cands = sorted(n for n, a in profile_accounts().items() if a == account and not n.lower().endswith(excluded))
+    cands = sorted(n for n, a in profile_accounts().items()
+                   if a == account and not profile_guard.is_excluded(n, EXCLUDE_SUFFIXES_ENV))
     if not cands:
         raise LookupError("no profile in ~/.aws/config maps to it")
     if preferred in cands:

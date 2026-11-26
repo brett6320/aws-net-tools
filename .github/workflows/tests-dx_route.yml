@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "tools/dx_route/**"
+      - "tools/common/**"
       - ".github/workflows/tests-dx_route.yml"
       - ".github/workflows/_python-tests.yml"
       - ".github/scripts/test_report.py"
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "tools/dx_route/**"
+      - "tools/common/**"
       - ".github/workflows/tests-dx_route.yml"
       - ".github/workflows/_python-tests.yml"
       - ".github/scripts/test_report.py"

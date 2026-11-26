@@ -46,6 +46,9 @@ from dotenv import load_dotenv  # noqa: E402
 
 from plr_export import THEMES, render_html  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import profile_guard  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -58,7 +61,6 @@ for _noisy in ("botocore", "boto3", "urllib3"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 PROFILE_PREFIX = "hcli-"
-PROFILE_EXCLUDED_SUFFIXES = ("-priv", "-cpar")
 DEFAULT_LIMIT = 100
 DEFAULT_CACHE_PATH = os.getenv("PL_REVIEW_CACHE_PATH") or None  # None = in-memory only
 DEFAULT_CACHE_TTL = int(os.getenv("PL_REVIEW_CACHE_TTL", str(7 * 24 * 3600)))
@@ -192,7 +194,7 @@ class PrefixListReport:
 # Profiles / sessions
 # --------------------------------------------------------------------------- #
 def is_valid_profile(name: str) -> bool:
-    return name.startswith(PROFILE_PREFIX) and not name.endswith(PROFILE_EXCLUDED_SUFFIXES)
+    return name.startswith(PROFILE_PREFIX) and not profile_guard.is_excluded(name)
 
 
 def discover_profiles() -> list[str]:
@@ -665,10 +667,10 @@ def review_prefix_list(
     candidates = profiles if profiles is not None else discover_profiles()
     if profile:
         if not is_valid_profile(profile):
-            raise SystemExit(f"Profile {profile!r} violates naming policy ({PROFILE_PREFIX}*, not *-priv/*-cpar)")
+            raise SystemExit(f"Profile {profile!r} violates naming policy ({PROFILE_PREFIX}*, not *-priv/*-adm/*-cpar/*-ro)")
         candidates = [profile] + [p for p in candidates if p != profile]
     if not candidates:
-        raise SystemExit("No valid profiles found (expect hcli-* excluding -priv/-cpar)")
+        raise SystemExit("No valid profiles found (expect hcli-* excluding -priv/-adm/-cpar/-ro)")
     log.info("Scanning %d profile(s) in %s", len(candidates), region)
 
     disk = DiskCache(Path(cache_path) if cache_path else None, cache_ttl, enabled=use_cache)

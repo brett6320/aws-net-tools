@@ -44,7 +44,7 @@ a change. --no-equate-references turns this off.
 
 Accounts: each account is read with its own profile, as in
 sg_rule_inventory.py: --profile for its own account, other accounts named by
-ARNs through their local profiles (never -priv / -cpar), bare ids in the
+ARNs through their local profiles (never -priv / -adm / -cpar / -ro), bare ids in the
 --profile account, else the single ARN account, else AWS_PROFILE / default.
 
 By default the text report distills this to the differences once migrated
@@ -593,7 +593,7 @@ def main() -> int:
                    help="New security group id(s) / ARN(s) replacing them")
     p.add_argument("--profile", default=None,
                    help="AWS profile, used for its own account (and for bare ids). Other accounts named by ARNs "
-                        "use their local profiles (never -priv/-cpar); with no ARNs, default AWS_PROFILE")
+                        "use their local profiles (never -priv/-adm/-cpar/-ro); with no ARNs, default AWS_PROFILE")
     p.add_argument("--region", default=os.getenv("AWS_REGION") or None,
                    help="Region for bare ids (default AWS_REGION, then the profile's region)")
     p.add_argument("--no-equate-references", action="store_true",

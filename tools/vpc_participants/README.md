@@ -46,7 +46,7 @@ python tools/vpc_participants/vpc_participants.py vpc-0abc1234def567890,vpc-0123
 | `-o table\|csv\|json`, `--json` | | Output format (default `table`) |
 | `-v` / `-q` | | Debug logging / warnings only |
 
-`VPC_PART_PROFILE_EXCLUDE_SUFFIXES` overrides the profile suffixes that are never used.
+`VPC_PART_PROFILE_EXCLUDE_SUFFIXES` adds profile suffixes that are never used. It can't remove `-priv`, `-adm`, `-cpar` or `-ro`, and an empty value is ignored.
 
 ## Output
 

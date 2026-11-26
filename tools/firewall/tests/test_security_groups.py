@@ -161,39 +161,39 @@ def test_parse_account_targets_empty_and_groups_only():
 # resolve_account_profiles (sts faked)
 # --------------------------------------------------------------------------- #
 def profile_args(profile=None, account_profile=None):
-    return argparse.Namespace(profile=profile, account_profile=account_profile, exclude_profile_suffix="-priv,-cpar")
+    return argparse.Namespace(profile=profile, account_profile=account_profile, exclude_profile_suffix=None)
 
 
 @pytest.fixture
 def fake_sts(monkeypatch):
-    accounts = {None: "999999999999", "a-ro": "111111111111", "b-ro": "222222222222", "liar": "333333333333"}
+    accounts = {None: "999999999999", "a-view": "111111111111", "b-view": "222222222222", "liar": "333333333333"}
     monkeypatch.setattr(sgm, "caller_account", lambda p: accounts[p])
     return accounts
 
 
 def test_resolve_profiles_by_account_id(aws_profiles, fake_sts):
-    aws_profiles({"a-ro": {"aws_account_id": "111111111111"}, "a-priv": {"aws_account_id": "111111111111"},
-                  "b-ro": {"sso_account_id": "222222222222"}})
+    aws_profiles({"a-view": {"aws_account_id": "111111111111"}, "a-priv": {"aws_account_id": "111111111111"},
+                  "b-view": {"sso_account_id": "222222222222"}})
     out, bare = sgm.resolve_account_profiles(profile_args(), {"111111111111", "222222222222"}, False)
-    assert out == {"111111111111": ("a-ro", "local profile for account 111111111111"),
-                   "222222222222": ("b-ro", "local profile for account 222222222222")}
+    assert out == {"111111111111": ("a-view", "local profile for account 111111111111"),
+                   "222222222222": ("b-view", "local profile for account 222222222222")}
     assert bare is None
 
 
 def test_resolve_profiles_bare_ids(aws_profiles, fake_sts):
-    aws_profiles({"a-ro": {"aws_account_id": "111111111111"}})
+    aws_profiles({"a-view": {"aws_account_id": "111111111111"}})
     # single ARN account: bare ids belong to it
     assert sgm.resolve_account_profiles(profile_args(), {"111111111111"}, True)[1] == "111111111111"
     # no ARNs: default credentials
     out, bare = sgm.resolve_account_profiles(profile_args(), set(), True)
     assert (bare, out) == ("999999999999", {"999999999999": (None, "default credentials")})
     # --profile wins for bare ids
-    out, bare = sgm.resolve_account_profiles(profile_args(profile="b-ro"), {"111111111111"}, True)
-    assert bare == "222222222222" and out["222222222222"] == ("b-ro", "--profile")
+    out, bare = sgm.resolve_account_profiles(profile_args(profile="b-view"), {"111111111111"}, True)
+    assert bare == "222222222222" and out["222222222222"] == ("b-view", "--profile")
 
 
 def test_resolve_profiles_ambiguous_bare_ids(aws_profiles, fake_sts):
-    aws_profiles({"a-ro": {"aws_account_id": "111111111111"}, "b-ro": {"aws_account_id": "222222222222"}})
+    aws_profiles({"a-view": {"aws_account_id": "111111111111"}, "b-view": {"aws_account_id": "222222222222"}})
     with pytest.raises(ValueError, match="ambiguous"):
         sgm.resolve_account_profiles(profile_args(), {"111111111111", "222222222222"}, True)
 
@@ -209,8 +209,8 @@ def test_resolve_profiles_fails_closed(aws_profiles, fake_sts):
 
 def test_resolve_profiles_override(aws_profiles, fake_sts):
     aws_profiles({})
-    out, _ = sgm.resolve_account_profiles(profile_args(account_profile=["111111111111=a-ro"]), {"111111111111"}, False)
-    assert out == {"111111111111": ("a-ro", "local profile for account 111111111111 (override)")}
+    out, _ = sgm.resolve_account_profiles(profile_args(account_profile=["111111111111=a-view"]), {"111111111111"}, False)
+    assert out == {"111111111111": ("a-view", "local profile for account 111111111111 (override)")}
 
 
 # --------------------------------------------------------------------------- #

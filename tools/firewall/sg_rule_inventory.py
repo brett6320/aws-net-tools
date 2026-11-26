@@ -63,7 +63,7 @@ are matched by group id only (the report cannot know the members' addresses).
 
 Profiles: each account is read with its own profile. --profile is used for
 its own account; every other account named by an ARN uses its local profile
-(found by account id; profiles ending in -priv or -cpar are never used;
+(found by account id; profiles ending in -priv, -adm, -cpar or -ro are never used;
 --account-profile forces one). Bare ids belong to the --profile account, else
 to the single ARN account, else (no ARNs) to AWS_PROFILE or the default
 credentials; next to ARNs from several accounts they are refused as
@@ -1190,7 +1190,7 @@ Traffic tests are run in the HTML report (no AWS access needed once it is saved)
                         "of its interfaces; a function for the groups in its VPC configuration")
     p.add_argument("--profile", default=None,
                    help="AWS profile, used for its own account (and for bare ids). Other accounts named by "
-                        "ARNs use their local profiles (never -priv/-cpar); with no ARNs, default AWS_PROFILE")
+                        "ARNs use their local profiles (never -priv/-adm/-cpar/-ro); with no ARNs, default AWS_PROFILE")
     p.add_argument("--region", default=os.getenv("AWS_REGION") or None,
                    help="Region for bare ids (default AWS_REGION, then the profile's region)")
     p.add_argument("--show-rules", action="store_true",
