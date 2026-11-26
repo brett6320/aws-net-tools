@@ -87,7 +87,9 @@
 # secret-valued keys (SecretAccessKey, SessionToken, SecretString, Password, ...)
 # in output. The output of commands that return credentials (sts assume-role,
 # secretsmanager get-secret-value, ssm get-parameter*, kms decrypt, ...) is not
-# logged at all; stderr still is, redacted. Redaction is pattern-based and best
+# logged at all; stderr still is, redacted. So is any other command whose
+# "<service> <command>" name contains get-*token*, password, secret, credential
+# or presign. Redaction is pattern-based and best
 # effort: use AWS_LOG_OUTPUT=none when you can't accept any residual risk.
 #
 # Log line format:
@@ -200,6 +202,7 @@ redact_args() {  # redact_args VAR ARGS... -> VAR = " %q %q ..." with secret opt
 }
 
 output_is_sensitive() {  # output_is_sensitive "<service> <command>": does stdout carry credentials?
+  local - ; shopt -s nocasematch
   case "$1" in
     "sts assume-role"*|"sts get-session-token"|"sts get-federation-token"|"sts get-access-key-info"|\
     "secretsmanager get-secret-value"|"secretsmanager batch-get-secret-value"|"secretsmanager get-random-password"|\
@@ -212,6 +215,9 @@ output_is_sensitive() {  # output_is_sensitive "<service> <command>": does stdou
     "redshift get-cluster-credentials"*|"configure export-credentials"|"configure get"|\
     "lightsail get-instance-access-details"|"ec2 get-password-data"|"ec2 create-key-pair"|\
     "iot create-keys-and-certificate"|"apigateway get-api-key"*|"s3 presign"|"s3api presign") return 0 ;;
+    # Catch-all for commands not listed above, matched on "<service> <command>":
+    # over-suppresses a few harmless outputs (e.g. secretsmanager list-secrets).
+    *get-*token*|*password*|*secret*|*credential*|*presign*) return 0 ;;
   esac
   return 1
 }

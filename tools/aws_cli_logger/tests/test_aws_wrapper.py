@@ -117,3 +117,32 @@ def test_log_file_is_private(run, tmp_path):
     run(["ec2", "describe-vpcs"], out="x\n")
     f = next((tmp_path / "logs").glob("aws-cli_*.log"))
     assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("args", [
+    ["newservice", "get-widget-token"],
+    ["newservice", "describe-password-policy-blob"],
+    ["somesvc", "list-secrets"],
+    ["secretsmanager", "list-secrets"],
+    ["newservice", "export-credentials-bundle"],
+    ["newservice", "create-presigned-url"],
+    ["NewService", "Get-Auth-Token"],
+])
+def test_unlisted_command_matching_wildcard_has_stdout_suppressed(run, args):
+    r, log = run(args, out='{"Value": "wildcardleak123"}\n')
+    assert "wildcardleak123" not in log
+    assert "stdout=suppressed(sensitive-command)" in log
+    assert " OUT " not in log
+    assert r.stdout == '{"Value": "wildcardleak123"}\n'
+
+
+def test_wildcard_suppressed_command_stderr_still_logged_and_redacted(run):
+    _, log = run(["newservice", "get-widget-token"], err='denied token="abc123secretvalue"\n', FAKE_RC="1")
+    assert " ERR " in log and "abc123secretvalue" not in log
+
+
+@pytest.mark.parametrize("args", [["ec2", "describe-instances"], ["s3", "ls"], ["iam", "list-users"], ["sts", "get-caller-identity"]])
+def test_harmless_command_is_still_logged(run, args):
+    _, log = run(args, out="harmless-output-line\n")
+    assert "OUT harmless-output-line" in log
+    assert "suppressed" not in log
