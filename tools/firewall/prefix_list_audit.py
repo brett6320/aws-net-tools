@@ -42,7 +42,7 @@ Configuration (.env, all optional; CLI flags override):
     PL_FULL_PCT=90
 
 Member account profiles are found in the local AWS config by account id
-(profiles ending in -priv or -cpar are never used) and verified with
+(profiles ending in -priv, -adm, -cpar or -ro are never used) and verified with
 sts:GetCallerIdentity before use.
 
 Reports: text on screen, plus auto-saved HTML (interactive: findings and every

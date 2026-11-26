@@ -61,7 +61,7 @@ is read with its own profile:
 1. `--profile`, if given, is used for its own account.
 2. Every other account named by an ARN uses its local profile:
    - It is found by account id, the same way as the other tools (see [Accounts and profiles](../README.md#accounts-and-profiles)).
-   - Profiles ending in `-priv` or `-cpar` are never chosen.
+   - Profiles ending in `-priv`, `-adm`, `-cpar` or `-ro` are never chosen.
    - `--account-profile ACCOUNT=PROFILE` forces a profile.
 3. Bare ids belong to the `--profile` account. Without `--profile`, they belong to the ARNs' account when exactly one account is named, otherwise (no ARNs) to `AWS_PROFILE`, then the default credentials.
 
@@ -234,7 +234,7 @@ could recompute the hash.
 | `--region REGION` | Region for bare ids |
 | `--show-rules` | Text report: list every rule per group, the combined access, and each interface difference with its rules. Without it, the text report is a summary: one line per group and counts only. The HTML, CSV and JSON reports always include everything |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never chosen (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never chosen, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 
 Plus the common output flags, described under [Reports](../README.md#reports).
 

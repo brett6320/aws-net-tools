@@ -29,7 +29,7 @@ the Policy object, or a bare NetworkAclEntrySet); otherwise from the live policy
 against both.
 
 Member account profiles are found in the local AWS config by account id;
-profiles ending in -priv or -cpar are never used.
+profiles ending in -priv, -adm, -cpar or -ro are never used.
 
 Configuration (.env, all optional; CLI flags override):
 
@@ -85,7 +85,7 @@ import boto3  # noqa: E402
 from botocore.exceptions import BotoCoreError, ClientError  # noqa: E402
 
 from lib import html_report  # noqa: E402
-from lib.accounts import DEFAULT_EXCLUDE_SUFFIXES, pick_profile, profile_lookup, resolve_admin_profile  # noqa: E402
+from lib.accounts import DEFAULT_EXTRA_EXCLUDE_SUFFIXES, EXCLUDE_SUFFIX_HELP, pick_profile, profile_lookup, resolve_admin_profile  # noqa: E402
 from lib.aws_common import err_text, _g, get_client, get_policy, get_session, list_policies, normalize_proto, resolve_regions
 
 log = logging.getLogger("fmm_nacl_audit")
@@ -750,8 +750,8 @@ def main() -> int:
     p.add_argument("--account", action="append", help="Restrict to account id(s); repeatable/comma-separated")
     p.add_argument("--account-profile", action="append", metavar="ACCOUNT=PROFILE",
                    help="Force the local profile used for an account (repeatable)")
-    p.add_argument("--exclude-profile-suffix", default=DEFAULT_EXCLUDE_SUFFIXES,
-                   help=f"Comma-separated profile name suffixes never used (default {DEFAULT_EXCLUDE_SUFFIXES})")
+    p.add_argument("--exclude-profile-suffix", default=DEFAULT_EXTRA_EXCLUDE_SUFFIXES, metavar="LIST",
+                   help=EXCLUDE_SUFFIX_HELP)
     p.add_argument("--nacl-scope", choices=["subnets", "fmmanaged", "all"], default="subnets",
                    help="Which NACLs to check: those on subnets in the policy's tag scope (default), "
                         "those tagged FMManaged=true, or every NACL")

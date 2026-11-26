@@ -185,6 +185,17 @@ def test_resolve_profile(aws_config):
         core.resolve_profile(P3)
 
 
+def test_resolve_profile_override_only_adds(aws_config, monkeypatch):
+    aws_config({"net-adm": OWNER, "net-RO": OWNER, "net-priv": OWNER, "net-cpar": OWNER, "x-a": P1})
+    for value in ("-priv", "", "  "):
+        monkeypatch.setenv("VPC_PART_PROFILE_EXCLUDE_SUFFIXES", value)
+        with pytest.raises(LookupError, match="no profile"):
+            core.resolve_profile(OWNER)
+    monkeypatch.setenv("VPC_PART_PROFILE_EXCLUDE_SUFFIXES", "-A")
+    with pytest.raises(LookupError, match="no profile"):
+        core.resolve_profile(P1)
+
+
 # --------------------------------------------------------------------------- lookups
 
 

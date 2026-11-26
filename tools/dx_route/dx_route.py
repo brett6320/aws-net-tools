@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vif", action="append", default=[], metavar="DXVIF_ID", help="Only these VIFs (repeatable)")
     p.add_argument("--account-profile", action="append", default=[], metavar="ACCOUNT_ID=PROFILE",
                    help="Profile for VIFs owned by another account (repeatable); otherwise found in the local AWS "
-                        "config by account ID, never using profiles that end in -priv or -cpar")
+                        "config by account ID, never using profiles that end in -priv, -adm, -cpar or -ro")
     p.add_argument("--advertised", action="store_true",
                    help="Also collect the routes AWS advertises on each VIF (implied by advertised-routes)")
     p.add_argument("--output", "-o", metavar="FILE.html", help="Write the HTML report here")

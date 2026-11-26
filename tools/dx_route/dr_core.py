@@ -40,6 +40,7 @@ import ipaddress
 import logging
 import os
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
@@ -47,6 +48,9 @@ from typing import Any, Callable, Iterable, Iterator
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import profile_guard  # noqa: E402
 
 log = logging.getLogger("dx_route")
 
@@ -64,7 +68,6 @@ LP_NAMES = {LP_HIGH: "high", LP_MEDIUM: "medium", LP_LOW: "low", LP_REMOTE_DEFAU
 
 PUBLIC = "public"
 WORKERS = 8
-PROFILE_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
 
 
 class ValidationError(ValueError):
@@ -108,7 +111,7 @@ def get_client(service: str, session: boto3.Session, region: str | None = None):
 
 def profile_account_map(config_file: str | None = None) -> dict[str, list[str]]:
     """Account ID -> profile names, from sso_account_id or the role_arn in the local AWS
-    config. Profiles ending in -priv or -cpar are never picked automatically."""
+    config. Profiles ending in -priv, -adm, -cpar or -ro (any case) are never picked automatically."""
     path = Path(config_file or os.getenv("AWS_CONFIG_FILE") or Path.home() / ".aws" / "config").expanduser()
     cp = configparser.RawConfigParser()
     try:
@@ -121,7 +124,7 @@ def profile_account_map(config_file: str | None = None) -> dict[str, list[str]]:
         name = section[len("profile "):] if section.startswith("profile ") else section
         if section != "default" and not section.startswith("profile "):
             continue
-        if name.endswith(PROFILE_EXCLUDE_SUFFIXES):
+        if profile_guard.is_excluded(name):
             continue
         acct = cp.get(section, "sso_account_id", fallback=None)
         if not acct:

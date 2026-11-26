@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 import boto3
 from botocore.exceptions import ClientError
 
-from lib.accounts import caller_account, pick_profile, profile_lookup
+from lib.accounts import caller_account, excluded_suffix_text, pick_profile, profile_lookup
 from lib.aws_common import _g, err_text, get_client
 from lib.boxes import Box, addr_interval, fmt_proto_ports, proto_port_box
 
@@ -187,7 +187,7 @@ def resolve_account_profiles(args, arn_accounts: set[str], bare_ids: bool) \
 
     * --profile is used for its own account.
     * Each other account named by ARNs uses its local profile, found by account id (profiles
-      ending in an excluded suffix such as -priv / -cpar are never used; --account-profile
+      ending in an excluded suffix (-priv, -adm, -cpar, -ro, ...) are never used; --account-profile
       forces one).
     * Bare ids belong to the --profile account; without --profile, to the single ARN account
       if there is exactly one; with no ARNs at all, to AWS_PROFILE or the default credentials.
@@ -204,7 +204,8 @@ def resolve_account_profiles(args, arn_accounts: set[str], bare_ids: bool) \
         profile, note = pick_profile(account, pmap, overrides)
         if not profile:
             raise ValueError(f"no local AWS profile for account {account} (excluding "
-                             f"{args.exclude_profile_suffix}); use --account-profile")
+                             f"{excluded_suffix_text(args)}); "
+                             "use --account-profile")
         if note and note != "override":
             log.warning("Account %s: %s", account, note)
         actual = caller_account(profile)

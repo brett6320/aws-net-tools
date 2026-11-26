@@ -1,8 +1,8 @@
 """Derive an AWS profile name from an account ID using ~/.aws/config and ~/.aws/credentials.
 
 A profile maps to an account through ``sso_account_id``, ``aws_account_id`` or the
-account in ``role_arn``. Profiles ending in an excluded suffix (default ``-priv``,
-``-adm``, ``-cpar``, ``-ro``) are never picked. When several remain, read-only profiles (``-ro`` etc.)
+account in ``role_arn``. Profiles ending in an excluded suffix (``-priv``, ``-adm``, ``-cpar``,
+``-ro``, plus any added with ``VPCE_PROFILE_EXCLUDE_SUFFIXES``) are never picked. When several remain, read-only profiles (``-readonly`` etc.)
 win; anything still ambiguous is an error rather than a guess.
 
 Commands that change something (the migration planner's script) use the account's
@@ -13,13 +13,18 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from functools import lru_cache
+from pathlib import Path
 
 import botocore.session
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import profile_guard  # noqa: E402
+
 log = logging.getLogger("aws_vpce_tools.profiles")
 
-DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-adm", "-cpar", "-ro")
+EXCLUDE_SUFFIXES_ENV = "VPCE_PROFILE_EXCLUDE_SUFFIXES"  # may only add to profile_guard.STRICT_EXCLUDE_SUFFIXES
 DEFAULT_PRIV_SUFFIX = "-adm"
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 _ROLE_ARN_ACCOUNT = re.compile(r"^arn:[^:]+:iam::(\d{12}):")
@@ -29,11 +34,9 @@ class AmbiguousProfileError(ValueError):
     pass
 
 
-def exclude_suffixes() -> tuple[str, ...]:
-    raw = os.getenv("VPCE_PROFILE_EXCLUDE_SUFFIXES")
-    if raw is None:
-        return DEFAULT_EXCLUDE_SUFFIXES
-    return tuple(s.strip() for s in raw.split(",") if s.strip())
+def is_excluded(name: str) -> bool:
+    """True for a profile the tools never pick automatically (the shared guard plus VPCE_PROFILE_EXCLUDE_SUFFIXES)."""
+    return profile_guard.is_excluded(name, EXCLUDE_SUFFIXES_ENV)
 
 
 def profile_account(cfg: dict[str, str]) -> str | None:
@@ -58,10 +61,7 @@ def profile_accounts() -> dict[str, str]:
 
 
 def candidate_profiles(account: str) -> list[str]:
-    excluded = exclude_suffixes()
-    return sorted(
-        name for name, acct in profile_accounts().items() if acct == account and not name.endswith(excluded)
-    )
+    return sorted(name for name, acct in profile_accounts().items() if acct == account and not is_excluded(name))
 
 
 def derive_profile(account: str | None, preferred: str | None = None) -> str | None:

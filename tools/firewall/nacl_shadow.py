@@ -32,7 +32,7 @@ What it does:
 
 Accounts: the --profile (or default credentials) account by default;
 --account / --all-accounts scan member accounts through their local profiles
-(found by account id, -priv / -cpar profiles never used, each verified with
+(found by account id, -priv / -adm / -cpar / -ro profiles never used, each verified with
 sts:GetCallerIdentity).
 
 Usage:

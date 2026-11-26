@@ -44,7 +44,7 @@ chosen the same way as in
 [sg_rule_inventory](sg_rule_inventory.md#accounts-and-profiles):
 
 1. `--profile`, if given, is used for its own account.
-2. Every other account named by an ARN uses its local profile, found by account id. Profiles ending in `-priv` or `-cpar` are never chosen; `--account-profile ACCOUNT=PROFILE` forces one.
+2. Every other account named by an ARN uses its local profile, found by account id. Profiles ending in `-priv`, `-adm`, `-cpar` or `-ro` are never chosen; `--account-profile ACCOUNT=PROFILE` forces one.
 3. Bare ids belong to the `--profile` account. Without `--profile`, they belong to the ARNs' account when exactly one is named, otherwise (no ARNs) to `AWS_PROFILE`, then the default credentials.
 
 Every profile is checked with `sts:GetCallerIdentity` before anything is
@@ -89,7 +89,7 @@ Each direction gets a verdict: `N gap(s)`, `covered` or `identical`.
 | `--profile NAME` | AWS profile for its own account (and bare ids); see [Accounts and profiles](#accounts-and-profiles) |
 | `--region REGION` | Region for bare group ids |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never chosen (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never chosen, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--show-covered` | Also list left rules the right groups fully grant (`COVERED`, `IDENTICAL`) |
 
 Plus the [common output flags](../README.md#reports).

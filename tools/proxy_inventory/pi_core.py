@@ -2,7 +2,7 @@
 
 Input is the VPC owner map that ``ou_vpcs`` writes (~/.cache/aws-net-tools/vpc-owners.json).
 Each VPC owner account is read with the profile that maps to its account ID in ~/.aws/config
-(never one ending in -priv or -cpar), and every network interface in its VPCs is listed.
+(never one ending in -priv, -adm, -cpar or -ro), and every network interface in its VPCs is listed.
 Interfaces owned by other accounts (participants in a shared VPC) lead to those accounts
 being read too, limited to the shared VPCs. No role is assumed; nothing is changed.
 
@@ -21,6 +21,7 @@ import logging
 import os
 import random
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -32,12 +33,15 @@ import botocore.session
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import profile_guard  # noqa: E402
+
 log = logging.getLogger("proxy_inventory")
 
 BOTO_CONFIG = Config(retries={"max_attempts": 5, "mode": "adaptive"})
 DEFAULT_KEY_TAG = "AppCatID"
 MISSING = "(missing)"
-DEFAULT_EXCLUDE_SUFFIXES = ("-priv", "-cpar")
+EXCLUDE_SUFFIXES_ENV = "PROXY_INV_PROFILE_EXCLUDE_SUFFIXES"  # may only add to profile_guard.STRICT_EXCLUDE_SUFFIXES
 READ_ONLY_SUFFIXES = ("-ro", "-readonly", "-read-only")
 DEFAULT_PROFILE_PREFIX = "hcli-"
 CACHE_FILENAME = "vpc-owners.json"
@@ -162,13 +166,6 @@ def select_vpcs(vpcs: Iterable[Vpc], ous: list[str] | None = None, accounts: lis
 # --------------------------------------------------------------------------- profiles (as in ou_vpcs)
 
 
-def exclude_suffixes() -> tuple[str, ...]:
-    raw = os.getenv("PROXY_INV_PROFILE_EXCLUDE_SUFFIXES")
-    if raw is None:
-        return DEFAULT_EXCLUDE_SUFFIXES
-    return tuple(s.strip() for s in raw.split(",") if s.strip())
-
-
 def profile_account(cfg: dict[str, str]) -> str | None:
     for key in ("sso_account_id", "aws_account_id"):
         if cfg.get(key):
@@ -192,8 +189,8 @@ def resolve_profile(account: str, overrides: dict[str, str] | None = None, prefe
     """
     if overrides and account in overrides:
         return overrides[account]
-    excluded = exclude_suffixes()
-    cands = sorted(n for n, a in profile_accounts().items() if a == account and not n.endswith(excluded))
+    cands = sorted(n for n, a in profile_accounts().items()
+                   if a == account and not profile_guard.is_excluded(n, EXCLUDE_SUFFIXES_ENV))
     if not cands:
         raise LookupError("no profile in ~/.aws/config maps to it")
     if preferred in cands:

@@ -38,7 +38,7 @@ Accounts:
 - With them, each account is scanned through its local profile, found by
   account id the same way as
   [fmm_nacl_audit](fmm_nacl_audit.md#accounts-and-profiles). Profiles ending
-  in `-priv` / `-cpar` are never used.
+  in `-priv` / `-adm` / `-cpar` / `-ro` are never used.
 - Every profile is verified with `sts:GetCallerIdentity`. Accounts that can't
   be scanned are reported as `NO_PROFILE`, `PROFILE_ACCOUNT_MISMATCH` or
   `ACCOUNT_ERROR`.
@@ -73,7 +73,7 @@ Worked example (ingress):
 | `--account ID` | Account(s) to scan via their local profiles; repeatable / comma-separated |
 | `--all-accounts` | Every account that has a usable local profile |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never used (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never used, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--region REGION` | Region(s): repeatable and/or comma-separated (default `AWS_REGION` or `us-east-1`) |
 | `--all-regions` | Every enabled region |
 | `--vpc VPC_ID` | Only NACLs in these VPC(s) (repeatable) |

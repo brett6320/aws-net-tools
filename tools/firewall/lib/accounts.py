@@ -8,15 +8,17 @@ holds that logic once, so every tool selects and verifies accounts the same way.
 
 Profiles are read from the local AWS config (AWS_CONFIG_FILE is honoured). A
 profile's account is its sso_account_id, aws_account_id, or the account in
-its role_arn. Profiles ending in an excluded suffix (default -priv, -cpar) are
-never used.
+its role_arn. Profiles ending (any case) in -priv, -adm, -cpar or -ro are never used, whatever
+--exclude-profile-suffix says: that option only adds suffixes (see tools/common/profile_guard.py).
 """
 from __future__ import annotations
 
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import boto3
 import botocore.session
@@ -24,19 +26,26 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from lib.aws_common import get_client
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import profile_guard  # noqa: E402
+
 log = logging.getLogger("accounts")
 
-DEFAULT_EXCLUDE_SUFFIXES = "-priv,-cpar"
+DEFAULT_EXTRA_EXCLUDE_SUFFIXES = None   # --exclude-profile-suffix only adds to the shared strict list
+EXCLUDE_SUFFIX_HELP = ("Comma-separated profile name suffixes never used, in addition to "
+                       + ", ".join(profile_guard.STRICT_EXCLUDE_SUFFIXES) + " (always excluded; can't be removed)")
 _ACCOUNT_RE = re.compile(r"arn:aws[\w-]*:iam::(\d{12}):")
 
 
-def profile_account_map(exclude_suffixes: list[str]) -> dict[str, list[str]]:
-    """{account_id: [profile, ...]} from the local AWS config, skipping excluded suffixes.
-    Account id comes from sso_account_id, aws_account_id, or the role_arn's account."""
+def profile_account_map(extra_exclude_suffixes: str | list[str] | None = None) -> dict[str, list[str]]:
+    """{account_id: [profile, ...]} from the local AWS config, skipping the shared strict suffixes
+    and any ``extra_exclude_suffixes``. Account id comes from sso_account_id, aws_account_id, or the
+    role_arn's account."""
+    suffixes = profile_guard.excluded_suffixes(extra=extra_exclude_suffixes)
     profiles = botocore.session.Session().full_config.get("profiles", {})
     out: dict[str, list[str]] = {}
     for name, cfg in sorted(profiles.items()):
-        if any(name.lower().endswith(s.lower()) for s in exclude_suffixes if s):
+        if name.lower().endswith(suffixes):
             continue
         acct = cfg.get("sso_account_id") or cfg.get("aws_account_id")
         if not acct and cfg.get("role_arn"):
@@ -47,9 +56,14 @@ def profile_account_map(exclude_suffixes: list[str]) -> dict[str, list[str]]:
     return out
 
 
+def excluded_suffix_text(args) -> str:
+    """The suffixes in force for ``args`` (strict list plus --exclude-profile-suffix), for messages."""
+    return ", ".join(profile_guard.excluded_suffixes(extra=args.exclude_profile_suffix))
+
+
 def profile_lookup(args) -> tuple[dict[str, list[str]], dict[str, str]]:
     """(account -> profiles map, --account-profile overrides) from CLI args."""
-    pmap = profile_account_map([s.strip() for s in args.exclude_profile_suffix.split(",")])
+    pmap = profile_account_map(args.exclude_profile_suffix)
     return pmap, dict(x.split("=", 1) for x in args.account_profile or [])
 
 
@@ -99,8 +113,8 @@ def add_profile_args(p, admin: bool = False) -> None:
                             "(env FMM_ADMIN_ACCOUNT)")
     p.add_argument("--account-profile", action="append", metavar="ACCOUNT=PROFILE",
                    help="Force the local profile used for an account (repeatable)")
-    p.add_argument("--exclude-profile-suffix", default=DEFAULT_EXCLUDE_SUFFIXES,
-                   help=f"Comma-separated profile name suffixes never used (default {DEFAULT_EXCLUDE_SUFFIXES})")
+    p.add_argument("--exclude-profile-suffix", default=DEFAULT_EXTRA_EXCLUDE_SUFFIXES, metavar="LIST",
+                   help=EXCLUDE_SUFFIX_HELP)
 
 
 def check_profile_args(p, args) -> None:

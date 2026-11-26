@@ -7,7 +7,7 @@ contacted to test when a VPC changes (e.g. an egress proxy is introduced).
 The VPCs come from the local VPC owner map that ``ou_vpcs`` writes
 (~/.cache/aws-net-tools/vpc-owners.json), optionally narrowed by OU, account, Region or VPC.
 Each account is read with the profile that maps to its account ID in ~/.aws/config (never
-one ending in -priv or -cpar); see pi_core for the resource types and how shared VPCs work.
+one ending in -priv, -adm, -cpar or -ro); see pi_core for the resource types and how shared VPCs work.
 
 Writes an interactive HTML report: AppCatIDs per VPC, every resource with all its tags,
 the VPCs read, network interfaces no reported resource accounts for, and anything that

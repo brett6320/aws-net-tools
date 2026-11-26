@@ -38,7 +38,7 @@ result is what security groups allow, not whether a path exists), and the
 addresses behind a referenced group (a CIDR rule never covers a group reference).
 
 Accounts: a group ARN is read with the local profile for its account (profiles
-ending in -priv or -cpar are never used; --account-profile forces one). A bare
+ending in -priv, -adm, -cpar or -ro are never used; --account-profile forces one). A bare
 group ID is read with --profile, AWS_PROFILE or the default credentials.
 
 Configuration (.env, all optional; CLI flags override):

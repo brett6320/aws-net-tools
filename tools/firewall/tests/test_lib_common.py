@@ -167,27 +167,38 @@ def test_setup_logging():
 # accounts
 # --------------------------------------------------------------------------- #
 PROFILES = {
-    "a-ro": {"sso_account_id": "111111111111"},
+    "a-view": {"sso_account_id": "111111111111"},
     "a-admin": {"sso_account_id": "111111111111"},
     "a-priv": {"sso_account_id": "111111111111"},
+    "a-RO": {"sso_account_id": "111111111111"},
+    "b-adm": {"sso_account_id": "222222222222"},
     "b-CPAR": {"aws_account_id": "222222222222"},
-    "b-ro": {"aws_account_id": "222222222222"},
-    "c-role": {"role_arn": "arn:aws:iam::333333333333:role/ReadOnly", "source_profile": "a-ro"},
-    "gov-role": {"role_arn": "arn:aws-us-gov:iam::444444444444:role/ReadOnly", "source_profile": "a-ro"},
-    "bad-role": {"role_arn": "not-an-arn", "source_profile": "a-ro"},
+    "b-view": {"aws_account_id": "222222222222"},
+    "c-role": {"role_arn": "arn:aws:iam::333333333333:role/ReadOnly", "source_profile": "a-view"},
+    "gov-role": {"role_arn": "arn:aws-us-gov:iam::444444444444:role/ReadOnly", "source_profile": "a-view"},
+    "bad-role": {"role_arn": "not-an-arn", "source_profile": "a-view"},
     "no-account": {},
 }
 
 
 def test_profile_account_map_excludes_suffixes(aws_profiles):
     aws_profiles(PROFILES)
-    assert acc.profile_account_map(["-priv", "-cpar"]) == {
-        "111111111111": ["a-admin", "a-ro"],
-        "222222222222": ["b-ro"],
+    expected = {
+        "111111111111": ["a-admin", "a-view"],
+        "222222222222": ["b-view"],
         "333333333333": ["c-role"],
         "444444444444": ["gov-role"],
     }
-    assert "a-priv" in acc.profile_account_map([""])["111111111111"]   # blank suffixes exclude nothing
+    assert acc.profile_account_map() == expected                       # -priv, -adm, -cpar, -ro always excluded
+    assert acc.profile_account_map(["-priv", "-cpar"]) == expected     # naming a subset removes nothing
+    assert acc.profile_account_map([""]) == expected                   # blank suffixes never disable the guard
+    assert acc.profile_account_map("") == expected
+    assert "111111111111" not in acc.profile_account_map("-admin, -VIEW")  # extras add; case-insensitive
+
+
+def test_profile_account_map_extra_suffixes_only_add(aws_profiles):
+    aws_profiles(PROFILES)
+    assert acc.profile_account_map("-role").keys() == {"111111111111", "222222222222"}
 
 
 def test_pick_profile():
@@ -201,18 +212,18 @@ def test_pick_profile():
 
 def acct_args(**kw):
     return argparse.Namespace(**{"profile": None, "account": None, "all_accounts": False, "account_profile": None,
-                                 "exclude_profile_suffix": "-priv,-cpar", "admin_account": None, **kw})
+                                 "exclude_profile_suffix": None, "admin_account": None, **kw})
 
 
 def test_profile_lookup(aws_profiles):
-    aws_profiles({"a-ro": {"sso_account_id": "111111111111"}})
+    aws_profiles({"a-view": {"sso_account_id": "111111111111"}})
     pmap, overrides = acc.profile_lookup(acct_args(account_profile=["9=p=q"]))
-    assert pmap == {"111111111111": ["a-ro"]} and overrides == {"9": "p=q"}
+    assert pmap == {"111111111111": ["a-view"]} and overrides == {"9": "p=q"}
 
 
 @pytest.fixture
 def fake_caller(monkeypatch):
-    who = {None: "000000000000", "a-ro": "111111111111", "a-admin": "111111111111", "b-ro": "222222222222",
+    who = {None: "000000000000", "a-view": "111111111111", "a-admin": "111111111111", "b-view": "222222222222",
            "c-role": "999999999999", "gov-role": "444444444444"}
 
     def caller(profile):
@@ -239,7 +250,7 @@ def test_select_accounts_all_and_override(aws_profiles, fake_caller):
     got = {t.account: t for t in targets}
     assert set(got) == {"111111111111", "222222222222", "333333333333", "444444444444", "666666666666"}
     assert got["666666666666"].ok is False and "ExpiredToken" in got["666666666666"].note
-    assert got["222222222222"].ok and got["222222222222"].label == "b-ro"
+    assert got["222222222222"].ok and got["222222222222"].label == "b-view"
 
 
 def test_select_accounts_default(fake_caller):
@@ -253,7 +264,7 @@ def test_resolve_admin_profile(aws_profiles, fake_caller, monkeypatch):
     assert acc.resolve_admin_profile(acct_args()) is None
     monkeypatch.setenv("AWS_PROFILE", "env-prof")
     assert acc.resolve_admin_profile(acct_args()) == "env-prof"
-    assert acc.resolve_admin_profile(acct_args(admin_account="222222222222")) == "b-ro"
+    assert acc.resolve_admin_profile(acct_args(admin_account="222222222222")) == "b-view"
     with pytest.raises(ValueError, match="no local AWS profile"):
         acc.resolve_admin_profile(acct_args(admin_account="777777777777"))
     with pytest.raises(ValueError, match="resolves to 999999999999"):
@@ -270,7 +281,7 @@ def test_profile_arg_helpers():
     acc.add_account_args(p)
     a = p.parse_args(["--account", "1,2", "--account-profile", "1=x"])
     acc.check_profile_args(p, a)
-    assert a.exclude_profile_suffix == acc.DEFAULT_EXCLUDE_SUFFIXES
+    assert a.exclude_profile_suffix == acc.DEFAULT_EXTRA_EXCLUDE_SUFFIXES
     with pytest.raises(SystemExit):
         acc.check_profile_args(p, p.parse_args(["--account-profile", "no-equals"]))
     q = argparse.ArgumentParser()

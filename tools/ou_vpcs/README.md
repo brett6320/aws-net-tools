@@ -57,7 +57,7 @@ Only active accounts are listed; suspended and closed accounts are skipped.
 For each account, in order:
 
 1. `--account-profile ACCOUNT=PROFILE`, if given
-2. the profiles that map to the account, minus any ending in `-priv`, `-adm`, `-cpar` or `-ro`, ignoring case (override the suffixes with `OU_VPCS_PROFILE_EXCLUDE_SUFFIXES`):
+2. the profiles that map to the account, minus any ending in `-priv`, `-adm`, `-cpar` or `-ro`, ignoring case (`OU_VPCS_PROFILE_EXCLUDE_SUFFIXES` adds suffixes; it can't remove these, and an empty value is ignored):
    - `--profile`, if it maps to the account
    - otherwise the only one, or the single read-only one (`-ro`, `-readonly`, `-read-only`) when there are several
    - still several, or none: the account is skipped with a warning

@@ -11,7 +11,7 @@ Reviews every security group (SG) associated with an AWS Managed Prefix List (PL
 
 ## How it works
 
-1. Discovers local profiles matching the naming policy: start with `hcli-`, do not end with `-priv` or `-cpar`.
+1. Discovers local profiles matching the naming policy: start with `hcli-`, do not end with `-priv`, `-adm`, `-cpar` or `-ro`.
 2. Finds the profile whose account owns the PL (or uses `--profile`). Sessions are created just in time: one `DescribeManagedPrefixLists` call reveals `OwnerId`, then the owner's profile is looked up without touching the network.
 3. Pulls `get_managed_prefix_list_associations` from the owner account to list every associated SG and its owning account.
 4. Maps each owning account to a valid profile, resolved lazily and only for accounts that actually appear: memory → persisted cache → `~/.aws/config` (`sso_account_id`, or the account in `role_arn`) → `sts:GetCallerIdentity` as last resort. Profiles for accounts with no associated SGs are never opened.
@@ -22,7 +22,7 @@ Reviews every security group (SG) associated with an AWS Managed Prefix List (PL
 
 ```bash
 python tools/pl_review/pl_review.py --pl pl-0123456789abcdef0 --proposed-length 150
-python tools/pl_review/pl_review.py --pl pl-0123456789abcdef0 --profile hcli-network-ro --proposed-length 150 --limit 100
+python tools/pl_review/pl_review.py --pl pl-0123456789abcdef0 --profile hcli-network --proposed-length 150 --limit 100
 python tools/pl_review/pl_review.py --pl pl-0123456789abcdef0 --json --no-write
 ```
 
@@ -30,7 +30,7 @@ Python API (all kwargs):
 
 ```python
 from pl_review import review_prefix_list
-report = review_prefix_list(pl="pl-0123...", profile="hcli-network-ro", proposed_length=150, limit=100)
+report = review_prefix_list(pl="pl-0123...", profile="hcli-network", proposed_length=150, limit=100)
 print(report.at_risk_count)
 ```
 

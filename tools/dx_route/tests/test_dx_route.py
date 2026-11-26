@@ -620,18 +620,22 @@ def test_profile_account_map(tmp_path):
     cfg.write_text("""
 [default]
 region = us-east-1
-[profile net-ro]
+[profile net-view]
 sso_account_id = 111122223333
-[profile app-ro]
+[profile app-view]
 role_arn = arn:aws:iam::444455556666:role/ReadOnly
 [profile app-priv]
 sso_account_id = 444455556666
 [profile x-cpar]
 role_arn = arn:aws:iam::777788889999:role/Admin
+[profile app-ADM]
+sso_account_id = 444455556666
+[profile net-ro]
+sso_account_id = 111122223333
 [sso-session corp]
 sso_region = us-east-1
 """)
-    assert core.profile_account_map(str(cfg)) == {"111122223333": ["net-ro"], "444455556666": ["app-ro"]}
+    assert core.profile_account_map(str(cfg)) == {"111122223333": ["net-view"], "444455556666": ["app-view"]}
 
 
 def test_parse_account_profiles():
@@ -643,14 +647,14 @@ def test_parse_account_profiles():
 
 def test_sessions_resolve_profiles(tmp_path, monkeypatch):
     cfg = tmp_path / "config"
-    cfg.write_text("[profile app-ro]\nsso_account_id = 444455556666\n")
+    cfg.write_text("[profile app-view]\nsso_account_id = 444455556666\n")
     made = []
     monkeypatch.setattr(core, "get_session", lambda profile, region: made.append(profile) or ("s", profile))
     s = core.Sessions("me", "us-east-1", {"777788889999": "manual"}, config_file=str(cfg))
     s._caller = "111122223333"
     assert s.for_account("111122223333") == ("s", "me")
     assert s.for_account("777788889999") == ("s", "manual")
-    assert s.for_account("444455556666") == ("s", "app-ro")
+    assert s.for_account("444455556666") == ("s", "app-view")
     assert s.for_account("000000000000") is None
     assert s.for_account(None) == ("s", "me")
 

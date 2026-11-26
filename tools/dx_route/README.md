@@ -212,7 +212,7 @@ organization). The tool reads each one with a profile for its owner account:
 1. Your own profile, for VIFs in its account.
 2. `--account-profile ACCOUNT_ID=PROFILE` (repeatable).
 3. Otherwise, the first profile in your local AWS config whose `sso_account_id` or `role_arn` matches the
-   account. Profiles ending in `-priv` or `-cpar` are never picked.
+   account. Profiles ending in `-priv`, `-adm`, `-cpar` or `-ro` are never picked.
 
 A VIF with no profile is listed with the state `NoAccess` and a warning; its routes aren't shown.
 

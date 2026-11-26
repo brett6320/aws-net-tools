@@ -77,7 +77,14 @@ def report_paths(pl_review, scenario, tmp_path_factory):
 
 @pytest.mark.usefixtures("mocked_aws")
 def test_discover_profiles(pl_review):
-    assert pl_review.discover_profiles() == ["hcli-app-ro", "hcli-net-ro"], pl_review.discover_profiles()
+    assert pl_review.discover_profiles() == ["hcli-app", "hcli-net"], pl_review.discover_profiles()
+
+
+def test_profile_policy_uses_the_shared_guard(pl_review):
+    for ok in ("hcli-net", "hcli-app-readonly"):
+        assert pl_review.is_valid_profile(ok)
+    for bad in ("hcli-x-priv", "hcli-x-ADM", "hcli-x-cpar", "hcli-x-RO", "net", "hcli-net-ro"):
+        assert not pl_review.is_valid_profile(bad)
 
 
 def test_aws_managed_weight(pl_review):
@@ -91,17 +98,17 @@ def test_aws_managed_weight(pl_review):
 
 @pytest.mark.usefixtures("mocked_aws")
 def test_configured_account_id(pl_review):
-    assert pl_review.SessionCache.configured_account_id("hcli-net-ro") == "123456789012"  # via role_arn
+    assert pl_review.SessionCache.configured_account_id("hcli-net") == "123456789012"  # via role_arn
     assert pl_review.SessionCache.configured_account_id("zz-sso-test") == "999888777666"  # via sso_account_id
-    assert pl_review.SessionCache.configured_account_id("hcli-app-ro") is None
+    assert pl_review.SessionCache.configured_account_id("hcli-app") is None
 
 
 @pytest.mark.usefixtures("mocked_aws")
 def test_session_cache_account_id_offline(pl_review):
     sc = pl_review.SessionCache("us-east-1")
-    assert sc.account_id("hcli-app-ro", allow_network=False) is None  # no session/STS
+    assert sc.account_id("hcli-app", allow_network=False) is None  # no session/STS
     assert sc._sessions == {}
-    assert sc.account_id("hcli-net-ro", allow_network=False) == "123456789012"
+    assert sc.account_id("hcli-net", allow_network=False) == "123456789012"
     assert sc._sessions == {}, "config lookup must not create a boto3 session in cache"
 
 
@@ -115,7 +122,7 @@ def test_cache_file_and_reuse(pl_review, scenario):
     s = scenario
     ck = json.loads(s.cpath.read_text())
     print("CACHE KEYS:", sorted(ck))
-    assert "account:hcli-app-ro" in ck and f"pl:us-east-1:{s.other}" in ck and f"sg:us-east-1:{s.sg1}" in ck
+    assert "account:hcli-app" in ck and f"pl:us-east-1:{s.other}" in ck and f"sg:us-east-1:{s.sg1}" in ck
     r2 = pl_review.review_prefix_list(pl=s.pl, proposed_length=95, limit=100, cache_path=s.cpath)
     assert r2.at_risk_count == s.r.at_risk_count
 

@@ -49,7 +49,7 @@ For each selected account and region:
 
 Accounts are chosen as for the other multi-account tools:
 - **Which accounts:** `--profile` (or `AWS_PROFILE`) by default; `--account` or `--all-accounts` pick accounts from the local AWS config.
-- **Which profile:** the account's profile is found by account id. Profiles ending in `-priv` or `-cpar` are never used.
+- **Which profile:** the account's profile is found by account id. Profiles ending in `-priv`, `-adm`, `-cpar` or `-ro` are never used.
 - **Verification:** each profile is checked with `sts:GetCallerIdentity` before use.
 
 ## Options
@@ -60,7 +60,7 @@ Accounts are chosen as for the other multi-account tools:
 | `--account ID` | Account id(s) to scan via their local profiles; repeatable / comma-separated |
 | `--all-accounts` | Every account with a usable local profile |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never used (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never used, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--region REGION` | Region(s): repeatable and/or comma-separated (default `AWS_REGION` or `us-east-1`) |
 | `--all-regions` | Every enabled region |
 | `--name GLOB` | Only lists whose name matches (repeatable), e.g. `'corp-*'` |

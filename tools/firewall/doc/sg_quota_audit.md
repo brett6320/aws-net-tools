@@ -70,7 +70,7 @@ For each account (through its verified local profile, see
 | `--account ID` | Account(s) to scan through their local profiles; repeatable / comma-separated |
 | `--all-accounts` | Every account with a usable local profile |
 | `--account-profile ACCT=PROFILE` | Force the profile for an account (repeatable) |
-| `--exclude-profile-suffix LIST` | Profile suffixes never used (default `-priv,-cpar`) |
+| `--exclude-profile-suffix LIST` | Extra profile suffixes never used, added to the always-excluded `-priv,-adm,-cpar,-ro` |
 | `--region REGION` / `--all-regions` | Region(s) to scan (default `AWS_REGION` or `us-east-1`) |
 | `--vpc VPC_ID` | Only these VPC(s); repeatable |
 | `--rule-limit N` | Rules-per-group quota to use instead of looking it up (env `SG_RULE_LIMIT`) |

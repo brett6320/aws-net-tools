@@ -96,8 +96,14 @@ def test_profile_by_account_never_excluded(aws_config, monkeypatch):
         core.resolve_profile(C)
     assert core.resolve_profile(C, preferred="c2") == "c2"
     assert core.resolve_profile(C, overrides={C: "c1"}) == "c1"
+    # the override can't re-enable -ro / -adm: it only adds suffixes
     monkeypatch.setenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES", "-priv,-cpar")
-    assert core.resolve_profile(A) == "a-ro"  # single read-only one wins over a-adm / a-admin
+    assert core.resolve_profile(A) == "a-admin"
+    for blank in ("", " , "):  # and a blank one never switches the guard off
+        monkeypatch.setenv("OU_VPCS_PROFILE_EXCLUDE_SUFFIXES", blank)
+        assert core.resolve_profile(A) == "a-admin"
+        with pytest.raises(LookupError, match="no profile"):
+            core.resolve_profile(B)
 
 
 def test_excluded_suffixes_ignore_case(aws_config, monkeypatch):
