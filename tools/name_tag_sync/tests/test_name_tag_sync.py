@@ -28,6 +28,7 @@ class World:
         self.tags = {}  # (account, id) -> Name (missing key = no tag)
         self.writes = []  # (account, kwargs) of every create_tags call, DryRun included
         self.deny = set()  # ids whose create_tags is UnauthorizedOperation
+        self.dry_run_error = set()  # ids whose DryRun create_tags fails with some other error
         self.before_write = None  # hook(world) run by describe calls made during recheck
 
     def add(self, rid, kind, vpc, owner, seen_by, names, cidr="10.0.0.0/16"):
@@ -86,6 +87,8 @@ class Ec2:
         self.w.writes.append((self.account, {"Resources": Resources, "Tags": Tags, "DryRun": DryRun}))
         if Resources[0] in self.w.deny:
             raise client_error("UnauthorizedOperation")
+        if DryRun and Resources[0] in self.w.dry_run_error:
+            raise client_error("InternalError")
         if DryRun:
             raise client_error("DryRunOperation")
         for t in Tags:
@@ -545,7 +548,8 @@ def test_machine_output_has_no_styling(world, capsys):
 @pytest.mark.parametrize("text, emoji", [
     ("tagged", "✅"), ("allowed", "✅"), ("denied: UnauthorizedOperation", "⛔"), ("not asked (denied)", "⛔"),
     ("error: x", "❌"), ("stopped: owner mismatch", "❌"), ("interrupted (check its Name tag)", "⚡"),
-    ("skipped: x", "🔶"), ("declined", "➖"), ("not asked (quit)", "➖")])
+    ("skipped: x", "🔶"), ("declined", "➖"), ("not asked (quit)", "➖"),
+    ("not asked (permission error: x)", "⛔")])
 def test_outcome_style(text, emoji):
     assert nts.outcome_style(text)[0] == emoji
 
@@ -555,3 +559,101 @@ def test_prompt_styled(world):
     text = nts.prompt_text(items["subnet-0001"], p, nts.Style(color=True, emoji=True))
     assert "❌" in text and nts.GREEN + nts.BOLD + "prod-a" + nts.RESET in text
     assert "\033[" not in nts.prompt_text(items["subnet-0001"], p)
+
+
+# --------------------------------------------------------------------------- --force
+
+
+def test_force_requires_apply(world):
+    assert run(world, "--force") == nts.USAGE_EXIT
+    assert world.writes == []
+
+
+def test_force_writes_without_asking_or_terminal(world, capsys):
+    def ask(q):
+        raise AssertionError("--force must not prompt")
+
+    code = nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--force"],
+                    session_for=sessions(world), ask=ask, interactive=lambda: False)
+    assert code == 0
+    assert sorted(w[1]["Resources"][0] for w in real_writes(world)) == ["subnet-0001", "subnet-0002", "vpc-00000001"]
+    assert all(acct == PART for acct, _ in world.writes)
+    # Populated, whitespace, matching and no-owner-name resources are untouched; owner tags unchanged.
+    assert world.tags[(PART, "subnet-0004")] == "mine"
+    assert world.tags[(PART, "subnet-0006")] == " "
+    assert world.tags[(PART, "subnet-0005")] == ""
+    assert world.tags[(OWNER, "subnet-0001")] == "prod-a"
+    assert "tagged" in capsys.readouterr().out
+
+
+def test_force_still_stops_on_owner_mismatch(world):
+    world.add("subnet-0008", "subnet", "vpc-00000001", PART, [OWNER, PART], {})
+    assert run(world, "--apply", "--force", interactive=False) == nts.MISMATCH_EXIT
+    assert world.writes == []
+
+
+def test_force_still_rechecks(world, capsys):
+    def set_meanwhile(w):
+        w.tags[(PART, "subnet-0001")] = "set meanwhile"
+
+    world.before_write = set_meanwhile
+    assert run(world, "--apply", "--force", interactive=False) == nts.ERROR_EXIT
+    assert world.tags[(PART, "subnet-0001")] == "set meanwhile"
+    assert "skipped" in capsys.readouterr().out
+
+
+def test_force_skips_denied(world):
+    world.deny.add("subnet-0002")
+    assert run(world, "--apply", "--force", "--check-permissions", interactive=False) == nts.ERROR_EXIT
+    assert sorted(w[1]["Resources"][0] for w in real_writes(world)) == ["subnet-0001", "vpc-00000001"]
+
+
+def test_force_skips_permission_errors(world, capsys):
+    world.dry_run_error.add("subnet-0001")
+    assert run(world, "--apply", "--force", "--check-permissions", "-o", "json", interactive=False) == nts.ERROR_EXIT
+    rows = {r["resource_id"]: r for r in json.loads(capsys.readouterr().out)}
+    assert rows["subnet-0001"]["result"] == "not asked (permission error: InternalError: InternalError)"
+    assert sorted(w[1]["Resources"][0] for w in real_writes(world)) == ["subnet-0002", "vpc-00000001"]
+
+
+def test_interactive_still_asks_on_permission_error(world):
+    world.dry_run_error.add("subnet-0001")
+    asked = []
+    nts.main(["--owner-profile", "own", "--participant-profile", "part", "--apply", "--check-permissions"],
+             session_for=sessions(world), ask=lambda q: asked.append(q) or "n", interactive=lambda: True)
+    assert any("subnet-0001" in q for q in asked)
+
+
+def test_force_warning_count_excludes_denied(world, caplog):
+    world.deny.add("subnet-0002")
+    run(world, "--apply", "--force", "--check-permissions", interactive=False)
+    assert "tagging 2 resource(s)" in caplog.text
+    assert "--force: us-east-1 subnet subnet-0001" in caplog.text
+
+
+def test_force_owner_change_mid_run_stops(world):
+    def flip(w):
+        if any(r[1]["Resources"] == ["vpc-00000001"] for r in w.writes):
+            w.res["subnet-0001"]["owner"] = PART
+
+    world.before_write = flip
+    assert run(world, "--apply", "--force", interactive=False) == nts.MISMATCH_EXIT
+    assert [w[1]["Resources"] for w in real_writes(world)] == [["vpc-00000001"]]
+
+
+def test_force_interrupt_after_write_is_recorded(world, capsys, monkeypatch):
+    real = core.apply_item
+    calls = []
+
+    def apply_then_interrupt(item, owner, participant):
+        real(item, owner, participant)
+        calls.append(item.resource_id)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(core, "apply_item", apply_then_interrupt)
+    assert run(world, "--apply", "--force", "-o", "json", interactive=False) == nts.ERROR_EXIT
+    rows = {r["resource_id"]: r for r in json.loads(capsys.readouterr().out)}
+    assert rows["vpc-00000001"]["result"] == "tagged"
+    assert rows["subnet-0001"]["result"].startswith("interrupted")
+    assert rows["subnet-0002"]["result"] == "not asked (quit)"
