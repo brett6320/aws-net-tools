@@ -342,7 +342,7 @@ def test_main_error_exit(monkeypatch, clean_env):
     orig = REAL_COLLECT
     monkeypatch.setattr(cwah, "collect_alarm_history",
                         lambda **kw: orig(**{**kw, "cw": FakeCloudWatch(deny={"net-quiet"}),
-                                             "account": ACCOUNT, "now": NOW}))
+                                             "account": ACCOUNT, "now": NOW, "start": T0, "end": NOW}))
     assert cwah.main(["--alarm", "net-quiet", "--no-write", "-q"]) == 1
 
 
